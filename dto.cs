@@ -614,6 +614,15 @@ namespace fyserver
             Tag = Random.Shared.Next(1000, 9999);
             Banned = false;
         }
+        public User(int Id ,string userName) : this()
+        {
+            UserName = userName;
+            // 默认值
+            Name = userName;
+            Locale = "zh-Hans";
+            Tag = Random.Shared.Next(1000, 9999);
+            Banned = false;
+        }
 
         public int Id { get; set; }
         public string UserName { get; set; } = "";

@@ -765,6 +765,150 @@ namespace fyserver
                 }
                 return Results.Text("OK");
             });
+            app.MapPost("/singleplayerlobby", async (LobbyPlayer lobbyPlayer, HttpContext context) =>
+            {
+                var user = await GlobalState.users.GetByIdAsync(lobbyPlayer.PlayerId);
+                if (user == null)// || user.Name == "XDLG")
+                {
+                    // TODO: WebSocket断开连接消息
+                    //context.Connection.Close();
+                    context.Connection.RequestClose();
+                    return Results.BadRequest("问号问号问号");
+                }
+                // 检查卡组有效性（简化）
+                if (!user.Decks.TryGetValue(lobbyPlayer.DeckId, out var deck))
+                {
+                    // context.Connection.Close();
+                    context.Connection.RequestClose();
+                    return Results.BadRequest("无效卡组");
+                }
+
+                // 重新进入匹配前，先清掉该玩家在队列和旧对局中的残留状态
+                RemovePlayerFromAllQueues(lobbyPlayer.PlayerId);
+                RemovePlayerActiveMatches(lobbyPlayer.PlayerId, "requeue");
+
+                string exData = "training";
+                try
+                {
+                    exData = lobbyPlayer.ExtraData.GetString();
+                }
+                catch
+                {
+                    exData = "training";
+                }
+
+                Console.WriteLine(exData);
+
+                // 对战码匹配
+                if (exData.StartsWith("battle_code:"))
+                {
+                    var code = exData["battle_code:".Length..];
+                    if (!config.appconfig.BattleCodePlayers.ContainsKey(code))
+                        config.appconfig.BattleCodePlayers[code] = new List<LobbyPlayer>();
+
+                    var players = config.appconfig.BattleCodePlayers[code];
+                    players.Add(lobbyPlayer);
+
+                    if (players.Count >= 2)
+                    {
+                        var matchId = GenerateMatchId();
+                        var matchInfo = new MatchInfo(matchId, players[0], players[1], "battle_code:" + code);
+                        players.RemoveAt(0);
+                        players.RemoveAt(0);
+
+                        config.appconfig.MatchedPairs[matchId] = matchInfo;
+                    }
+                }
+                // 普通匹配
+                else if (exData == "training")
+                {
+                    //Console.WriteLine("检测到匹配：" + lobbyPlayer.ToString());
+                    config.appconfig.WaitingPlayers1.Add(lobbyPlayer);
+                    //Console.WriteLine($"当前有{config.appconfig.WaitingPlayers1.Count}");
+                    //单人对战
+                    if (config.appconfig.WaitingPlayers1.Count >= 1)
+                    {
+                        var matchId = GenerateMatchId();
+                        //var matchInfo = new MatchInfo(matchId, config.appconfig.WaitingPlayers1[0], config.appconfig.WaitingPlayers1[1]);
+                        //config.appconfig.MatchedPairs[matchId] = matchInfo;
+                        //config.appconfig.WaitingPlayers1.RemoveAt(0);
+                        //config.appconfig.WaitingPlayers1.RemoveAt(0);
+
+                        //上面的是双人，下面的是单人
+                        var matchInfo = new MatchInfo(matchId, config.appconfig.WaitingPlayers1[0], new LobbyPlayer(-9178, -1, new JsonElement()), "pw");
+                        config.appconfig.MatchedPairs[matchId] = matchInfo;
+                        config.appconfig.WaitingPlayers1.RemoveAt(0);
+                        //config.appconfig.WaitingPlayers1.RemoveAt(0);
+                        Console.WriteLine("匹配成功，信息为" + matchInfo.ToString());
+                    }
+                }
+                else if (exData == "")
+                {
+                    config.appconfig.WaitingPlayers2.Add(lobbyPlayer);
+                    if (config.appconfig.WaitingPlayers2.Count >= 2)
+                    {
+                        var matchId = GenerateMatchId();
+                        var matchInfo = new MatchInfo(matchId, config.appconfig.WaitingPlayers2[0], config.appconfig.WaitingPlayers2[1], "");
+                        config.appconfig.WaitingPlayers2.RemoveAt(0);
+                        config.appconfig.WaitingPlayers2.RemoveAt(0);
+                        config.appconfig.MatchedPairs[matchId] = matchInfo;
+                        Console.WriteLine("匹配成功，信息为" + matchInfo.ToString());
+                    }
+                }
+                else if (exData == "classic")
+                {
+                    config.appconfig.WaitingPlayersClassic.Add(lobbyPlayer);
+                    if (config.appconfig.WaitingPlayersClassic.Count >= 2)
+                    {
+                        var matchId = GenerateMatchId();
+                        var matchInfo = new MatchInfo(matchId, config.appconfig.WaitingPlayersClassic[0], config.appconfig.WaitingPlayersClassic[1], "classic");
+                        config.appconfig.WaitingPlayersClassic.RemoveAt(0);
+                        config.appconfig.WaitingPlayersClassic.RemoveAt(0);
+                        config.appconfig.MatchedPairs[matchId] = matchInfo;
+                        Console.WriteLine("匹配成功，信息为" + matchInfo.ToString());
+                    }
+                }
+                else if (exData == "unranked")
+                {
+                    config.appconfig.WaitingPlayersUnranked.Add(lobbyPlayer);
+                    if (config.appconfig.WaitingPlayersUnranked.Count >= 2)
+                    {
+                        var matchId = GenerateMatchId();
+                        var matchInfo = new MatchInfo(matchId, config.appconfig.WaitingPlayersUnranked[0], config.appconfig.WaitingPlayersUnranked[1], "unranked");
+                        config.appconfig.WaitingPlayersUnranked.RemoveAt(0);
+                        config.appconfig.WaitingPlayersUnranked.RemoveAt(0);
+                        config.appconfig.MatchedPairs[matchId] = matchInfo;
+                        Console.WriteLine("匹配成功，信息为" + matchInfo.ToString());
+                    }
+                }
+                else if (exData == "draft")
+                {
+                    config.appconfig.WaitingPlayersDraft.Add(lobbyPlayer);
+                    if (config.appconfig.WaitingPlayersDraft.Count >= 2)
+                    {
+                        var matchId = GenerateMatchId();
+                        var matchInfo = new MatchInfo(matchId, config.appconfig.WaitingPlayersDraft[0], config.appconfig.WaitingPlayersDraft[1], "draft");
+                        config.appconfig.WaitingPlayersDraft.RemoveAt(0);
+                        config.appconfig.WaitingPlayersDraft.RemoveAt(0);
+                        config.appconfig.MatchedPairs[matchId] = matchInfo;
+                        Console.WriteLine("匹配成功，信息为" + matchInfo.ToString());
+                    }
+                }
+                else if (exData == "brawl")
+                {
+                    config.appconfig.WaitingPlayersBrawl.Add(lobbyPlayer);
+                    if (config.appconfig.WaitingPlayersBrawl.Count >= 2)
+                    {
+                        var matchId = GenerateMatchId();
+                        var matchInfo = new MatchInfo(matchId, config.appconfig.WaitingPlayersBrawl[0], config.appconfig.WaitingPlayersBrawl[1], "brawl");
+                        config.appconfig.WaitingPlayersBrawl.RemoveAt(0);
+                        config.appconfig.WaitingPlayersBrawl.RemoveAt(0);
+                        config.appconfig.MatchedPairs[matchId] = matchInfo;
+                        Console.WriteLine("匹配成功，信息为" + matchInfo.ToString());
+                    }
+                }
+                return Results.Text("OK");
+            });
             app.MapDelete("/lobbyplayers", ([FromBody] LobbyPlayer lobbyPlayer) =>
             {
                 RemovePlayerFromAllQueues(lobbyPlayer.PlayerId);
@@ -995,11 +1139,14 @@ namespace fyserver
                     }
                     Console.WriteLine("MatchStartingInfo不存在，正在生成...");
                     var leftUser = await GlobalState.users.GetByIdAsync(match.Left.PlayerId);
-                    var rightUser = await GlobalState.users.GetByIdAsync(match.Right.PlayerId);
+                    User? rightUser = await GlobalState.users.GetByIdAsync(match.Right.PlayerId);
+                    if (match.Right.PlayerId == -9178) rightUser = new(-9178, "彗星服人机");
                     Console.WriteLine("双方为" + leftUser.Id + "," + rightUser.Id);
                     // 获取卡组信息
                     var leftDeck = leftUser.Decks[match.Left.DeckId];
-                    var rightDeck = rightUser.Decks[match.Right.DeckId];
+                    Deck rightDeck;
+                    if (match.Right.DeckId == -1) rightDeck = new(new CreateDeck("FK","Germany","Finland", "%%21|4v32323232sTgv0z0C0C0C0CoBoBoBoB0Y0Y101010hShShShS1902020202030303ououpRpRpRsU;;;~;;;|0N1b"), -9178);
+                    else rightDeck = rightUser.Decks[match.Right.DeckId];
 
                     //leftDeck.DeckCode = "%%45|8NbG8b848b8b8b848d8Nj384848d8N8NiQiQggggggohohohoh7W7W7W7WftftftftrgrgrgrgnZnZ;;;~;;;|8v1i";
                     //rightDeck.DeckCode = "%%21|4v32323232sTgv0z0C0C0C0CoBoBoBoB0Y0Y101010hShShShS1902020202030303ououpRpRpRsU;;;~;;;|0N1b";
@@ -1053,7 +1200,7 @@ namespace fyserver
                                 PlayerIdLeft: leftUser.Id,
                                 PlayerIdRight: rightUser.Id,
                                 PlayerStatusLeft: "not_done",
-                                PlayerStatusRight: "not_done",
+                                PlayerStatusRight: (matchType == "training") ? GameConstants.MulliganDone : "not_done",
                                 //单人对战特供
                                 //RightIsOnline:1,
                                 RightIsOnline: 1,
@@ -1330,7 +1477,7 @@ namespace fyserver
                     if (!string.IsNullOrEmpty(matchAction.ActionType) || !string.IsNullOrEmpty(matchAction.Action))
                     {
                         if (matchAction.sub_actions != null) matchAction = matchAction with { ActionId = match.currentActionId, turn_number = match.Turns };
-                        else matchAction = matchAction with { ActionId = match.currentActionId, turn_number = match.Turns, sub_actions = new object[] { } };
+                        else matchAction = matchAction with { ActionId = match.currentActionId, turn_number = match.Turns, sub_actions = [] };
                         match.MatchActions.Add(matchAction);
                         match.currentActionId++;
                         /*
@@ -1369,6 +1516,23 @@ namespace fyserver
                             match.RightActions.Add(a);
                         }
                         */
+                    }
+                    if (matchAction.ActionType.Equals("XActionEndOfTurn") && match.Ex.Equals("pw"))
+                    {
+                        Console.WriteLine("OK有个入开始了回合");
+                        match.Turns += 1;
+                        match.MatchActions.Add(new(match.currentActionId, "XActionStartOfTurn", -9178, new()
+                        {
+                            { "side","right" },
+                            { "75","20" },
+                        }, [], match.Turns, SendActionId: matchAction.SendActionId));
+                        match.currentActionId++;
+                        match.MatchActions.Add(new(match.currentActionId, "XActionEndOfTurn", -9178, new()
+                        {
+                            { "side","right" },
+                            { "75","20" },
+                        }, [], match.Turns, SendActionId: matchAction.SendActionId));
+                        match.currentActionId++;
                     }
                     return Results.Text("OK");
                 });

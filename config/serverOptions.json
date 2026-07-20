@@ -1,0 +1,22 @@
+{
+  "nui_mobile": 1,
+  "scalability_override": {
+    "Android_Low": { "console_commands": [ "r.Screenpercentage 100" ] },
+    "Android_Mid": { "console_commands": [ "r.Screenpercentage 100" ] },
+    "Android_High": { "console_commands": [ "r.Screenpercentage 100" ] }
+  },
+  "appscale_desktop_default": 1.0,
+  "appscale_desktop_max": 1.4,
+  "appscale_mobile_default": 1.4,
+  "appscale_mobile_max": 1.4,
+  "appscale_mobile_min": 1.0,
+  "appscale_tablet_min": 1.0,
+  "battle_wait_time": 60,
+  "finland": 0,
+  "achievements": 0,
+  "avatars": 0,
+  "broken_deck_check": 0,
+  "key_encryption": 0,
+  "websocketurl": "{WsAddress}","homefront_date":"2025.11.27-09.00.00",
+"oceania_storm_date":"2026.06.11-08.00.00",
+                "anzac":       1}

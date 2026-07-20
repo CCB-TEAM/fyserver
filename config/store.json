@@ -1,0 +1,174 @@
+{
+  "currency": "USD",
+  "alwaysFeatured": {
+    "group": 1,
+    "groupId": -1,
+    "startDate": "2018-01-01T00:00:00Z",
+    "endDate": "2099-01-01T00:00:00Z",
+    "offers": [
+      {
+        "offerId": 6809547,
+        "offerName": "offer_30_officer_packs_-_homefront",
+        "title": "黄游大合集",
+        "description": "<greeen>每个卡包内含</>：\n• 7 张国土阵线套装卡牌\n• 至少 2 张限定或更高稀有度卡牌\n• 至少 1 张特殊或精英卡牌\n• 有几率掉落万能牌和闪卡",
+        "diamonds": 1200,
+        "items": [
+          {
+            "data": {
+              "itemType": "pack",
+              "cardCount": 7,
+              "cardSet": "Homefront",
+              "guaranteedGoldCards": 0
+            },
+            "qty": 30
+          }
+        ],
+        "limit": 100,
+        "priority": 7,
+        "mainImage": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/offer_30_officer_packs___homefront/homefront_officer30.jpg",
+        "thumbnail": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/offer_30_officer_packs___homefront/homefront_officer30.jpg"
+      },
+      {
+        "offerId": 6777130,
+        "offerName": "offer_30_core_officer_packs_backup_offer",
+        "title": "30个军官卡包 - 核心套装",
+        "description": "每个卡包内含：\n•7张核心卡牌\n•至少2张限定或更高等级的卡牌\n•至少1张特殊或精英卡牌\n•可能掉落万能牌和闪卡",
+        "diamonds": 1200,
+        "items": [
+          {
+            "data": {
+              "itemType": "pack",
+              "cardCount": 7,
+              "cardSet": "Core",
+              "guaranteedGoldCards": 0
+            },
+            "qty": 30
+          }
+        ],
+        "limit": 0,
+        "priority": 7,
+        "mainImage": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/offer_30_core_officer_packs_backup_offer/30_corepacks-officer_shop.jpg",
+        "thumbnail": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/offer_30_core_officer_packs_backup_offer/30_corepacks-officer_shop.jpg"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "groupId": 27,
+      "group": 5,
+      "startDate": "2023-04-19T00:00:00Z",
+      "endDate": "2099-01-01T00:00:00Z",
+      "offers": [
+        {
+          "offerId": 16566,
+          "offerName": "diamonds_s",
+          "title": "48钻石",
+          "description": "钻石可以用于在商店中购买卡包、捆绑包特惠和装备。",
+          "real": 4.99,
+          "items": [
+            {
+              "data": {
+                "itemType": "diamonds"
+              },
+              "qty": 48
+            }
+          ],
+          "bonusItems": [
+            {
+              "data": {
+                "itemType": "diamonds"
+              },
+              "qty": 10
+            }
+          ],
+          "mainImage": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/diamonds_s/diamond_bundle1_parcel_productimage02.jpg",
+          "thumbnail": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/diamonds_s/diamond_bundle1_parcel_thumb02.jpg"
+        },
+        {
+          "offerId": 16928,
+          "offerName": "diamonds_m",
+          "title": "100钻石",
+          "description": "一盒钻石内含100颗钻石。钻石可以用于在商店中购买卡包、捆绑包特惠和装备。",
+          "real": 9.99,
+          "items": [
+            {
+              "data": {
+                "itemType": "diamonds"
+              },
+              "qty": 100
+            }
+          ],
+          "bonusItems": [
+            {
+              "data": {
+                "itemType": "diamonds"
+              },
+              "qty": 30
+            }
+          ],
+          "mainImage": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/diamonds_m/diamond_bundle2_matchbox_productimage02.jpg",
+          "thumbnail": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/diamonds_m/diamond_bundle2_matchbox_thumb02.jpg"
+        }
+      ]
+    },
+    {
+      "groupId": 73,
+      "group": 4,
+      "startDate": "2023-05-06T00:00:00Z",
+      "endDate": "2099-01-01T00:00:00Z",
+      "offers": [
+        {
+          "offerId": 16569,
+          "offerName": "offer_1_core_pack",
+          "title": "1个卡包 - 核心套装",
+          "description": "每个卡包内含：\n• 5 张核心卡牌\n• 至少 1 张限定或更高稀有度卡牌",
+          "diamonds": 14,
+          "gold": 100,
+          "items": [
+            {
+              "data": {
+                "itemType": "pack",
+                "cardCount": 5,
+                "cardSet": "Core",
+                "guaranteedGoldCards": 0
+              },
+              "qty": 1
+            }
+          ],
+          "slotType": "most_popular",
+          "mainImage": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/offer_1_core_pack/core_packs_1_lowres2.jpg",
+          "thumbnail": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/offer_1_core_pack/core_packs_officer_20_lowres2.jpg"
+        }
+      ]
+    },
+    {
+      "groupId": 2811,
+      "group": 4,
+      "startDate": "2025-11-27T09:00:00Z",
+      "endDate": "2099-01-01T00:00:00Z",
+      "offers": [
+        {
+          "offerId": 6809527,
+          "offerName": "packs_1_pack_-_homefront",
+          "title": "1 个卡包 - 国土阵线",
+          "description": "每个卡包内含：\n• 5 张国土阵线套装卡牌\n• 至少 1 张限定或更高稀有度卡牌",
+          "diamonds": 14,
+          "gold": 100,
+          "items": [
+            {
+              "data": {
+                "itemType": "pack",
+                "cardCount": 5,
+                "cardSet": "Homefront",
+                "guaranteedGoldCards": 0
+              },
+              "qty": 1
+            }
+          ],
+          "mainImage": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/packs_1_pack___homefront/homefront_1_zoomout.jpg",
+          "thumbnail": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/offer/packs_1_pack___homefront/homefront_officer20cropped_frontpage.jpg"
+        }
+      ]
+    }
+  ]
+}

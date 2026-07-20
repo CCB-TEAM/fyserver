@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleMatch", "..\SimpleMatch\SimpleMatch.csproj", "{65EE8AEC-3EB5-AEF5-BE4F-8E7D03E72441}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fyserver", "fyserver.csproj", "{9732BAED-EFB0-0480-EE0F-01C6270B57AA}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{65EE8AEC-3EB5-AEF5-BE4F-8E7D03E72441}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{65EE8AEC-3EB5-AEF5-BE4F-8E7D03E72441}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{65EE8AEC-3EB5-AEF5-BE4F-8E7D03E72441}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{65EE8AEC-3EB5-AEF5-BE4F-8E7D03E72441}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9732BAED-EFB0-0480-EE0F-01C6270B57AA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9732BAED-EFB0-0480-EE0F-01C6270B57AA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9732BAED-EFB0-0480-EE0F-01C6270B57AA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9732BAED-EFB0-0480-EE0F-01C6270B57AA}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

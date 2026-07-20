@@ -1,0 +1,237 @@
+{
+  "changed": true,
+  "elements": [
+    {
+      "content": {
+        "banner_text": {
+          "font_size": 56,
+          "text": ""
+        },
+        "heading": {
+          "font_size": 80,
+          "text": "打开"
+        },
+        "icon": {
+          "icon_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/box-3/box_packs_icon.png"
+        },
+        "image_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/box-3/box_packs_edge.jpg",
+        "link": "kards:openpacks",
+        "priority": 1,
+        "slot": 2,
+        "sub_heading": {
+          "font_size": 80,
+          "text": "卡包"
+        },
+        "type": 1
+      },
+      "elementId": 27,
+      "endDate": "9999-12-31T23:59:00Z",
+      "isPublished": true,
+      "isTargeted": false,
+      "startDate": "0001-01-01T00:00:00Z"
+    },
+    {
+      "content": {
+        "banner_text": {
+          "font_size": 56,
+          "text": ""
+        },
+        "heading": {
+          "font_size": 64,
+          "text": "周中特惠"
+        },
+        "icon": {
+          "icon_url": ""
+        },
+        "image_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/KARDS-Specials-Carousel-Midweek_June_Week2_2025_FINAL.png",
+        "link": "kards:shop:category:featured",
+        "priority": 2,
+        "sub_heading": {
+          "font_size": 40,
+          "text": "现已上架商店！"
+        },
+        "type": 0
+      },
+      "elementId": 223,
+      "endDate": "2026-02-05T10:59:00Z",
+      "isPublished": true,
+      "isTargeted": false,
+      "startDate": "2026-02-03T11:01:00Z"
+    },
+    {
+      "content": {
+        "banner_text": {
+          "font_size": 56,
+          "text": ""
+        },
+        "heading": {
+          "font_size": 56,
+          "text": "斯大林格勒战役 "
+        },
+        "icon": {
+          "icon_url": ""
+        },
+        "image_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/main-banner-2/BattleOfStalingrad2025_Carousel_2.png",
+        "link": "kards:shop:category:featured",
+        "priority": 1,
+        "sub_heading": {
+          "font_size": 56,
+          "text": "查看商店优惠！"
+        },
+        "type": 0
+      },
+      "elementId": 183,
+      "endDate": "2026-02-05T10:59:00Z",
+      "isPublished": true,
+      "isTargeted": false,
+      "startDate": "2026-02-02T11:01:00Z"
+    },
+    {
+      "content": {
+        "banner_text": {
+          "font_size": 56,
+          "text": ""
+        },
+        "heading": {
+          "font_size": 64,
+          "text": "战斗通行证 - 2月"
+        },
+        "icon": {
+          "icon_url": ""
+        },
+        "image_url": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/frontpage/January2026/ch_2026battlepass27_carousel.png",
+        "link": "kards:shop:open:6794771",
+        "priority": 1,
+        "sub_heading": {
+          "font_size": 40,
+          "text": "收益高达 600%！现已上架商店。"
+        },
+        "type": 0
+      },
+      "elementId": 366,
+      "endDate": "2026-02-15T10:59:00Z",
+      "isPublished": true,
+      "isTargeted": false,
+      "startDate": "2026-02-01T00:01:00Z"
+    },
+    {
+      "content": {
+        "ad_context": 2,
+        "ad_frequency": 8,
+        "ad_limit": 4,
+        "banner_text": {
+          "font_size": 56,
+          "text": ""
+        },
+        "heading": {
+          "font_size": 64,
+          "text": "战斗通行证 - 2月"
+        },
+        "icon": {
+          "icon_url": ""
+        },
+        "image_url": "https://d3t4xohaeg8xj9.cloudfront.net/kards/store/frontpage/January2026/ch_2026battlepass27_popup.jpg",
+        "link": "kards:shop:open:6794771",
+        "priority": 1,
+        "sub_heading": {
+          "font_size": 40,
+          "text": "现已上架商店！"
+        },
+        "type": 2
+      },
+      "elementId": 369,
+      "endDate": "2026-02-07T10:59:00Z",
+      "isPublished": true,
+      "isTargeted": false,
+      "startDate": "2026-02-01T00:01:00Z"
+    },
+    {
+      "content": {
+        "banner_text": {
+          "font_size": 56,
+          "text": ""
+        },
+        "heading": {
+          "font_size": 80,
+          "text": "竞技场"
+        },
+        "icon": {
+          "icon_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/box-2/box_draft_icon.png"
+        },
+        "image_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/box-2/box_draft_edge_unclesam.jpg",
+        "link": "kards:draft",
+        "priority": 3,
+        "slot": 1,
+        "sub_heading": {
+          "font_size": 80
+        },
+        "type": 1
+      },
+      "elementId": 31,
+      "endDate": "2026-12-31T10:59:00Z",
+      "isPublished": true,
+      "isTargeted": false,
+      "startDate": "2024-06-24T08:00:00Z"
+    },
+    {
+      "content": {
+        "banner_text": {
+          "font_size": 56,
+          "text": ""
+        },
+        "heading": {
+          "font_size": 56,
+          "text": "Bilibili"
+        },
+        "icon": {
+          "icon_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/box-1/BiliBili.png"
+        },
+        "image_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/box-1/box_discord_edge.jpg",
+        "link": "https://b23.tv/zPim1FO",
+        "priority": 2,
+        "slot": 0,
+        "sub_heading": {
+          "font_size": 56
+        },
+        "type": 1
+      },
+      "elementId": 35,
+      "endDate": "2026-12-31T15:00:00Z",
+      "isPublished": true,
+      "isTargeted": false,
+      "startDate": "2023-12-11T12:00:00Z"
+    }
+  ],
+  "message": "OK",
+  "status_code": 200,
+  "targeted": [
+    {
+      "content": {
+        "banner_text": {
+          "font_size": 56,
+          "text": ""
+        },
+        "heading": {
+          "font_size": 56,
+          "text": "需要入门帮助？"
+        },
+        "icon": {
+          "icon_url": ""
+        },
+        "image_url": "https://helsinki-test.s3.eu-west-1.amazonaws.com/main-banner-2/Kards_Academy_B_3d_comp.png",
+        "link": "news:https://www.kards.com/zh/kards-academy?utm_source=Kards_NUI_Banner_2&utm_medium=Kards_game&utm_campaign=Kards_Academy_zh&utm_term=35&utm_content=Kards_Academy_zh&campaign=13",
+        "priority": 4,
+        "sub_heading": {
+          "font_size": 56,
+          "text": "点击此处获取实用提示和指南"
+        },
+        "type": 0
+      },
+      "elementId": 184,
+      "endDate": "2026-04-06T03:35:36.752570Z",
+      "isPublished": true,
+      "isTargeted": true,
+      "startDate": "2026-02-05T03:35:36.752570Z"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "reward": { "type": "random_pack" },
+  "localization": {
+    "DE": {
+      "rules_list": [ " W\u00e4hle dein eigenes Deck aus, mit dem du k\u00e4mpfen m\u00f6chtest.", " \u00dcberspringe das Ziehen einer Karte zu Beginn des Spielzugs.", " Wenn du w\u00e4hrend deines Zuges eine feindliche Einheit zerst\u00f6rst, ziehe eine Karte.", " Spieler beginnen mit einem zus\u00e4tzlichen Kredit-Slot.", " W\u00e4hle zu Beginn deines Zuges zwischen M18 HELLCAT, PANZER III-H oder KV-1 1941, um die gew\u00e4hlte Karte deiner Hand hinzuzuf\u00fcgen und die Kosten auf 2 zu setzen." ],
+      "description": " "
+    },
+    "EN": {
+      "rules_list": [ " Choose your own deck to battle with.", " Skip drawing a card at start of turn.", " When you destroy an enemy unit during your turn, draw a card.", " Players start with an extra kredit slot.", " At the start of your turn, choose M18 HELLCAT, PANZER III-H or KV-1 1941 to add to your hand and set its cost to 2." ],
+      "description": " "
+    },
+    "ES": {
+      "rules_list": [ " Elige un mazo propio con el que luchar.", " No robas una carta al comienzo del turno.", " Cuando destruyes una unidad enemiga durante tu turno, robas una carta.", " Los jugadores comienzan con un espacio para kr\u00e9ditos adicional.", " Al comienzo de tu turno, elige M18 HELLCAT, PANZER III-H o KV-1 1941 para a\u00f1adir a tu mano con su costo establecido en 0." ],
+      "description": " "
+    },
+    "FR": {
+      "rules_list": [ " Choisissez votre propre deck pour combattre.", " Vous ne piochez pas de carte au d\u00e9but du tour.", " Lorsque vous d\u00e9truisez une unit\u00e9 ennemie pendant votre tour, piochez une carte.", " Les joueurs commencent avec un emplacement de Kr\u00e9dit suppl\u00e9mentaire.", " Au d\u00e9but de votre tour, choisissez une carte parmi M18 HELLCAT, PANZER III-H et KV-1 1941 \u00e0 ajouter \u00e0 votre main et fixez son co\u00fbt \u00e0 2." ],
+      "description": " "
+    },
+    "IT": {
+      "rules_list": [ " Scegli il tuo mazzo con cui giocare.", " Non si pesca una carta all'inizio del turno.", " Quando distruggi un'unit\u00e0 nemica durante il tuo turno, pesca una carta.", " I giocatori iniziano con uno slot krediti extra.", " All'inizio del tuo turno, scegli M18 HELLCAT, PANZER III-H o KV-1 1941 da aggiungere alla tua mano e imposta il suo costo a 2." ],
+      "description": " "
+    },
+    "JA": {
+      "rules_list": [ " \u81ea\u5206\u306e\u30c7\u30c3\u30ad\u3092\u9078\u3093\u3067\u6226\u304a\u3046\u3002", " \u30bf\u30fc\u30f3\u958b\u59cb\u6642\u306e\u30ab\u30fc\u30c9\u30c9\u30ed\u30fc\u3092\u30b9\u30ad\u30c3\u30d7\u3059\u308b\u3002", " \u81ea\u8eab\u306e\u30bf\u30fc\u30f3\u4e2d\u306b\u6575\u30e6\u30cb\u30c3\u30c8\u3092\u7834\u58ca\u3059\u308b\u3068\u3001\u30ab\u30fc\u30c9\u30921\u679a\u5f15\u304f\u3002", " \u30d7\u30ec\u30a4\u30e4\u30fc\u306f\u8ffd\u52a0\u306e\u30af\u30ec\u30b8\u30c3\u30c8\u30b9\u30ed\u30c3\u30c8\u3092\u6301\u3063\u3066\u30b2\u30fc\u30e0\u3092\u958b\u59cb\u3057\u307e\u3059\u3002", " \u30bf\u30fc\u30f3\u306e\u958b\u59cb\u6642\u306b\u3001M18\u30d8\u30eb\u30ad\u30e3\u30c3\u30c8\u3001III\u53f7\u6226\u8ecaH\u578b\u3001\u307e\u305f\u306fKV -1 1941\u3092\u9078\u629e\u3057\u3066\u624b\u672d\u306b\u8ffd\u52a0\u3057\u3001\u305d\u306e\u30b3\u30b9\u30c8\u30922\u306b\u8a2d\u5b9a\u3059\u308b\u3002" ],
+      "description": " "
+    },
+    "KO": {
+      "rules_list": [ " \uc804\ud22c\ud560 \ub371\uc744 \uc120\ud0dd\ud558\uc138\uc694.", " \ud134 \uc2dc\uc791\uc2dc, \uce74\ub4dc \ubf51\uae30\ub97c \uc0dd\ub7b5\ud569\ub2c8\ub2e4.", " \uc790\uc2e0 \ud134 \uc911 \uc801 \uc720\ub2db\uc744 \ud30c\uad34\ud558\uba74 \uce74\ub4dc\ub97c \ubf51\uc2b5\ub2c8\ub2e4.", " \ud50c\ub808\uc774\uc5b4\ub294 \ucd94\uac00 \ud06c\ub808\ub527 \uc2ac\ub86f\uc744 \uac00\uc9c0\uace0 \uc2dc\uc791\ud569\ub2c8\ub2e4.", " \ud134\uc774 \uc2dc\uc791\ub418\uba74 M18 \ud5ec\ucea3, \ud32c\uc800 III-H \ub610\ub294 KV-1 1941\uc744 \uc120\ud0dd\ud558\uc5ec \uc190\uc5d0 \ub123\uace0 \ube44\uc6a9\uc744 2\ub85c \ud569\ub2c8\ub2e4." ],
+      "description": " "
+    },
+    "PL": {
+      "rules_list": [ " Wybierz w\u0142asn\u0105 tali\u0119 do walki.", " Pomi\u0144 dobieranie karty na pocz\u0105tku tury.", " Gdy zniszczysz wrog\u0105 jednostk\u0119 podczas swojej tury, dobierz kart\u0119.", " Gracze zaczynaj\u0105 z dodatkowym oknem kredyt\u00f3w.", " Na pocz\u0105tku swojej tury wybierz M18 HELLCAT, PANZER III-H lub KV-1 1941, aby doda\u0107 go do swojej r\u0119ki i ustaw jego koszt na 2." ],
+      "description": " "
+    },
+    "PT": {
+      "rules_list": [ " Escolha o seu pr\u00f3prio baralho para lutar.", " Ignore o puxar de uma carta no in\u00edcio do turno.", " Quando voc\u00ea destruir uma unidade inimiga durante o seu turno, compre uma carta.", " Os jogadores come\u00e7am com um espa\u00e7o de cr\u00e9dito extra.", " No in\u00edcio do seu turno, escolha M18 HELLCAT, PANZER III-H ou KV-1 1941 para adicionar \u00e0 sua m\u00e3o e defina seu custo para 2." ],
+      "description": " "
+    },
+    "RU": {
+      "rules_list": [ " \u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0432\u043e\u044e \u043a\u043e\u043b\u043e\u0434\u0443 \u0434\u043b\u044f \u0441\u0440\u0430\u0436\u0435\u043d\u0438\u044f.", " \u0412 \u043d\u0430\u0447\u0430\u043b\u0435 \u0445\u043e\u0434\u0430 \u0432\u044b \u043d\u0435 \u0431\u0435\u0440\u0451\u0442\u0435 \u043a\u0430\u0440\u0442\u0443.", " \u041a\u043e\u0433\u0434\u0430 \u0432\u044b \u0443\u043d\u0438\u0447\u0442\u043e\u0436\u0430\u0435\u0442\u0435 \u0432\u0440\u0430\u0436\u0435\u0441\u043a\u0438\u0439 \u043e\u0442\u0440\u044f\u0434 \u0432\u043e \u0432\u0440\u0435\u043c\u044f \u0441\u0432\u043e\u0435\u0433\u043e \u0445\u043e\u0434\u0430, \u0432\u043e\u0437\u044c\u043c\u0438\u0442\u0435 \u043a\u0430\u0440\u0442\u0443.", " \u0418\u0433\u0440\u043e\u043a\u0438 \u043d\u0430\u0447\u0438\u043d\u0430\u044e\u0442 \u0441 \u0434\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0439 \u043a\u0440\u0435\u0434\u0438\u0442\u043d\u043e\u0439 \u044f\u0447\u0435\u0439\u043a\u043e\u0439.", " \u0412 \u043d\u0430\u0447\u0430\u043b\u0435 \u0445\u043e\u0434\u0430 \u0432 \u0432\u0430\u0448\u0443 \u0440\u0443\u043a\u0443 \u043d\u0430 \u0432\u044b\u0431\u043e\u0440 \u0434\u043e\u0431\u0430\u0432\u043b\u044f\u0435\u0442\u0441\u044f M18 HELLCAT, PANZER III-H \u0438\u043b\u0438 KV-1 1941 \u0446\u0435\u043d\u043e\u0439 \u0432 2 \u043a\u0440\u0435\u0434\u0438\u0442\u0430." ],
+      "description": " "
+    },
+    "ZH-HANS": {
+      "rules_list": [ " \u9009\u62e9\u81ea\u5df1\u7684\u5361\u7ec4\u6218\u6597\u3002", " \u5728\u56de\u5408\u5f00\u59cb\u65f6\u8df3\u8fc7\u62bd\u724c\u3002", " \u5f53\u4f60\u5728\u56de\u5408\u4e2d\u6d88\u706d\u4e00\u4e2a\u654c\u65b9\u5355\u4f4d\u65f6\uff0c\u62bd\u4e00\u5f20\u724c\u3002", " \u5f00\u59cb\u65f6\uff0c\u73a9\u5bb6\u62e5\u6709\u989d\u5916\u7684\u6307\u6325\u70b9\u69fd\u3002", " \u5728\u4f60\u7684\u56de\u5408\u5f00\u59cb\u65f6\uff0c\u4eceM18 \u5730\u72f1\u732b\u3001\u4e09\u53f7\u5766\u514b H \u578b\u6216KV-1 1941\u4e2d\u9009\u62e9\u4e00\u5f20\u5e76\u52a0\u5165\u4f60\u7684\u624b\u724c\uff0c\u5e76\u5c06\u82b1\u8d39\u8bbe\u7f6e\u4e3a2\u3002" ],
+      "description": " "
+    },
+    "ZH-HANT": {
+      "rules_list": [ " \u9078\u64c7\u81ea\u5df1\u7684\u5361\u7d44\u6230\u9b25\u3002", " \u5728\u56de\u5408\u958b\u59cb\u6642\u8df3\u904e\u62bd\u724c\u3002", " \u7576\u4f60\u5728\u56de\u5408\u4e2d\u6d88\u6ec5\u4e00\u500b\u6575\u65b9\u55ae\u4f4d\u6642\uff0c\u62bd\u4e00\u5f35\u724c\u3002", " \u958b\u59cb\u6642\uff0c\u73a9\u5bb6\u64c1\u6709\u984d\u5916\u7684\u6307\u63ee\u9ede\u69fd\u3002", " \u5728\u4f60\u7684\u56de\u5408\u958b\u59cb\u6642\uff0c\u5f9eM18 \u5730\u7344\u8c93\u3001\u4e09\u865f\u5766\u514b H \u578b\u6216KV-1 1941\u4e2d\u9078\u64c7\u4e00\u5f35\u4e26\u52a0\u5165\u4f60\u7684\u624b\u724c\uff0c\u4e26\u5c07\u82b1\u8cbb\u8a2d\u7f6e\u70ba2\u3002" ],
+      "description": " "
+    }
+  },
+  "starting_kredits": 0,
+  "skip_start_of_turn_draw": "True",
+  "draw_card_on_destroy_enemy": "False",
+  "choose_spawn_card_on_start_of_turn": {
+    "cost": 0,
+    "cards": [ "card_event_the_war_machine", "card_event_plan", "card_unit_13e_dragons" ]
+  }
+}

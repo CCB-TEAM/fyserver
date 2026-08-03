@@ -1,4 +1,3 @@
 <Solution>
-  <Project Path="../SimpleMatch/SimpleMatch.csproj" />
   <Project Path="fyserver.csproj" />
 </Solution>

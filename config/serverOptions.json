@@ -17,4 +17,6 @@
   "avatars": 0,
   "broken_deck_check": 0,
   "key_encryption": 0,
-  "websocketurl": "{WsAddress}","homefront_date":"2025.11.27-09.00.00"}
+  "websocketurl": "{WsAddress}","homefront_date":"2025.11.27-09.00.00",
+"oceania_storm_date":"2026.06.11-08.00.00",
+                "anzac":       1}

@@ -3,7 +3,10 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+	  <PublishAot>true</PublishAot>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 反射 JSON 序列化兜底：source-gen 覆盖主要类型，匿名对象等走反射（AOT 发布时保留警告） -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,13 +21,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="library\deckCodeIDsTable2.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="LiteDB" Version="6.0.0-prerelease.75" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.1" />
     <PackageReference Include="Microsoft.FASTER.Core" Version="2.6.5" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
@@ -44,6 +40,9 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Update="config\store.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Update="library\deckCodeIDsTable2.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Update="library\emojiLib.json">

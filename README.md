@@ -51,3 +51,47 @@ A simple game server written in C# using .NET 10.0.
 - [ ] 更多物件 （comming soon）
 - [ ] 预制卡组
 - [ ] 商店盈利 （永远不会实现！）
+
+---
+
+# 技术栈
+
+- .NET 10 / ASP.NET Core（minimal API）
+- FASTER（`Microsoft.FASTER.Core`）—— 用户数据持久化（`user:username:*` / `user:id:*` 双索引）
+- System.Text.Json **全量源生成**（`FyJsonContext` / `ConfigJsonContext` / `StoreJsonContext`），零反射，NativeAOT 兼容
+- 消息编解码为**纯 C# 实现**（Base64 + XOR、查表密钥），无任何原生 DLL 依赖
+
+# 快速开始
+
+```bash
+dotnet build FYServer.sln
+dotnet run --project fyserver.csproj
+```
+
+- HTTP 端口默认 `5231`、WebSocket 端口默认 `5232`，可在 `setting.json` 中修改（`portHttp` / `portWs` / `ip` / `bancheat`），不存在时会自动生成
+- 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
+- 后台/无控制台环境下自动进入非交互模式，保持进程存活
+
+# NativeAOT 发布
+
+```bash
+dotnet publish fyserver.csproj -c Release -r win-x64 --self-contained true
+```
+
+产物位于 `bin/Release/net10.0/win-x64/publish/`：`fyserver.exe`（约 20MB 原生可执行文件）+ `setting.json` + `config/` + `library/`，拷到目标机直接运行即可，无需安装 .NET 运行时。
+
+# 目录结构
+
+```
+fyserver/
+├── Program.cs                  # Host 引导：配置 → DI 注册 → HTTP/WS 双 host 启动
+├── Endpoints/                  # minimal API 分组（User/Player/Deck/Lobby/Match/Admin）
+├── Services/                   # 服务层（UserStore/FasterKv/MatchManager/WebSocketHub/Codec/Auth…）
+├── Models/                     # DTO 与实体
+├── Middleware/                 # 路径归一化、Content-Type 清理
+└── Serialization/              # System.Text.Json 源生成上下文
+```
+
+# 相关项目
+
+- [FyClient](https://github.com/CCB-TEAM/FyClient) —— 虚拟测试客户端，覆盖登录/卡组/匹配/对局全流程，用于对服务器做端到端验证

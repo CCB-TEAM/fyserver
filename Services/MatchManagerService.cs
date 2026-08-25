@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using fyserver.Models;
+using fyserver.Serialization;
 
 namespace fyserver.Services;
 
@@ -300,7 +301,7 @@ public class MatchManagerService
         {
             int actionId = 0;
             string plaintext = _codec.Decode(matchActionen.A, out actionId);
-            matchAction = JsonSerializer.Deserialize<MatchAction>(plaintext, GameConstants.JsonOptions) ?? new MatchAction();
+            matchAction = JsonSerializer.Deserialize(plaintext, FyJsonContext.Default.MatchAction) ?? new MatchAction();
             Console.WriteLine("action：" + matchAction);
             matchAction = matchAction with { SendActionId = actionId };
             Console.WriteLine("ActionId：" + matchAction.ActionId);
@@ -336,7 +337,7 @@ public class MatchManagerService
                 {
                     int actionId = 0;
                     var plaintext = _codec.Decode(encrypted, out actionId);
-                    var decoded = JsonSerializer.Deserialize<MatchAction>(plaintext, GameConstants.JsonOptions);
+                    var decoded = JsonSerializer.Deserialize(plaintext, FyJsonContext.Default.MatchAction);
                     if (decoded != null)
                     {
                         matchAction = decoded with { SendActionId = actionId };
@@ -348,7 +349,7 @@ public class MatchManagerService
             if (hasEncryptedField)
                 return false;
 
-            var direct = JsonSerializer.Deserialize<MatchAction>(payload.GetRawText(), GameConstants.JsonOptions);
+            var direct = JsonSerializer.Deserialize(payload.GetRawText(), FyJsonContext.Default.MatchAction);
             if (direct != null)
             {
                 matchAction = direct;
@@ -614,7 +615,7 @@ public class MatchManagerService
             }
         });
         Console.WriteLine(cards.Count);
-        Console.WriteLine(JsonSerializer.Serialize(cards));
+        Console.WriteLine(JsonSerializer.Serialize(cards, FyJsonContext.Default.ListMatchCard));
         cards = [.. cards.OrderBy(_ => Random.Shared.Next()).Select((a, l) => a with { LocationNumber = l })];
         return (cards, locationCard);
     }

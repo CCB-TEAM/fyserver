@@ -1,18 +1,12 @@
-using Newtonsoft.Json;
+using System.Text.Json;
 using fyserver.Models;
+using fyserver.Serialization;
 
 namespace fyserver.Services;
 
 /// <summary>卡牌库、物品与卡组编码表（替代原 PlayerLibrary 静态类）。启动时初始化一次。</summary>
 public class PlayerLibraryService
 {
-    private class Card
-    {
-        public string card { get; set; } = "";
-        public string deck_code_id { get; set; } = "";
-        public int ID { get; set; }
-    }
-
     public LibraryResponse Library { get; } = new(
         new List<LibraryItem>(),
         new List<object>()
@@ -24,9 +18,9 @@ public class PlayerLibraryService
 
     public void InitLibrary(string deckCodePath, string emojiPath, string cardbackPath)
     {
-        List<Card> cs = JsonConvert.DeserializeObject<List<Card>>(File.ReadAllText(deckCodePath)) ?? new();
-        List<string> emojis = JsonConvert.DeserializeObject<List<string>>(File.ReadAllText(emojiPath)) ?? new();
-        List<string> cbs = JsonConvert.DeserializeObject<List<string>>(File.ReadAllText(cardbackPath)) ?? new();
+        List<DeckCodeCard> cs = JsonSerializer.Deserialize(File.ReadAllText(deckCodePath), ConfigJsonContext.Default.ListDeckCodeCard) ?? new();
+        List<string> emojis = JsonSerializer.Deserialize(File.ReadAllText(emojiPath), ConfigJsonContext.Default.ListString) ?? new();
+        List<string> cbs = JsonSerializer.Deserialize(File.ReadAllText(cardbackPath), ConfigJsonContext.Default.ListString) ?? new();
 
         foreach (var c in cs)
         {

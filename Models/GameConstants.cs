@@ -31,6 +31,9 @@ public static class GameConstants
 
     public static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
+    /// <summary>配置文件（setting.json / store.json / library 表）读写选项：大小写不敏感匹配、紧凑输出。</summary>
+    public static readonly JsonSerializerOptions ConfigJsonOptions = CreateConfigJsonOptions();
+
     private static JsonSerializerOptions CreateJsonOptions()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -38,14 +41,22 @@ public static class GameConstants
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
             WriteIndented = false
         };
-        // 先捕获默认（反射）resolver，再按 [源生成上下文, 反射兜底] 顺序装配：
-        // source-gen 优先命中具名类型，匿名对象等回退到反射
-        var reflectionResolver = options.TypeInfoResolver;
-        options.TypeInfoResolver = null; // 阻止 Chain.Add 的隐式前移语义
+        // 纯源生成：NativeAOT 兼容（所有 JSON 类型必须注册到 FyJsonContext）
         options.TypeInfoResolverChain.Clear();
         options.TypeInfoResolverChain.Add(fyserver.Serialization.FyJsonContext.Default);
-        if (reflectionResolver != null)
-            options.TypeInfoResolverChain.Add(reflectionResolver);
+        return options;
+    }
+
+    private static JsonSerializerOptions CreateConfigJsonOptions()
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            WriteIndented = false
+        };
+        // 纯源生成：配置文件类型注册到 ConfigJsonContext（无命名策略，保持原字段名）
+        options.TypeInfoResolverChain.Clear();
+        options.TypeInfoResolverChain.Add(fyserver.Serialization.ConfigJsonContext.Default);
         return options;
     }
 }

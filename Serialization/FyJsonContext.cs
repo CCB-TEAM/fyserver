@@ -67,4 +67,23 @@ namespace fyserver.Serialization;
 [JsonSerializable(typeof(Library))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
 [JsonSerializable(typeof(List<object>))]
+// 原始 JSON 载体（source-gen 使用内置转换器）
+[JsonSerializable(typeof(JsonDocument))]
+[JsonSerializable(typeof(JsonElement))]
+// 具名响应 DTO（替代匿名对象）
+[JsonSerializable(typeof(DeckSummaryDto))]
+[JsonSerializable(typeof(List<DeckSummaryDto>))]
+[JsonSerializable(typeof(EmptyResponseDto))]
+[JsonSerializable(typeof(StatusResponseDto))]
+[JsonSerializable(typeof(CountResponseDto))]
+[JsonSerializable(typeof(MessageResponseDto))]
+[JsonSerializable(typeof(UserSummaryDto))]
+[JsonSerializable(typeof(List<UserSummaryDto>))]
+[JsonSerializable(typeof(Entitlement))]
+[JsonSerializable(typeof(List<Entitlement>))]
+[JsonSerializable(typeof(OtherPlayerReadyDto))]
+[JsonSerializable(typeof(MatchPollDto))]
+[JsonSerializable(typeof(ServerConfigDto))]
+[JsonSerializable(typeof(List<MatchCard>))]
+[JsonSerializable(typeof(List<string>))]
 public partial class FyJsonContext : JsonSerializerContext;

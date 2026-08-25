@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using FASTER.core;
+using fyserver.Serialization;
 
 namespace fyserver.Services;
 
@@ -20,13 +22,10 @@ public class FasterKvService : IDisposable
     // 用镜像索引支撑 GetKeysByPrefix/GetAllByPrefix（管理端点使用）。
     private readonly ConcurrentDictionary<string, string> _index = new();
 
-    // System.Text.Json 序列化选项
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        WriteIndented = false,
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never
-    };
+    // System.Text.Json 序列化：FASTER 存储走 StoreJsonContext（源生成，保持 PascalCase 存储格式）
+    private static JsonTypeInfo<T> GetStoreTypeInfo<T>() where T : class =>
+        StoreJsonContext.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
+        ?? throw new InvalidOperationException($"类型 {typeof(T).FullName} 未注册到 StoreJsonContext，无法序列化存储");
 
     public FasterKvService(string logDirectory = "./faster-log", bool verboseLogging = false, CheckpointType checkpointType = CheckpointType.FoldOver)
     {
@@ -66,11 +65,11 @@ public class FasterKvService : IDisposable
     }
 
     // 存储值 (同步)
-    public void Put(string key, object value)
+    public void Put<T>(string key, T value) where T : class
     {
         lock (_sync)
         {
-            var jsonString = JsonSerializer.Serialize(value, value.GetType(), JsonOptions);
+            var jsonString = JsonSerializer.Serialize(value, GetStoreTypeInfo<T>());
             _session.Upsert(ref key, ref jsonString);
             _session.CompletePending(true);
             _index[key] = jsonString;
@@ -80,7 +79,7 @@ public class FasterKvService : IDisposable
     }
 
     // 获取值
-    public T? Get<T>(string key)
+    public T? Get<T>(string key) where T : class
     {
         lock (_sync)
         {
@@ -95,7 +94,7 @@ public class FasterKvService : IDisposable
             {
                 if (_verboseLogging)
                     Console.WriteLine($"Get<{typeof(T).Name}>: key={key}, size={output.Length} bytes");
-                return JsonSerializer.Deserialize<T>(output, JsonOptions);
+                return JsonSerializer.Deserialize(output, GetStoreTypeInfo<T>());
             }
 
             if (_verboseLogging)
@@ -148,7 +147,7 @@ public class FasterKvService : IDisposable
     }
 
     // 根据前缀获取所有值 (同步)
-    public List<T> GetAllByPrefix<T>(string prefix)
+    public List<T> GetAllByPrefix<T>(string prefix) where T : class
     {
         lock (_sync)
         {
@@ -157,7 +156,7 @@ public class FasterKvService : IDisposable
             {
                 if (_index.TryGetValue(key, out var json) && !string.IsNullOrEmpty(json))
                 {
-                    var value = JsonSerializer.Deserialize<T>(json, JsonOptions);
+                    var value = JsonSerializer.Deserialize(json, GetStoreTypeInfo<T>());
                     if (value != null)
                         result.Add(value);
                 }
@@ -167,7 +166,7 @@ public class FasterKvService : IDisposable
     }
 
     // 批量操作 (同步)
-    public void Batch(Dictionary<string, object>? puts, List<string>? deletes = null)
+    public void Batch<T>(Dictionary<string, T>? puts, List<string>? deletes = null) where T : class
     {
         lock (_sync)
         {
@@ -191,7 +190,7 @@ public class FasterKvService : IDisposable
                 foreach (var kvp in puts)
                 {
                     var key = kvp.Key;
-                    var jsonString = JsonSerializer.Serialize(kvp.Value, kvp.Value.GetType(), JsonOptions);
+                    var jsonString = JsonSerializer.Serialize(kvp.Value, GetStoreTypeInfo<T>());
                     _session.Upsert(ref key, ref jsonString);
                     _index[key] = jsonString;
                 }

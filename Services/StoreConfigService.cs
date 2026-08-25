@@ -1,5 +1,6 @@
-using Newtonsoft.Json;
+using System.Text.Json;
 using fyserver.Models;
+using fyserver.Serialization;
 
 namespace fyserver.Services;
 
@@ -20,7 +21,7 @@ public class StoreConfigService
             if (File.Exists(ConfigPath))
             {
                 string json = File.ReadAllText(ConfigPath);
-                _storeConfig = JsonConvert.DeserializeObject<StoreConfig>(json)
+                _storeConfig = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.StoreConfig)
                                ?? CreateDefaultConfig();
             }
             else

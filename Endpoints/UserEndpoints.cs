@@ -1,4 +1,5 @@
 using fyserver.Models;
+using fyserver.Serialization;
 using fyserver.Services;
 
 namespace fyserver.Endpoints;
@@ -46,6 +47,7 @@ public static class UserEndpoints
                         "Forbidden",
                         403
                     ),
+                    FyJsonContext.Default.BannedResponse,
                     statusCode: 403
                 );
             }
@@ -72,8 +74,7 @@ public static class UserEndpoints
                 DailymissionsUrl: $"{addressHttp}/players/{user.Id}/dailymissions",
                 Decks: new Dictionary<string, object>
                 {
-                    ["headers"] = user.Decks.Values.Select(d => new
-                    {
+                    ["headers"] = user.Decks.Values.Select(d => new DeckSummaryDto(
                         d.Name,
                         d.MainFaction,
                         d.AllyFaction,
@@ -82,10 +83,10 @@ public static class UserEndpoints
                         d.Favorite,
                         d.Id,
                         d.PlayerId,
-                        LastPlayed = d.LastPlayed.ToString("o"),
-                        CreateDate = d.CreateDate.ToString("o"),
-                        ModifyDate = d.ModifyDate.ToString("o")
-                    }).ToList()
+                        d.LastPlayed.ToString("o"),
+                        d.CreateDate.ToString("o"),
+                        d.ModifyDate.ToString("o")
+                    )).ToList()
                 },
                 DecksUrl: $"{addressHttp}/players/{user.Id}/decks",
                 Diamonds: 99999,

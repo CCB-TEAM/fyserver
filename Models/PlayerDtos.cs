@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace fyserver.Models;
@@ -108,6 +109,7 @@ public record ItemsResponse(
 );
 
 // WebSocket messages as records
+/// <summary>WebSocket 消息。MatchId 用 JsonElement 宽容接收（客户端可能发数字/字符串/缺失）。</summary>
 public record WebSocketMessage(
     string Timestamp,
     string Context = "",
@@ -115,7 +117,7 @@ public record WebSocketMessage(
     string Channel = "",
     string Sender = "",
     string Receiver = "",
-    int? MatchId = null
+    JsonElement? MatchId = null
 );
 
 public record ClientInfo(

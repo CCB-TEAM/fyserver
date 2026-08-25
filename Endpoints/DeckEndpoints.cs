@@ -20,20 +20,19 @@ public static class DeckEndpoints
 
             await users.SaveUserAsync(user);
 
-            return Results.Ok(new
-            {
-                deck.Id,
+            return Results.Ok(new DeckSummaryDto(
                 deck.Name,
                 deck.MainFaction,
                 deck.AllyFaction,
                 deck.CardBack,
                 deck.DeckCode,
                 deck.Favorite,
+                deck.Id,
                 deck.PlayerId,
-                LastPlayed = deck.LastPlayed.ToString("o"),
-                CreateDate = deck.CreateDate.ToString("o"),
-                ModifyDate = deck.ModifyDate.ToString("o")
-            });
+                deck.LastPlayed.ToString("o"),
+                deck.CreateDate.ToString("o"),
+                deck.ModifyDate.ToString("o")
+            ));
         });
 
         app.MapPut("/players/{player_id}/decks/{deck_id}", async (string player_id, int deck_id, [FromBody] DeckAction action, UserStoreService users) =>
@@ -62,7 +61,7 @@ public static class DeckEndpoints
 
             var savedUser = await users.GetByIdAsync(playerId);
             Console.WriteLine(savedUser?.Decks.GetValueOrDefault(deck_id)?.DeckCode);
-            return Results.Ok(new { });
+            return Results.Ok(new EmptyResponseDto());
         });
 
         app.MapPut("/players/{player_id}/decks/", async (string player_id, ChangeDeck changeDeck, UserStoreService users) =>
@@ -94,7 +93,7 @@ public static class DeckEndpoints
                 await users.SaveUserAsync(user);
             }
 
-            return Results.Ok(new { });
+            return Results.Ok(new EmptyResponseDto());
         });
 
         app.MapDelete("/players/{player_id}/decks/{deck_id}", async (string player_id, int deck_id, UserStoreService users) =>
@@ -107,7 +106,7 @@ public static class DeckEndpoints
             user.Decks.Remove(deck_id);
             await users.SaveUserAsync(user);
 
-            return Results.Ok(new { });
+            return Results.Ok(new EmptyResponseDto());
         });
 
         // 这个端点获取卡组详情（预制卡组），暂未使用
@@ -116,3 +115,4 @@ public static class DeckEndpoints
         return app;
     }
 }
+

@@ -1,10 +1,12 @@
-using Newtonsoft.Json;
+using System.Text.Json;
+using fyserver.Models;
+using fyserver.Serialization;
 
 namespace fyserver.Services;
 
 /// <summary>
 /// 服务器运行配置（端口/地址/反作弊开关）。
-/// 兼容旧 setting.json（Newtonsoft 反序列化，字段名保持原样）。
+/// 兼容旧 setting.json（System.Text.Json 读取，字段名保持原样）。
 /// </summary>
 public class ServerOptions
 {
@@ -29,7 +31,7 @@ public class ServerOptions
             return;
         }
 
-        var loaded = JsonConvert.DeserializeObject<ServerOptions>(File.ReadAllText(path));
+        var loaded = JsonSerializer.Deserialize(File.ReadAllText(path), ConfigJsonContext.Default.ServerOptions);
         if (loaded == null)
         {
             Write();
@@ -44,6 +46,6 @@ public class ServerOptions
 
     public void Write()
     {
-        File.WriteAllText("./setting.json", JsonConvert.SerializeObject(this));
+        File.WriteAllText("./setting.json", JsonSerializer.Serialize(this, ConfigJsonContext.Default.ServerOptions));
     }
 }

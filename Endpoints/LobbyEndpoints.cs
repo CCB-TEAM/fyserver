@@ -35,7 +35,7 @@ public static class LobbyEndpoints
         app.MapDelete("/lobbyplayers", (LobbyPlayer lobbyPlayer, MatchManagerService matches) =>
         {
             matches.RemovePlayerFromAllQueues(lobbyPlayer.PlayerId);
-            return Results.Ok(new { status = 200 });
+            return Results.Ok(new StatusResponseDto(200));
         });
 
         return app;

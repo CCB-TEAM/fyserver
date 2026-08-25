@@ -45,13 +45,9 @@ httpBuilder.WebHost.UseUrls(serverOptions.GetAddressHttp());
 httpBuilder.Services.Configure<JsonOptions>(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
-    // 先捕获默认（反射）resolver，再按 [源生成上下文, 反射兜底] 顺序装配
-    var reflectionResolver = options.SerializerOptions.TypeInfoResolver;
-    options.SerializerOptions.TypeInfoResolver = null; // 阻止 Chain.Add 的隐式前移语义
+    // 纯源生成：NativeAOT 兼容（所有响应类型注册到 FyJsonContext）
     options.SerializerOptions.TypeInfoResolverChain.Clear();
     options.SerializerOptions.TypeInfoResolverChain.Add(FyJsonContext.Default);
-    if (reflectionResolver != null)
-        options.SerializerOptions.TypeInfoResolverChain.Add(reflectionResolver);
 });
 
 var httpApp = httpBuilder.Build();
@@ -65,11 +61,14 @@ httpApp.UseExceptionHandler(exceptionHandlerApp =>
     {
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/json";
-        await context.Response.WriteAsJsonAsync(new ErrorResponse(
-            Error: "Internal server error",
-            Message: "An unexpected error occurred",
-            StatusCode: 500
-        ));
+        await context.Response.WriteAsJsonAsync(
+            new ErrorResponse(
+                Error: "Internal server error",
+                Message: "An unexpected error occurred",
+                StatusCode: 500
+            ),
+            FyJsonContext.Default.ErrorResponse,
+            cancellationToken: context.RequestAborted);
     });
 });
 
@@ -88,11 +87,14 @@ httpApp.UseStatusCodePages(async statusCodeContext =>
     var response = statusCodeContext.HttpContext.Response;
     if (response.StatusCode == 404)
     {
-        await response.WriteAsJsonAsync(new ErrorResponse(
-            Error: "Not found",
-            Message: "The requested resource was not found",
-            StatusCode: 404
-        ));
+        await response.WriteAsJsonAsync(
+            new ErrorResponse(
+                Error: "Not found",
+                Message: "The requested resource was not found",
+                StatusCode: 404
+            ),
+            FyJsonContext.Default.ErrorResponse,
+            cancellationToken: statusCodeContext.HttpContext.RequestAborted);
     }
 });
 

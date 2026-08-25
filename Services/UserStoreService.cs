@@ -47,7 +47,7 @@ public class UserStoreService
         user.UpdatedAt = DateTime.UtcNow;
 
         // 双重索引（冗余存储），Batch 操作保证原子性
-        var puts = new Dictionary<string, object>
+        var puts = new Dictionary<string, User>
         {
             [$"user:username:{user.UserName}"] = user,
             [$"user:id:{user.Id}"] = user
@@ -102,7 +102,7 @@ public class UserStoreService
             $"user:id:{userId}"
         };
 
-        _db.Batch(null, deletes);
+        _db.Batch<User>(null, deletes);
     }
 
     public Task<List<User>> GetAllUsersAsync()

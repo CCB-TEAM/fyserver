@@ -1,4 +1,5 @@
 using fyserver.Services;
+using fyserver.Models;
 
 namespace fyserver.Endpoints;
 
@@ -9,22 +10,21 @@ public static class AdminEndpoints
         app.MapGet("/admin/users/count", async (UserStoreService users) =>
         {
             var allUsers = await users.GetAllUsersAsync();
-            return Results.Ok(new { count = allUsers.Count });
+            return Results.Ok(new CountResponseDto(allUsers.Count));
         });
 
         app.MapGet("/admin/users/list", async (UserStoreService users) =>
         {
             var allUsers = await users.GetAllUsersAsync();
-            var simplifiedUsers = allUsers.Select(u => new
-            {
+            var simplifiedUsers = allUsers.Select(u => new UserSummaryDto(
                 u.Id,
                 u.UserName,
                 u.Name,
                 u.Tag,
-                DeckCount = u.Decks.Count,
+                u.Decks.Count,
                 u.Banned,
-                CreatedAt = u.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")
-            }).ToList();
+                u.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")
+            )).ToList();
 
             return Results.Ok(simplifiedUsers);
         });
@@ -36,7 +36,7 @@ public static class AdminEndpoints
                 return Results.NotFound($"User with ID {userId} not found");
 
             await users.DeleteUserAsync(userId);
-            return Results.Ok(new { message = $"User {userId} deleted successfully" });
+            return Results.Ok(new MessageResponseDto($"User {userId} deleted successfully"));
         });
 
         app.MapPost("/admin/users/{userId}/ban", async (int userId, UserStoreService users) =>
@@ -47,7 +47,7 @@ public static class AdminEndpoints
 
             user.Banned = true;
             await users.SaveUserAsync(user);
-            return Results.Ok(new { message = $"User {userId} banned successfully" });
+            return Results.Ok(new MessageResponseDto($"User {userId} banned successfully"));
         });
 
         app.MapPost("/admin/users/{userId}/unban", async (int userId, UserStoreService users) =>
@@ -58,7 +58,7 @@ public static class AdminEndpoints
 
             user.Banned = false;
             await users.SaveUserAsync(user);
-            return Results.Ok(new { message = $"User {userId} unbanned successfully" });
+            return Results.Ok(new MessageResponseDto($"User {userId} unbanned successfully"));
         });
 
         return app;

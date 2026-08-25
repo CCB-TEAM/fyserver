@@ -3,7 +3,10 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+	  <PublishAot>true</PublishAot>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 反射 JSON 序列化关闭：全部走源生成上下文（FyJsonContext / ConfigJsonContext / StoreJsonContext），NativeAOT 兼容 -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,19 +21,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="library\deckCodeIDsTable2.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="LiteDB" Version="6.0.0-prerelease.75" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.1" />
     <PackageReference Include="Microsoft.FASTER.Core" Version="2.6.5" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
   </ItemGroup>
 
   <ItemGroup>
+    <Content Update="library\bitemLib.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Update="library\cardbackLib.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
@@ -43,18 +41,15 @@
     <Content Update="config\store.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
+    <Content Update="library\deckCodeIDsTable2.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
     <Content Update="library\emojiLib.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
     <Content Update="setting.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="codec.dll">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 
   <ProjectExtensions><VisualStudio><UserProperties /></VisualStudio></ProjectExtensions>

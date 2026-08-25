@@ -1,5 +1,6 @@
 using System.Text.Json;
 using fyserver.Models;
+using fyserver.Serialization;
 using fyserver.Services;
 
 namespace fyserver.Endpoints;
@@ -92,11 +93,11 @@ public static class MatchEndpoints
                 user.Banned = true;
                 await users.SaveUserAsync(user);
                 match.WinnerSide = user.Id == match.Left?.PlayerId ? "right" : "left";
-                return Results.Ok(new { });
+                return Results.Ok(new EmptyResponseDto());
             }
 
             if (matchAction.Action == "lvl-loaded")
-                return Results.Ok(new { otherPlayerReady = 1 });
+                return Results.Ok(new OtherPlayerReadyDto(1));
 
             matches.TryApplyWinnerSide(match, matchAction, id, $"/matches/v2/{id}", payload);
             return Results.Text("OK");
@@ -127,35 +128,32 @@ public static class MatchEndpoints
                 actions.Clear();
             }
 
-            result["match"] = new
-            {
-                player_status_left = match.PlayerStatusLeft,
+            result["match"] = new MatchPollDto(
+                match.PlayerStatusLeft,
                 // 单人对战
-                player_status_right = string.Equals(match.Ex, "pw", StringComparison.Ordinal) ? "mulligan_done" : match.PlayerStatusRight,
-                status = "running"
-            };
+                string.Equals(match.Ex, "pw", StringComparison.Ordinal) ? "mulligan_done" : match.PlayerStatusRight,
+                "running"
+            );
 
             result["opponent_polling"] = true;
 
             if (!string.IsNullOrEmpty(match.WinnerSide))
             {
-                result["match"] = new
-                {
-                    player_status_left = GameConstants.EndMatch,
-                    player_status_right = GameConstants.EndMatch,
-                    status = GameConstants.Finished
-                };
+                result["match"] = new MatchPollDto(
+                    GameConstants.EndMatch,
+                    GameConstants.EndMatch,
+                    GameConstants.Finished
+                );
             }
 
             return Results.Ok(result);
         });
 
-        app.MapGet("/config", () => Results.Ok(new
-        {
-            XserverClosed = "",
-            XserverClosedHeader = "Server maintenance",
-            ForgotPasswordUrl = "https://pornhub.com"
-        }));
+        app.MapGet("/config", () => Results.Ok(new ServerConfigDto(
+            XserverClosed: "",
+            XserverClosedHeader: "Server maintenance",
+            ForgotPasswordUrl: "https://pornhub.com"
+        )));
 
         app.MapPost("/matches/v2/{id}/actions", async (int id, MatchActionEn matchActionen, HttpContext context,
             AuthService auth, UserStoreService users, MatchManagerService matches, ServerOptions options) =>
@@ -182,11 +180,11 @@ public static class MatchEndpoints
                 user.Banned = true;
                 await users.SaveUserAsync(user);
                 match.WinnerSide = user.Id == match.Left?.PlayerId ? "right" : "left";
-                return Results.Ok(new { });
+                return Results.Ok(new EmptyResponseDto());
             }
 
             if (matchAction.Action == "lvl-loaded")
-                return Results.Ok(new { otherPlayerReady = 1 });
+                return Results.Ok(new OtherPlayerReadyDto(1));
 
             matches.TryApplyWinnerSide(match, matchAction, id, $"/matches/v2/{id}/actions");
             if (!string.IsNullOrEmpty(matchAction.ActionType) || !string.IsNullOrEmpty(matchAction.Action))
@@ -347,7 +345,7 @@ public static class MatchEndpoints
                     Faction: deck.MainFaction,
                     Winner: isWinner
                 );
-                Console.WriteLine(JsonSerializer.Serialize(response));
+                Console.WriteLine(JsonSerializer.Serialize(response, FyJsonContext.Default.PostMatchResponse));
                 return Results.Ok(response);
             }
 
@@ -357,3 +355,4 @@ public static class MatchEndpoints
         return app;
     }
 }
+

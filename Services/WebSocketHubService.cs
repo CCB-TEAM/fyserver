@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using fyserver.Models;
+using fyserver.Serialization;
 
 namespace fyserver.Services;
 
@@ -39,7 +40,7 @@ public class WebSocketHubService
         try
         {
             Console.WriteLine($"收到消息: {message}");
-            var msg = JsonSerializer.Deserialize<WebSocketMessage>(message, GameConstants.JsonOptions);
+            var msg = JsonSerializer.Deserialize(message, FyJsonContext.Default.WebSocketMessage);
             if (msg == null) return;
 
             switch (msg.Channel)
@@ -131,9 +132,9 @@ public class WebSocketHubService
         }
     }
 
-    public static async Task SendObjAsync<T>(WebSocket c, T a)
+    public static async Task SendObjAsync(WebSocket c, WebSocketMessage a)
     {
-        await SendAsync(c, JsonSerializer.Serialize(a, GameConstants.JsonOptions));
+        await SendAsync(c, JsonSerializer.Serialize(a, FyJsonContext.Default.WebSocketMessage));
         Console.WriteLine("发送:" + a?.ToString());
     }
 }

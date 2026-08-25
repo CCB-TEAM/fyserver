@@ -8,12 +8,11 @@ public static class PlayerEndpoints
 {
     public static IEndpointRouteBuilder MapPlayerEndpoints(this IEndpointRouteBuilder app)
     {
-        // FP 接口 - 前端展示（Front Page）
+        // FP 接口 - 前端展示（Front Page）：直接返回原始 JSON 文本，避免序列化 JsonDocument（source-gen 无其 metadata）
         app.MapGet("/fp/", () =>
         {
             var fpt = File.Exists("./config/frontpage.json") ? File.ReadAllText("./config/frontpage.json") : "{}";
-            JsonDocument fp1 = JsonDocument.Parse(fpt);
-            return Results.Ok(fp1);
+            return Results.Text(fpt, "application/json");
         });
 
         // Store 接口 - 商店数据
@@ -47,8 +46,8 @@ public static class PlayerEndpoints
             return Results.Ok(new FriendsReponse(Friends: nil, PreviousOpponents: nil));
         });
 
-        app.MapMethods("/players/{id}/heartbeat", new[] { "PUT", "DELETE" }, (string id) => Results.Ok(new { }));
-        app.MapMethods("/players/notifications/{id}", new[] { "PUT", "DELETE" }, (string id) => Results.Ok(new { }));
+        app.MapMethods("/players/{id}/heartbeat", new[] { "PUT", "DELETE" }, (string id) => Results.Ok(new EmptyResponseDto()));
+        app.MapMethods("/players/notifications/{id}", new[] { "PUT", "DELETE" }, (string id) => Results.Ok(new EmptyResponseDto()));
 
         // 卡牌库
         app.MapGet("/players/{id}/librarynew", (string id, PlayerLibraryService playerLibrary) =>

@@ -74,6 +74,9 @@ httpApp.UseExceptionHandler(exceptionHandlerApp =>
 
 httpApp.UseMiddleware<ContentTypeCleanupMiddleware>();
 
+// 显式路由注册：保证 PathNormalizationMiddleware 对 // 路径的改写先于路由匹配生效
+httpApp.UseRouting();
+
 httpApp.MapUserEndpoints();
 httpApp.MapPlayerEndpoints();
 httpApp.MapDeckEndpoints();

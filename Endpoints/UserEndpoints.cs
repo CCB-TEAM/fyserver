@@ -9,7 +9,7 @@ public static class UserEndpoints
     public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         // 2. 配置和基本信息
-        app.MapPost("/session", async (Session session, UserStoreService users, CodecService codec, ServerOptions options) =>
+        app.MapPost("/session", async (Session session, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets) =>
         {
             string addressHttp = options.GetAddressHttpR();
             User? user;
@@ -41,6 +41,7 @@ public static class UserEndpoints
 
             if (user.Banned)
             {
+                await webSockets.DisconnectAsync(user.Id, "该账户已被封禁");
                 return Results.Json(
                     new BannedResponse(
                         new Error("user_error", "banned"),

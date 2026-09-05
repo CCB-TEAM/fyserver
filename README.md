@@ -68,7 +68,7 @@ dotnet build FYServer.sln
 dotnet run --project fyserver.csproj
 ```
 
-- HTTP 端口默认 `5231`、WebSocket 端口默认 `5232`，可在 `setting.json` 中修改（`portHttp` / `portWs` / `ip` / `bancheat`），不存在时会自动生成
+- HTTP 端口默认 `5231`、WebSocket 端口默认 `5232`，可在 `setting.json` 中修改（`portHttp` / `portWs` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成；`adminApiKey` 留空时管理接口仅允许 loopback 访问，配置后通过 `X-Admin-Key` 请求头认证
 - 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
 - 后台/无控制台环境下自动进入非交互模式，保持进程存活
 
@@ -92,6 +92,80 @@ fyserver/
 └── Serialization/              # System.Text.Json 源生成上下文
 ```
 
+# 已实现的 HTTP API
+
+以下路径均监听 `setting.json` 的 `portHttp`。请求路径中的连续斜杠会自动归一化，因此 `/fp/`、`//fp` 等价。
+
+## 会话与配置
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/session` | 登录或自动创建用户；封禁用户返回 `403` |
+| `GET` | `/` | 获取客户端配置与 API 地址 |
+| `GET` | `/config` | 获取客户端基础配置 |
+| `GET` | `/fp/` | 获取首页/公告配置 |
+
+## 玩家、物品与商店
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/store/` | 获取商店数据（旧客户端兼容） |
+| `GET` | `/store/v2/` | 获取商店数据 |
+| `POST` | `/store/txn` | 商店交易占位接口（旧客户端兼容） |
+| `POST` | `/store/v2/txn` | 商店交易占位接口 |
+| `GET` | `/entitlements/{id}` | 获取玩家权益 |
+| `GET` | `/{a}/players/{player_id}/friends` | 获取好友与历史对手 |
+| `PUT` / `DELETE` | `/players/{id}/heartbeat` | 玩家心跳 |
+| `PUT` / `DELETE` | `/players/notifications/{id}` | 玩家通知状态 |
+| `GET` | `/players/{id}/library` | 获取玩家卡牌库 |
+| `GET` | `/players/{id}/librarynew` | 获取玩家卡牌库（新客户端兼容路径） |
+| `GET` | `/items/{id}` | 获取玩家物品与装备 |
+| `POST` | `/items/{id}` | 装备物品 |
+| `GET` | `/items/decks/{id}` | 预制卡组详情占位接口 |
+| `PUT` | `/crate/claim` | 领取军需箱奖励 |
+
+## 卡组
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/players/{id}/decks` | 创建卡组 |
+| `PUT` | `/players/{player_id}/decks/{deck_id}` | 更新卡组编码/内容 |
+| `PUT` | `/players/{player_id}/decks/` | 重命名、更换卡背或设为收藏 |
+| `DELETE` | `/players/{player_id}/decks/{deck_id}` | 删除卡组 |
+
+## 匹配与对局
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/lobbyplayers` | 加入多人/战斗码匹配 |
+| `POST` | `/singleplayerlobby` | 加入单人匹配 |
+| `DELETE` | `/lobbyplayers` | 退出匹配队列 |
+| `GET` | `/matches/v2` | 获取当前对局与起始数据 |
+| `GET` | `/matches/v2/reconnect` | 获取断线重连数据 |
+| `GET` | `/matches/v2/{id}` | 获取对局运行状态 |
+| `PUT` | `/matches/v2/{id}/` | 提交对局状态动作 |
+| `POST` / `PUT` | `/matches/v2/{id}/actions` | 获取或提交编码后的对局动作 |
+| `POST` | `/matches/v2/{id}/mulligan` | 提交调度换牌 |
+| `GET` | `/matches/v2/{id}/mulligan/{location}` | 获取指定侧调度结果 |
+| `GET` | `/matches/v2/{id}/post` | 结算并离开对局 |
+
+## 管理接口
+
+> 管理接口已内置保护：`adminApiKey` 留空时仅允许 `127.0.0.1`/loopback 访问；配置 `adminApiKey` 后必须携带 `X-Admin-Key` 请求头。仍建议不要将管理接口直接暴露到公网。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/admin/users/count` | 获取用户总数 |
+| `GET` | `/admin/users/list` | 获取用户列表 |
+| `DELETE` | `/admin/users/{userId}` | 删除用户并断开其 WebSocket |
+| `POST` | `/admin/users/{userId}/ban` | 封禁用户，发送 `disconnect` 消息并关闭其 WebSocket |
+| `POST` | `/admin/users/{userId}/unban` | 解除用户封禁 |
+| `POST` | `/admin/users/{userId}/kick?reason=...` | 踢出在线用户：发送 `disconnect` 后关闭其 WebSocket，不封禁账户 |
+
+# WebSocket
+
+WebSocket 监听 `setting.json` 的 `portWs`。支持 `ping`、`touchcard`、`emoji`、`notification` 通道；服务器主动踢出或封禁时发送 `channel: "disconnect"`，随后以 `PolicyViolation` 关闭连接。
+
 # 相关项目
 
-- [FyClient](https://github.com/CCB-TEAM/FyClient) —— 虚拟测试客户端，覆盖登录/卡组/匹配/对局全流程，用于对服务器做端到端验证
+- [FyClient](https://github.com/CCB-TEAM/FyClient) —— 虚拟测试客户端，覆盖登录/卡组/匹配/对局/封禁全流程，用于对服务器做端到端验证

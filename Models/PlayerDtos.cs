@@ -112,11 +112,11 @@ public record ItemsResponse(
 /// <summary>WebSocket 消息。MatchId 用 JsonElement 宽容接收（客户端可能发数字/字符串/缺失）。</summary>
 public record WebSocketMessage(
     string Timestamp,
-    string Context = "",
+    string? Context = "",
     string Message = "",
     string Channel = "",
-    string Sender = "",
-    string Receiver = "",
+    string? Sender = "",
+    string? Receiver = "",
     JsonElement? MatchId = null
 );
 

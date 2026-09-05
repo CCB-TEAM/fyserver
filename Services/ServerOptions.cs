@@ -14,6 +14,8 @@ public class ServerOptions
     public int portHttp { get; set; } = 5231;
     public bool bancheat { get; set; } = false;
     public string ip { get; set; } = "0.0.0.0";
+    /// <summary>管理 API 密钥；为空时管理接口仅允许 loopback 访问。</summary>
+    public string adminApiKey { get; set; } = "";
 
     // 监听地址固定 0.0.0.0（与原实现一致）；R 版本用配置的 ip 生成客户端可达地址
     public string GetAddressWs() => $"http://0.0.0.0:{portWs}";
@@ -42,6 +44,7 @@ public class ServerOptions
         portHttp = loaded.portHttp;
         ip = loaded.ip;
         bancheat = loaded.bancheat;
+        adminApiKey = loaded.adminApiKey ?? "";
     }
 
     public void Write()

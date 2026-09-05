@@ -18,11 +18,12 @@ public class WebSocketServer
                 var webSocket = await context.WebSockets.AcceptWebSocketAsync();
                 var auth = context.Request.Headers["Authorization"].FirstOrDefault();
                 var userId = 0;
+                Models.User? user = null;
                 if (!string.IsNullOrEmpty(auth))
                 {
                     try
                     {
-                        var user = await users.GetByUserNameAsync(codec.Decode(auth, out _));
+                        user = await users.GetByUserNameAsync(codec.Decode(auth, out _));
                         if (user == null)
                             userId = -1; // 未认证用户
                         else
@@ -38,9 +39,25 @@ public class WebSocketServer
                     userId = -1;
                 }
 
-                hub.RegisterClient(userId, webSocket);
-                await HandleWebSocketAsync(webSocket, userId, hub);
-                hub.UnregisterClient(userId);
+                // 未认证连接不进入共享连接表，避免 -1/-2 槽位互相覆盖并使用 WS 协议。
+                if (userId <= 0 || user == null)
+                {
+                    await webSocket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Authentication required", CancellationToken.None);
+                    return;
+                }
+
+                await hub.RegisterClientAsync(userId, webSocket);
+                // 注册后重新读取状态，避免并发封禁发生在首次查询与注册之间。
+                user = await users.GetByIdAsync(userId);
+                if (user?.Banned == true)
+                {
+                    await hub.DisconnectAsync(userId, "该账户已被封禁");
+                }
+                else
+                {
+                    await HandleWebSocketAsync(webSocket, userId, hub);
+                }
+                hub.UnregisterClient(userId, webSocket);
             }
             else
             {

@@ -71,7 +71,7 @@ public static class MatchEndpoints
         app.MapGet("/matches/v2/{id}", (int id) => Results.Text("running"));
 
         app.MapPut("/matches/v2/{id}/", async (int id, JsonElement payload, HttpContext context,
-            AuthService auth, UserStoreService users, MatchManagerService matches, ServerOptions options) =>
+            AuthService auth, UserStoreService users, MatchManagerService matches, ServerOptions options, WebSocketHubService webSockets) =>
         {
             var user = await auth.GetUserFromAuthAsync(context);
             if (user == null)
@@ -89,10 +89,10 @@ public static class MatchEndpoints
             // 反作弊检查
             if (options.bancheat && matchAction.ActionType == GameConstants.XActionCheat)
             {
-                // TODO: WebSocket 发送封禁消息
                 user.Banned = true;
                 await users.SaveUserAsync(user);
                 match.WinnerSide = user.Id == match.Left?.PlayerId ? "right" : "left";
+                await webSockets.DisconnectAsync(user.Id, "该账户已被封禁");
                 return Results.Ok(new EmptyResponseDto());
             }
 
@@ -156,7 +156,7 @@ public static class MatchEndpoints
         )));
 
         app.MapPost("/matches/v2/{id}/actions", async (int id, MatchActionEn matchActionen, HttpContext context,
-            AuthService auth, UserStoreService users, MatchManagerService matches, ServerOptions options) =>
+            AuthService auth, UserStoreService users, MatchManagerService matches, ServerOptions options, WebSocketHubService webSockets) =>
         {
             var user = await auth.GetUserFromAuthAsync(context);
             if (user == null)
@@ -176,10 +176,10 @@ public static class MatchEndpoints
             // 反作弊检查
             if (options.bancheat && matchAction.ActionType == GameConstants.XActionCheat)
             {
-                // TODO: WebSocket 发送封禁消息
                 user.Banned = true;
                 await users.SaveUserAsync(user);
                 match.WinnerSide = user.Id == match.Left?.PlayerId ? "right" : "left";
+                await webSockets.DisconnectAsync(user.Id, "该账户已被封禁");
                 return Results.Ok(new EmptyResponseDto());
             }
 

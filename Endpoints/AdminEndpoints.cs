@@ -29,17 +29,18 @@ public static class AdminEndpoints
             return Results.Ok(simplifiedUsers);
         });
 
-        app.MapDelete("/admin/users/{userId}", async (int userId, UserStoreService users) =>
+        app.MapDelete("/admin/users/{userId}", async (int userId, UserStoreService users, WebSocketHubService webSockets) =>
         {
             var user = await users.GetByIdAsync(userId);
             if (user == null)
                 return Results.NotFound($"User with ID {userId} not found");
 
+            await webSockets.DisconnectAsync(userId, "该账户已被删除");
             await users.DeleteUserAsync(userId);
             return Results.Ok(new MessageResponseDto($"User {userId} deleted successfully"));
         });
 
-        app.MapPost("/admin/users/{userId}/ban", async (int userId, UserStoreService users) =>
+        app.MapPost("/admin/users/{userId}/ban", async (int userId, UserStoreService users, WebSocketHubService webSockets) =>
         {
             var user = await users.GetByIdAsync(userId);
             if (user == null)
@@ -47,6 +48,7 @@ public static class AdminEndpoints
 
             user.Banned = true;
             await users.SaveUserAsync(user);
+            await webSockets.DisconnectAsync(userId, "该账户已被封禁");
             return Results.Ok(new MessageResponseDto($"User {userId} banned successfully"));
         });
 
@@ -59,6 +61,19 @@ public static class AdminEndpoints
             user.Banned = false;
             await users.SaveUserAsync(user);
             return Results.Ok(new MessageResponseDto($"User {userId} unbanned successfully"));
+        });
+
+        app.MapPost("/admin/users/{userId}/kick", async (int userId, string? reason, UserStoreService users, WebSocketHubService webSockets) =>
+        {
+            var user = await users.GetByIdAsync(userId);
+            if (user == null)
+                return Results.NotFound($"User with ID {userId} not found");
+
+            var message = string.IsNullOrWhiteSpace(reason) ? "您已被服务器断开连接" : reason;
+            var disconnected = await webSockets.DisconnectAsync(userId, message);
+            return Results.Ok(new MessageResponseDto(disconnected
+                ? $"User {userId} kicked successfully"
+                : $"User {userId} is not connected"));
         });
 
         return app;

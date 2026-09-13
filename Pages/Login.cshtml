@@ -22,7 +22,7 @@
 
         .login-card {
             width: 100%;
-            max-width: 380px;
+            max-width: 430px;
             background: #fff;
             border: 1px solid var(--md-outline);
             border-radius: 16px;
@@ -34,6 +34,12 @@
             margin: 0 0 4px;
             font-size: 20px;
             font-weight: 500;
+        }
+
+        .login-card code {
+            background: var(--md-surface-variant);
+            border-radius: 4px;
+            padding: 1px 5px;
         }
     </style>
 </head>
@@ -52,7 +58,7 @@
             <div class="banner banner--err">@err</div>
         }
 
-        @if (Model.KeyConfigured)
+        @if (Model.CanLogin)
         {
             <form method="post">
                 <div class="field">
@@ -62,14 +68,28 @@
                 <button type="submit" class="btn" style="width:100%">登录</button>
             </form>
         }
+        else if (Model.IsLoopback)
+        {
+            <div class="banner banner--ok">
+                服务器未配置 <span class="mono">adminApiKey</span>，当前为「仅本机可访问」模式，无需登录。
+            </div>
+            <a class="btn" href="/admin/index" style="width:100%;text-align:center">进入后台</a>
+        }
         else
         {
-            <p>当前未配置管理密钥，本机访问可直接进入后台。</p>
-            <a class="btn" href="/admin">进入后台</a>
+            <div class="banner banner--err">
+                服务器未配置 <span class="mono">adminApiKey</span>，后台仅允许本机（loopback）访问，远程无法登录。
+            </div>
+            <p class="muted">
+                如需远程管理，请在服务端 <span class="mono">setting.json</span> 中填写
+                <span class="mono">adminApiKey</span> 后重启服务，再回到本页用该密钥登录；
+                也可以用 <span class="mono">X-Admin-Key</span> 请求头直接调用 <span class="mono">/admin/*</span> API。
+            </p>
+            <a class="btn btn--outline" href="/admin/login" style="width:100%;text-align:center">重新检查</a>
         }
 
         <p class="muted" style="margin-bottom:0">
-            <a href="/admin">返回后台首页</a>
+            <a href="/admin/index">返回后台首页</a>
         </p>
     </div>
 </div>

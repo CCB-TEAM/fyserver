@@ -175,7 +175,9 @@ fyserver/
 
 # 后台管理
 
-Razor Pages + 自包含 Material 主题（`wwwroot/admin-assets/admin.css`，无外部 CDN 依赖）。后台页面与 `/admin/*` 管理 API 一样受 `AdminAuthorizationMiddleware` 保护：本机访问直接放行；远程需携带 `X-Admin-Key`，或在 `/admin/login` 输入 `setting.json` 中的 `adminApiKey` 换取签名 Cookie（SameSite=Strict，有效期 7 天）。
+Razor Pages + 自包含 Material 主题（`wwwroot/admin-assets/admin.css`，无外部 CDN 依赖）。后台页面与 `/admin/*` 管理 API 一样受 `AdminAuthorizationMiddleware` 保护：本机（loopback）访问直接放行；远程需携带 `X-Admin-Key`，或在 `/admin/login` 输入 `setting.json` 中的 `adminApiKey` 换取签名 Cookie（SameSite=Strict，有效期 7 天）。
+
+未配置 `adminApiKey` 时后台处于「仅本机可访问」模式：远程访问 `/admin/*` 返回 `401`，登录页不再显示表单，而是明确说明需在服务端 `setting.json` 填写 `adminApiKey` 后重启（避免出现「输入任何密钥都提示错误」的死循环）。退出登录会在服务端清除会话 Cookie；由于会话为无状态 HMAC 签名，已泄漏的旧 Cookie 在 7 天内仍有效，必要时请更换 `adminApiKey` 使其立即失效。
 
 | 路径 | 说明 |
 |---|---|

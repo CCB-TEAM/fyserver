@@ -1,4 +1,3 @@
-using System.Net;
 using fyserver.Services;
 
 namespace fyserver.Middleware;
@@ -26,14 +25,15 @@ public sealed class AdminAuthorizationMiddleware
             return;
         }
 
-        // 登录页始终放行
+        // 登录页始终放行：未配置 adminApiKey 时由页面本身给出「仅本机可访问」的说明，
+        // 避免远程用户拿到一个无法操作的 401 页面。
         if (context.Request.Path.Equals("/admin/login", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
         }
 
-        var isLoopback = context.Connection.RemoteIpAddress is { } remoteAddress && IPAddress.IsLoopback(remoteAddress);
+        var isLoopback = ClientAddress.IsLoopback(context);
 
         var authorized = isLoopback ||
                          AdminAuth.ValidateSession(context.Request.Cookies[AdminAuth.CookieName], options) ||

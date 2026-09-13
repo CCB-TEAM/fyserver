@@ -257,6 +257,25 @@ public class MatchManagerService
         return null;
     }
 
+    /// <summary>真人之间的对局（排除 -9178 人机占位）。后台监控使用。</summary>
+    public List<MatchInfo> GetActiveRealMatches()
+    {
+        return MatchedPairs.Values
+            .Where(m => (m.Left?.PlayerId ?? -1) > 0 || (m.Right?.PlayerId ?? -1) > 0)
+            .OrderBy(m => m.MatchId)
+            .ToList();
+    }
+
+    /// <summary>强制移除对局。后台页面清理异常残留对局使用。</summary>
+    public bool RemoveMatch(int matchId)
+    {
+        if (!MatchedPairs.TryRemove(matchId, out var match))
+            return false;
+
+        ClearMatchRuntimeState(match);
+        return true;
+    }
+
     public MatchInfo? GetMatch(int matchId)
     {
         return MatchedPairs.TryGetValue(matchId, out var match) ? match : null;

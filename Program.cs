@@ -8,12 +8,12 @@ using Microsoft.AspNetCore.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-// ==================== ÅäÖÃÓë¹²Ïí·şÎñ ====================
-// µ¥ÀıÊµÀıÓÉ±¾½ø³ÌÏÔÊ½´´½¨£¬HTTP Óë WebSocket ºÏ²¢µ½Í¬Ò»¸ö host£¬
-// ´Ó¶ø¹²ÏíÓÃ»§´æ´¢ / Æ¥Åä¶ÓÁĞ / WebSocket Á¬½Ó±íµÈÔËĞĞÊ±×´Ì¬¡£
+// ==================== é…ç½®ä¸å…±äº«æœåŠ¡ ====================
+// å•ä¾‹å®ä¾‹ç”±æœ¬è¿›ç¨‹æ˜¾å¼åˆ›å»ºï¼ŒHTTP ä¸ WebSocket åˆå¹¶åˆ°åŒä¸€ä¸ª hostï¼Œ
+// ä»è€Œå…±äº«ç”¨æˆ·å­˜å‚¨ / åŒ¹é…é˜Ÿåˆ— / WebSocket è¿æ¥è¡¨ç­‰è¿è¡Œæ—¶çŠ¶æ€ã€‚
 
 var serverOptions = new ServerOptions();
-serverOptions.ReadFromFile(); // ¶Á ./setting.json£»²»´æÔÚÔòÉú³ÉÄ¬ÈÏÅäÖÃ
+serverOptions.ReadFromFile(); // è¯» ./setting.jsonï¼›ä¸å­˜åœ¨åˆ™ç”Ÿæˆé»˜è®¤é…ç½®
 
 var fasterKv = new FasterKvService();
 var users = new UserStoreService(fasterKv);
@@ -24,6 +24,10 @@ var storeConfig = new StoreConfigService();
 var webSocketHub = new WebSocketHubService();
 var auth = new AuthService(users, codec);
 var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions);
+
+// ==================== åå°ï¼ˆRazor é¡µé¢ï¼‰æœåŠ¡ ====================
+var adminUsers = new AdminUserService(users, webSocketHub);
+var frontpage = new FrontpageConfigService();
 
 void RegisterSharedServices(IServiceCollection services)
 {
@@ -36,16 +40,19 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(webSocketHub);
     services.AddSingleton(auth);
     services.AddSingleton(matches);
+    services.AddSingleton(adminUsers);
+    services.AddSingleton(frontpage);
 }
 
-// ============ HTTP host£¨º¬ WebSocket ¶Ëµã£¬¹²ÓÃÍ¬Ò»¶Ë¿Ú£© ============
+// ============ HTTP hostï¼ˆå« WebSocket ç«¯ç‚¹ï¼Œå…±ç”¨åŒä¸€ç«¯å£ï¼‰ ============
 var httpBuilder = WebApplication.CreateSlimBuilder();
 RegisterSharedServices(httpBuilder.Services);
+httpBuilder.Services.AddAdminRazorPages();
 httpBuilder.WebHost.UseUrls(serverOptions.GetAddressHttp());
 httpBuilder.Services.Configure<JsonOptions>(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
-    // ´¿Ô´Éú³É£ºNativeAOT ¼æÈİ£¨ËùÓĞÏìÓ¦ÀàĞÍ×¢²áµ½ FyJsonContext£©
+    // çº¯æºç”Ÿæˆï¼šNativeAOT å…¼å®¹ï¼ˆæ‰€æœ‰å“åº”ç±»å‹æ³¨å†Œåˆ° FyJsonContextï¼‰
     options.SerializerOptions.TypeInfoResolverChain.Clear();
     options.SerializerOptions.TypeInfoResolverChain.Add(FyJsonContext.Default);
 });
@@ -54,7 +61,7 @@ var httpApp = httpBuilder.Build();
 
 httpApp.UseMiddleware<PathNormalizationMiddleware>();
 
-// È«¾ÖÒì³£´¦Àí£ºÍ³Ò»·µ»Ø JSON 500
+// å…¨å±€å¼‚å¸¸å¤„ç†ï¼šç»Ÿä¸€è¿”å› JSON 500
 httpApp.UseExceptionHandler(exceptionHandlerApp =>
 {
     exceptionHandlerApp.Run(async context =>
@@ -72,13 +79,13 @@ httpApp.UseExceptionHandler(exceptionHandlerApp =>
     });
 });
 
-// WebSocket ¶Ëµã£ºÓë HTTP ¹²ÓÃÍ¬Ò»¶Ë¿ÚÓë¹ÜÏß£¨·Ç WS ÇëÇó¼ÌĞø×ßºóÃæµÄ HTTP ¹ÜÏß£©
+// WebSocket ç«¯ç‚¹ï¼šä¸ HTTP å…±ç”¨åŒä¸€ç«¯å£ä¸ç®¡çº¿ï¼ˆé WS è¯·æ±‚ç»§ç»­èµ°åé¢çš„ HTTP ç®¡çº¿ï¼‰
 httpApp.MapWebSocketEndpoint();
 
 httpApp.UseMiddleware<ContentTypeCleanupMiddleware>();
 httpApp.UseMiddleware<AdminAuthorizationMiddleware>();
 
-// ÏÔÊ½Â·ÓÉ×¢²á£º±£Ö¤ PathNormalizationMiddleware ¶Ô // Â·¾¶µÄ¸ÄĞ´ÏÈÓÚÂ·ÓÉÆ¥ÅäÉúĞ§
+// æ˜¾å¼è·¯ç”±æ³¨å†Œï¼šä¿è¯ PathNormalizationMiddleware å¯¹ // è·¯å¾„çš„æ”¹å†™å…ˆäºè·¯ç”±åŒ¹é…ç”Ÿæ•ˆ
 httpApp.UseRouting();
 
 httpApp.MapUserEndpoints();
@@ -87,8 +94,12 @@ httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();
 httpApp.MapMatchEndpoints();
 httpApp.MapAdminEndpoints();
+// åå°é™æ€èµ„æºï¼ˆwwwroot/admin-assets/*ï¼‰ï¼šCreateSlimBuilder é»˜è®¤æœªå¯ç”¨é™æ€æ–‡ä»¶ä¸­é—´ä»¶
+httpApp.UseStaticFiles();
+httpApp.MapRazorPages();
 
-// Î´ÕÒµ½Â·ÓÉµÄ´¦Àí
+
+// æœªæ‰¾åˆ°è·¯ç”±çš„å¤„ç†
 httpApp.UseStatusCodePages(async statusCodeContext =>
 {
     var response = statusCodeContext.HttpContext.Response;
@@ -105,27 +116,27 @@ httpApp.UseStatusCodePages(async statusCodeContext =>
     }
 });
 
-// Êı¾İ¿â³õÊ¼»¯ºÍÇåÀí
+// æ•°æ®åº“åˆå§‹åŒ–å’Œæ¸…ç†
 httpApp.Lifetime.ApplicationStarted.Register(() =>
 {
     Console.WriteLine($"Application started on {serverOptions.GetAddressHttp()}");
     Console.WriteLine($"WebSocket endpoint: {serverOptions.GetAddressWsR()}");
-    Console.WriteLine("Faster ÒÑ×¼±¸");
+    Console.WriteLine("Faster å·²å‡†å¤‡");
 });
 httpApp.Lifetime.ApplicationStopping.Register(() =>
 {
     Console.WriteLine("Application stopping. Cleaning up...");
-    fasterKv.Dispose(); // ÃİµÈ
+    fasterKv.Dispose(); // å¹‚ç­‰
 });
 
 Console.ForegroundColor = ConsoleColor.Blue;
-Console.WriteLine("ÕıÔÚÆô¶¯http·şÎñÆ÷");
-Console.WriteLine("µÈ´ıÁ½ÃëÈ·±£³õÊ¼»¯³É¹¦");
+Console.WriteLine("æ­£åœ¨å¯åŠ¨httpæœåŠ¡å™¨");
+Console.WriteLine("ç­‰å¾…ä¸¤ç§’ç¡®ä¿åˆå§‹åŒ–æˆåŠŸ");
 if (File.Exists("./YCDR"))
-    Console.WriteLine("·¢ÏÖ³Ö¾Ã»¯Êı¾İ£¬ÒÑ¼ÓÔØ");
+    Console.WriteLine("å‘ç°æŒä¹…åŒ–æ•°æ®ï¼Œå·²åŠ è½½");
 Console.ForegroundColor = ConsoleColor.White;
 
 _ = httpApp.RunAsync();
 
-// ==================== ¿ØÖÆÌ¨ÃüÁîÑ­»·£¨×èÈûÖ÷Ïß³Ì£© ====================
+// ==================== æ§åˆ¶å°å‘½ä»¤å¾ªç¯ï¼ˆé˜»å¡ä¸»çº¿ç¨‹ï¼‰ ====================
 Command.StartCommandLoop(users, storeConfig, matches);

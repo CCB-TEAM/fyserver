@@ -1,12 +1,28 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
-	  <PublishAot>true</PublishAot>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- 反射 JSON 序列化关闭：全部走源生成上下文（FyJsonContext / ConfigJsonContext / StoreJsonContext），NativeAOT 兼容 -->
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+  <!--
+    NativeAOT 开关。默认开启（游戏 API 完全 AOT 兼容）；
+    但 Razor 后台页面依赖 MVC 的运行时反射（ApplicationPartFactory 需解析
+    Microsoft.AspNetCore.Mvc.ApplicationParts.ConsolidatedAssemblyApplicationPartFactory），
+    该类型在 NativeAOT 下不可用，AOT 产物会在启动时抛 TypeLoadException。
+    因此含后台的发布请使用：dotnet publish -c Release -r win-x64 -p:EnableAot=false
+  -->
+  <PropertyGroup>
+    <EnableAot Condition="'$(EnableAot)' == ''">true</EnableAot>
+    <PublishAot>$(EnableAot)</PublishAot>
+  </PropertyGroup>
+
+  <!-- Razor Pages/MVC 声明不支持裁剪与 AOT，添加后台后必然产生 IL2026/IL3053；此处统一降噪 -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);IL2026;IL2104;IL3053</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

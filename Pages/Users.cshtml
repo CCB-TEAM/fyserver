@@ -1,0 +1,91 @@
+@page
+@model fyserver.Pages.UsersModel
+@{
+    ViewData["Title"] = "用户";
+    ViewData["Active"] = "users";
+}
+
+<div class="page-head">
+    <h1>用户管理</h1>
+    <p>共 @Model.Users.Count 个账户。封禁与踢出都会发送 WebSocket disconnect 并立即关闭连接。</p>
+</div>
+
+<form method="get" class="search-row">
+    <div class="field">
+        <label for="q">搜索（ID / 用户名 / 昵称）</label>
+        <input type="text" id="q" name="q" value="@Model.Query" placeholder="例如 1001 或 player" />
+    </div>
+    <button type="submit" class="btn">搜索</button>
+    <a class="btn btn--outline" href="/admin/users">清除</a>
+</form>
+
+<div class="card">
+    <div class="table-wrap">
+        <table class="md-table">
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>昵称</th>
+                <th>Tag</th>
+                <th>卡组</th>
+                <th>状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            @if (Model.Users.Count == 0)
+            {
+                <tr>
+                    <td colspan="8" class="empty">没有匹配的用户</td>
+                </tr>
+            }
+            @foreach (var user in Model.Users)
+            {
+                var online = Model.OnlineIds.Contains(user.Id);
+                <tr>
+                    <td class="mono">@user.Id</td>
+                    <td><a href="/admin/user?id=@user.Id">@user.UserName</a></td>
+                    <td>@user.Name</td>
+                    <td class="mono">@user.Tag</td>
+                    <td>@user.Decks.Count</td>
+                    <td>
+                        @if (user.Banned)
+                        {
+                            <span class="chip chip--err">已封禁</span>
+                        }
+                        @if (online)
+                        {
+                            <span class="chip chip--ok">在线</span>
+                        }
+                        @if (!user.Banned && !online)
+                        {
+                            <span class="chip chip--off">离线</span>
+                        }
+                    </td>
+                    <td class="mono">@user.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                    <td class="actions">
+                        <form method="post" class="inline-form">
+                            <input type="hidden" name="userId" value="@user.Id" />
+                            @if (user.Banned)
+                            {
+                                <button type="submit" name="op" value="unban" class="btn btn--small btn--outline">解封</button>
+                            }
+                            else
+                            {
+                                <button type="submit" name="op" value="ban" class="btn btn--small btn--outline"
+                                        data-confirm="确认封禁 @user.UserName（@user.Id）？该账户将被断开并禁止登录。">封禁</button>
+                            }
+                            <button type="submit" name="op" value="kick" class="btn btn--small btn--outline"
+                                    data-confirm="确认踢出 @user.UserName（@user.Id）？仅断开当前连接，不封禁账户。">踢出</button>
+                            <button type="submit" name="op" value="delete" class="btn btn--small btn--danger"
+                                    data-confirm="确认删除 @user.UserName（@user.Id）？该操作不可恢复！">删除</button>
+                        </form>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

@@ -3,6 +3,10 @@ using fyserver.Models;
 
 namespace fyserver.Endpoints;
 
+/// <summary>
+/// 管理 API。封禁/踢出/删除统一走 AdminUserService，
+/// 与 Razor 后台页面共用同一套流程（都会向 WebSocket 发送 disconnect 后关闭连接）。
+/// </summary>
 public static class AdminEndpoints
 {
     public static IEndpointRouteBuilder MapAdminEndpoints(this IEndpointRouteBuilder app)
@@ -29,51 +33,28 @@ public static class AdminEndpoints
             return Results.Ok(simplifiedUsers);
         });
 
-        app.MapDelete("/admin/users/{userId}", async (int userId, UserStoreService users, WebSocketHubService webSockets) =>
+        app.MapDelete("/admin/users/{userId}", async (int userId, AdminUserService adminUsers) =>
         {
-            var user = await users.GetByIdAsync(userId);
-            if (user == null)
-                return Results.NotFound($"User with ID {userId} not found");
-
-            await webSockets.DisconnectAsync(userId, "该账户已被删除");
-            await users.DeleteUserAsync(userId);
-            return Results.Ok(new MessageResponseDto($"User {userId} deleted successfully"));
+            var (ok, message) = await adminUsers.DeleteAsync(userId);
+            return ok ? Results.Ok(new MessageResponseDto(message)) : Results.NotFound(message);
         });
 
-        app.MapPost("/admin/users/{userId}/ban", async (int userId, UserStoreService users, WebSocketHubService webSockets) =>
+        app.MapPost("/admin/users/{userId}/ban", async (int userId, AdminUserService adminUsers) =>
         {
-            var user = await users.GetByIdAsync(userId);
-            if (user == null)
-                return Results.NotFound($"User with ID {userId} not found");
-
-            user.Banned = true;
-            await users.SaveUserAsync(user);
-            await webSockets.DisconnectAsync(userId, "该账户已被封禁");
-            return Results.Ok(new MessageResponseDto($"User {userId} banned successfully"));
+            var (ok, message) = await adminUsers.BanAsync(userId);
+            return ok ? Results.Ok(new MessageResponseDto(message)) : Results.NotFound(message);
         });
 
-        app.MapPost("/admin/users/{userId}/unban", async (int userId, UserStoreService users) =>
+        app.MapPost("/admin/users/{userId}/unban", async (int userId, AdminUserService adminUsers) =>
         {
-            var user = await users.GetByIdAsync(userId);
-            if (user == null)
-                return Results.NotFound($"User with ID {userId} not found");
-
-            user.Banned = false;
-            await users.SaveUserAsync(user);
-            return Results.Ok(new MessageResponseDto($"User {userId} unbanned successfully"));
+            var (ok, message) = await adminUsers.UnbanAsync(userId);
+            return ok ? Results.Ok(new MessageResponseDto(message)) : Results.NotFound(message);
         });
 
-        app.MapPost("/admin/users/{userId}/kick", async (int userId, string? reason, UserStoreService users, WebSocketHubService webSockets) =>
+        app.MapPost("/admin/users/{userId}/kick", async (int userId, string? reason, AdminUserService adminUsers) =>
         {
-            var user = await users.GetByIdAsync(userId);
-            if (user == null)
-                return Results.NotFound($"User with ID {userId} not found");
-
-            var message = string.IsNullOrWhiteSpace(reason) ? "您已被服务器断开连接" : reason;
-            var disconnected = await webSockets.DisconnectAsync(userId, message);
-            return Results.Ok(new MessageResponseDto(disconnected
-                ? $"User {userId} kicked successfully"
-                : $"User {userId} is not connected"));
+            var (ok, message) = await adminUsers.KickAsync(userId, reason);
+            return ok ? Results.Ok(new MessageResponseDto(message)) : Results.NotFound(message);
         });
 
         return app;

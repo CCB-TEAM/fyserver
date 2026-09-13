@@ -70,6 +70,12 @@ public class WebSocketHubService
         return false;
     }
 
+    /// <summary>当前有效的 WebSocket 连接数（同一用户只计一条）。后台概览使用。</summary>
+    public int OnlineCount => _usersById.Count;
+
+    /// <summary>当前有效连接对应的用户 ID 快照。后台页面标记在线用户使用。</summary>
+    public int[] OnlineUserIds() => _usersById.Keys.ToArray();
+
     /// <summary>
     /// 向玩家发送参考服务端兼容的 disconnect 消息并关闭其 WebSocket。
     /// HTTP 请求本身不会被强制断开。

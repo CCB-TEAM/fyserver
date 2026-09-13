@@ -1,0 +1,46 @@
+@{
+    string? current = ViewData["Active"] as string;
+}
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · fyserver 后台</title>
+    <link rel="stylesheet" href="/admin-assets/admin.css" />
+</head>
+<body>
+<header class="app-bar">
+    <div class="app-bar__title">
+        <span class="brand-dot"></span>
+        <span>fyserver 后台</span>
+    </div>
+    <nav class="app-bar__nav">
+        <a class="nav-link @(current == "overview" ? "is-active" : "")" href="/admin/index">概览</a>
+        <a class="nav-link @(current == "users" ? "is-active" : "")" href="/admin/users">用户</a>
+        <a class="nav-link @(current == "matches" ? "is-active" : "")" href="/admin/matches">对局</a>
+        <a class="nav-link @(current == "frontpage" ? "is-active" : "")" href="/admin/frontpage">首页公告</a>
+    </nav>
+    <div class="app-bar__end">
+        <span class="app-bar__hint">@DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</span>
+    </div>
+</header>
+
+<main class="page">
+    @if (TempData["Message"] is string ok)
+    {
+        <div class="banner banner--ok" role="status">@ok</div>
+    }
+    @if (TempData["Error"] is string err)
+    {
+        <div class="banner banner--err" role="alert">@err</div>
+    }
+    @RenderBody()
+</main>
+
+<footer class="page-footer">
+    <span>fyserver · Razor 后台（Material 主题）</span>
+</footer>
+<script src="/admin-assets/admin.js"></script>
+</body>
+</html>

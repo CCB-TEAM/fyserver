@@ -1,0 +1,63 @@
+@page
+@model fyserver.Pages.FrontpageModel
+@{
+    ViewData["Title"] = "首页公告";
+    ViewData["Active"] = "frontpage";
+}
+
+<div class="page-head">
+    <h1>首页 / 公告配置</h1>
+    <p>
+        编辑 <span class="mono">@Model.FilePath</span>，保存前会校验 JSON 并备份为
+        <span class="mono">frontpage.json.bak</span>。客户端下次请求 <span class="mono">/fp/</span> 时生效。
+    </p>
+</div>
+
+<div class="card-grid">
+    <div class="stat-card">
+        <div class="stat-card__label">elements</div>
+        <div class="stat-card__value">@Model.ElementCount</div>
+        <div class="stat-card__hint">主页展示元素</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card__label">targeted</div>
+        <div class="stat-card__value">@Model.TargetedCount</div>
+        <div class="stat-card__hint">定向展示元素</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card__label">文件大小</div>
+        <div class="stat-card__value">@Model.FileSize</div>
+        <div class="stat-card__hint">字节</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card__label">最后修改</div>
+        <div class="stat-card__value" style="font-size:16px">@Model.LastWriteTime</div>
+        <div class="stat-card__hint">本地时间</div>
+    </div>
+</div>
+
+<form method="post">
+    <div class="card">
+        <h2>JSON 内容</h2>
+        <textarea id="Json" name="Json" spellcheck="false">@Model.Json</textarea>
+        <div class="btn-row" style="margin-top:14px">
+            <button type="submit" class="btn" data-confirm="确认保存 frontpage.json？原文件会被备份。">保存</button>
+            <button type="submit" asp-page-handler="Format" class="btn btn--outline">格式化</button>
+            <a class="btn btn--outline" href="/admin/frontpage">放弃修改</a>
+        </div>
+    </div>
+</form>
+
+<div class="card">
+    <h2>字段说明</h2>
+    <dl class="kv">
+        <dt>elements[]</dt>
+        <dd>首页轮播/卡片元素：<span class="mono">heading</span>、<span class="mono">sub_heading</span>、<span class="mono">image_url</span>、<span class="mono">link</span>、<span class="mono">startDate</span> / <span class="mono">endDate</span></dd>
+        <dt>targeted[]</dt>
+        <dd>定向展示元素，结构与 <span class="mono">elements</span> 相同</dd>
+        <dt>link 协议</dt>
+        <dd><span class="mono">kards:openpacks</span>、<span class="mono">kards:shop:category:featured</span>、<span class="mono">https://…</span></dd>
+        <dt>type</dt>
+        <dd>0 = 卡片，1 = 卡包槽位（配合 <span class="mono">slot</span>），2 = 弹窗广告</dd>
+    </dl>
+</div>

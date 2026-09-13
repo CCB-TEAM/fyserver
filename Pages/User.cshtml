@@ -1,0 +1,125 @@
+@page
+@model fyserver.Pages.UserModel
+@{
+    ViewData["Title"] = $"用户 {Model.UserId}";
+    ViewData["Active"] = "users";
+    var user = Model.Target!;
+}
+
+<div class="page-head">
+    <h1>@user.UserName <span class="muted mono">#@user.Id</span></h1>
+    <p>
+        <a href="/admin/users">← 返回用户列表</a>
+    </p>
+</div>
+
+<div class="card-grid">
+    <div class="stat-card">
+        <div class="stat-card__label">连接状态</div>
+        <div class="stat-card__value">@(Model.IsOnline ? "在线" : "离线")</div>
+        <div class="stat-card__hint">@(user.Banned ? "账户已封禁" : "账户正常")</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card__label">卡组数量</div>
+        <div class="stat-card__value">@user.Decks.Count</div>
+        <div class="stat-card__hint">装备物品 @user.EquippedItem.Count 件</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card__label">进行中对局</div>
+        <div class="stat-card__value">@(Model.ActiveMatch == null ? "—" : Model.ActiveMatch.MatchId.ToString())</div>
+        <div class="stat-card__hint">
+            @if (Model.ActiveMatch == null)
+            {
+                <span>当前无对局</span>
+            }
+            else
+            {
+                <span>@Model.ActiveMatch.PlayerStatusLeft / @Model.ActiveMatch.PlayerStatusRight</span>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>账户信息</h2>
+    <dl class="kv">
+        <dt>用户 ID</dt>
+        <dd class="mono">@user.Id</dd>
+        <dt>用户名</dt>
+        <dd>@user.UserName</dd>
+        <dt>昵称</dt>
+        <dd>@user.Name</dd>
+        <dt>Tag</dt>
+        <dd class="mono">@user.Tag</dd>
+        <dt>语言</dt>
+        <dd>@user.Locale</dd>
+        <dt>封禁状态</dt>
+        <dd>@(user.Banned ? "已封禁" : "正常")</dd>
+        <dt>创建时间</dt>
+        <dd>@user.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd>
+        <dt>最后更新</dt>
+        <dd>@user.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</dd>
+    </dl>
+</div>
+
+<div class="card">
+    <h2>管理操作</h2>
+    <form method="post">
+        <div class="field">
+            <label for="reason">踢出原因（可选，会通过 WebSocket 下发给客户端）</label>
+            <input type="text" id="reason" name="reason" placeholder="您已被服务器断开连接" />
+        </div>
+        <div class="btn-row">
+            @if (user.Banned)
+            {
+                <button type="submit" name="op" value="unban" class="btn">解封账户</button>
+            }
+            else
+            {
+                <button type="submit" name="op" value="ban" class="btn"
+                        data-confirm="确认封禁 @user.UserName（@user.Id）？">封禁账户</button>
+            }
+            <button type="submit" name="op" value="kick" class="btn btn--outline"
+                    data-confirm="确认踢出 @user.UserName（@user.Id）？">踢下线</button>
+            <button type="submit" name="op" value="delete" class="btn btn--danger"
+                    data-confirm="确认删除 @user.UserName（@user.Id）？该操作不可恢复！">删除账户</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2>卡组</h2>
+    <div class="table-wrap">
+        <table class="md-table">
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>名称</th>
+                <th>主阵营</th>
+                <th>副阵营</th>
+                <th>收藏</th>
+                <th>最后使用</th>
+            </tr>
+            </thead>
+            <tbody>
+            @if (user.Decks.Count == 0)
+            {
+                <tr>
+                    <td colspan="6" class="empty">该用户还没有卡组</td>
+                </tr>
+            }
+            @foreach (var deck in user.Decks.Values.OrderBy(d => d.Id))
+            {
+                <tr>
+                    <td class="mono">@deck.Id</td>
+                    <td>@deck.Name</td>
+                    <td>@deck.MainFaction</td>
+                    <td>@deck.AllyFaction</td>
+                    <td>@(deck.Favorite ? "★" : "—")</td>
+                    <td class="mono">@deck.LastPlayed.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

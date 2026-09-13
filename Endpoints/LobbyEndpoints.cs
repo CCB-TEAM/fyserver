@@ -1,4 +1,5 @@
 using fyserver.Models;
+using Microsoft.AspNetCore.Mvc;
 using fyserver.Services;
 
 namespace fyserver.Endpoints;
@@ -32,9 +33,20 @@ public static class LobbyEndpoints
             return Results.Text("OK");
         });
 
-        app.MapDelete("/lobbyplayers", (LobbyPlayer lobbyPlayer, MatchManagerService matches) =>
+        // 注意：这里显式标注 [FromBody]/[FromQuery]，不要依赖最小 API 的参数来源推断。
+        // 暴露了模型绑定相关服务的 host（例如注册 Razor Pages 会引入 JSON 输入格式化器）时，
+        // 对 DELETE 上的复杂类型做推断会得到 "Body was inferred but the method does not allow
+        // inferred body parameters" 并在启动时直接抛异常。
+        app.MapDelete("/lobbyplayers", ([FromBody] LobbyPlayer lobbyPlayer, MatchManagerService matches) =>
         {
             matches.RemovePlayerFromAllQueues(lobbyPlayer.PlayerId);
+            return Results.Ok(new StatusResponseDto(200));
+        });
+
+        // 兼容：把 PlayerId 放在查询串上的退出请求（DELETE /lobbyplayers?playerId=123）
+        app.MapDelete("/lobbyplayers/leave", ([FromQuery] int playerId, MatchManagerService matches) =>
+        {
+            matches.RemovePlayerFromAllQueues(playerId);
             return Results.Ok(new StatusResponseDto(200));
         });
 

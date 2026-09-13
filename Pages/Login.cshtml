@@ -1,0 +1,77 @@
+@page
+@model fyserver.Pages.LoginModel
+@{
+    Layout = null;
+    ViewData["Title"] = "登录";
+}
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>登录 · fyserver 后台</title>
+    <link rel="stylesheet" href="/admin-assets/admin.css" />
+    <style>
+        .login-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .login-card {
+            width: 100%;
+            max-width: 380px;
+            background: #fff;
+            border: 1px solid var(--md-outline);
+            border-radius: 16px;
+            box-shadow: var(--md-elevation-2);
+            padding: 28px 26px;
+        }
+
+        .login-card h1 {
+            margin: 0 0 4px;
+            font-size: 20px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+<div class="login-wrap">
+    <div class="login-card">
+        <h1>fyserver 后台</h1>
+        <p class="muted">使用 <span class="mono">setting.json</span> 中的 <span class="mono">adminApiKey</span> 登录。</p>
+
+        @if (TempData["Message"] is string ok)
+        {
+            <div class="banner banner--ok">@ok</div>
+        }
+        @if (TempData["Error"] is string err)
+        {
+            <div class="banner banner--err">@err</div>
+        }
+
+        @if (Model.KeyConfigured)
+        {
+            <form method="post">
+                <div class="field">
+                    <label for="Key">管理密钥</label>
+                    <input type="password" id="Key" name="Key" autocomplete="current-password" autofocus />
+                </div>
+                <button type="submit" class="btn" style="width:100%">登录</button>
+            </form>
+        }
+        else
+        {
+            <p>当前未配置管理密钥，本机访问可直接进入后台。</p>
+            <a class="btn" href="/admin">进入后台</a>
+        }
+
+        <p class="muted" style="margin-bottom:0">
+            <a href="/admin">返回后台首页</a>
+        </p>
+    </div>
+</div>
+</body>
+</html>

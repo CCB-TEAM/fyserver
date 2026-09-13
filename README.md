@@ -68,7 +68,7 @@ dotnet build FYServer.sln
 dotnet run --project fyserver.csproj
 ```
 
-- HTTP 端口默认 `5231`、WebSocket 端口默认 `5232`，可在 `setting.json` 中修改（`portHttp` / `portWs` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成；`adminApiKey` 留空时管理接口仅允许 loopback 访问，配置后通过 `X-Admin-Key` 请求头认证
+- HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成；`adminApiKey` 留空时管理接口仅允许 loopback 访问，配置后通过 `X-Admin-Key` 请求头认证
 - 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
 - 后台/无控制台环境下自动进入非交互模式，保持进程存活
 
@@ -84,7 +84,7 @@ dotnet publish fyserver.csproj -c Release -r win-x64 --self-contained true
 
 ```
 fyserver/
-├── Program.cs                  # Host 引导：配置 → DI 注册 → HTTP/WS 双 host 启动
+├── Program.cs                  # Host 引导：配置 → DI 注册 → 单 host（HTTP + WS 同端口）启动
 ├── Endpoints/                  # minimal API 分组（User/Player/Deck/Lobby/Match/Admin）
 ├── Services/                   # 服务层（UserStore/FasterKv/MatchManager/WebSocketHub/Codec/Auth…）
 ├── Models/                     # DTO 与实体
@@ -164,7 +164,7 @@ fyserver/
 
 # WebSocket
 
-WebSocket 监听 `setting.json` 的 `portWs`。支持 `ping`、`touchcard`、`emoji`、`notification` 通道；服务器主动踢出或封禁时发送 `channel: "disconnect"`，随后以 `PolicyViolation` 关闭连接。
+WebSocket 与 HTTP 共用 `setting.json` 的 `portHttp` 端口：任意路径上的 WebSocket 升级请求都由同一管线处理（客户端配置中的 `websocketurl` 为 `ws://<ip>:<portHttp>/`，登录响应里由服务端下发）。支持 `ping`、`touchcard`、`emoji`、`notification` 通道；服务器主动踢出或封禁时发送 `channel: "disconnect"`，随后以 `PolicyViolation` 关闭连接。
 
 # 相关项目
 

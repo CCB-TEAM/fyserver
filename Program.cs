@@ -9,7 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 // ==================== 配置与共享服务 ====================
-// 单例实例由本进程显式创建，HTTP 与 WebSocket 两个 host 注册同一批实例，
+// 单例实例由本进程显式创建，HTTP 与 WebSocket 合并到同一个 host，
 // 从而共享用户存储 / 匹配队列 / WebSocket 连接表等运行时状态。
 
 var serverOptions = new ServerOptions();
@@ -38,7 +38,7 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(matches);
 }
 
-// ==================== HTTP host ====================
+// ============ HTTP host（含 WebSocket 端点，共用同一端口） ============
 var httpBuilder = WebApplication.CreateSlimBuilder();
 RegisterSharedServices(httpBuilder.Services);
 httpBuilder.WebHost.UseUrls(serverOptions.GetAddressHttp());
@@ -71,6 +71,9 @@ httpApp.UseExceptionHandler(exceptionHandlerApp =>
             cancellationToken: context.RequestAborted);
     });
 });
+
+// WebSocket 端点：与 HTTP 共用同一端口与管线（非 WS 请求继续走后面的 HTTP 管线）
+httpApp.MapWebSocketEndpoint();
 
 httpApp.UseMiddleware<ContentTypeCleanupMiddleware>();
 httpApp.UseMiddleware<AdminAuthorizationMiddleware>();
@@ -106,6 +109,7 @@ httpApp.UseStatusCodePages(async statusCodeContext =>
 httpApp.Lifetime.ApplicationStarted.Register(() =>
 {
     Console.WriteLine($"Application started on {serverOptions.GetAddressHttp()}");
+    Console.WriteLine($"WebSocket endpoint: {serverOptions.GetAddressWsR()}");
     Console.WriteLine("Faster 已准备");
 });
 httpApp.Lifetime.ApplicationStopping.Register(() =>
@@ -122,15 +126,6 @@ if (File.Exists("./YCDR"))
 Console.ForegroundColor = ConsoleColor.White;
 
 _ = httpApp.RunAsync();
-
-// ==================== WebSocket host（独立端口） ====================
-await Task.Delay(2000);
-
-var wsBuilder = WebApplication.CreateSlimBuilder();
-RegisterSharedServices(wsBuilder.Services);
-var wsApp = wsBuilder.Build();
-WebSocketServer.Configure(wsApp, users, codec, webSocketHub);
-_ = wsApp.RunAsync(serverOptions.GetAddressWs());
 
 // ==================== 控制台命令循环（阻塞主线程） ====================
 Command.StartCommandLoop(users, storeConfig, matches);

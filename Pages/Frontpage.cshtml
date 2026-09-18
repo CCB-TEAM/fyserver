@@ -3,61 +3,175 @@
 @{
     ViewData["Title"] = "首页公告";
     ViewData["Active"] = "frontpage";
+    ViewData["BasePath"] = "/admin/frontpage";
+    ViewData["EmptyText"] = "还没有首页条目";
+    var entries = Model.Entries;
 }
 
 <div class="page-head">
-    <h1>首页 / 公告配置</h1>
-    <p>
-        编辑 <span class="mono">@Model.FilePath</span>，保存前会校验 JSON 并备份为
-        <span class="mono">frontpage.json.bak</span>。客户端下次请求 <span class="mono">/fp/</span> 时生效。
-    </p>
+    <h1>首页 / 公告</h1>
+    <p>数据文件 <span class="mono">@Model.ConfigPath</span>；兼容单串与多语言两种字段结构，保存统一写成 <span class="mono">entries</span> 并备份为 <span class="mono">.bak</span>。</p>
 </div>
 
-<div class="card-grid">
-    <div class="stat-card">
-        <div class="stat-card__label">elements</div>
-        <div class="stat-card__value">@Model.ElementCount</div>
-        <div class="stat-card__hint">主页展示元素</div>
+@if (Model.ShowList)
+{
+    <div class="btn-row" style="margin-bottom:16px">
+        <a class="btn" href="/admin/frontpage?new=1">新建首页条目</a>
+        <span class="muted">共 @entries.Count 条</span>
     </div>
-    <div class="stat-card">
-        <div class="stat-card__label">targeted</div>
-        <div class="stat-card__value">@Model.TargetedCount</div>
-        <div class="stat-card__hint">定向展示元素</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-card__label">文件大小</div>
-        <div class="stat-card__value">@Model.FileSize</div>
-        <div class="stat-card__hint">字节</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-card__label">最后修改</div>
-        <div class="stat-card__value" style="font-size:16px">@Model.LastWriteTime</div>
-        <div class="stat-card__hint">本地时间</div>
-    </div>
-</div>
 
-<form method="post">
     <div class="card">
-        <h2>JSON 内容</h2>
-        <textarea id="Json" name="Json" spellcheck="false">@Model.Json</textarea>
-        <div class="btn-row" style="margin-top:14px">
-            <button type="submit" class="btn" data-confirm="确认保存 frontpage.json？原文件会被备份。">保存</button>
-            <button type="submit" asp-page-handler="Format" class="btn btn--outline">格式化</button>
-            <a class="btn btn--outline" href="/admin/frontpage">放弃修改</a>
+        @await Html.PartialAsync("_ContentEntryList", entries)
+    </div>
+}
+else
+{
+    <div class="btn-row" style="margin-bottom:16px">
+        <a class="btn btn--outline" href="/admin/frontpage">← 返回列表</a>
+        <span class="muted">@Model.PageTitle</span>
+    </div>
+
+    <div class="split-2">
+        <form method="post" id="fp-form">
+            <div class="card">
+                <h2>条目设置</h2>
+                <div class="field">
+                    <label for="Name">后台名称（仅用于列表显示，写入 name）</label>
+                    <input type="text" id="Name" name="Name" value="@Model.Name" />
+                </div>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="Type">类型（content.type）</label>
+                        <select id="Type" name="Type">
+                            @foreach (var option in Model.TypeOptions)
+                            {
+                                var parts = option.Split('|');
+                                var value = int.Parse(parts[0]);
+                                <option value="@value" selected="@(Model.Type == value)">@parts[1]</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="IsPublished">发布状态</label>
+                        <select id="IsPublished" name="IsPublished">
+                            <option value="true" selected="@Model.IsPublished">已发布</option>
+                            <option value="false" selected="@(!Model.IsPublished)">未发布</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="StartDate">开始时间</label>
+                        <input type="text" id="StartDate" name="StartDate" value="@Model.StartDate" placeholder="2026-01-01 00:00:00" />
+                    </div>
+                    <div class="field">
+                        <label for="EndDate">结束时间</label>
+                        <input type="text" id="EndDate" name="EndDate" value="@Model.EndDate" placeholder="9999-12-31 23:59:00" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>内容（写入 "_" 默认语言，其它语言保留）</h2>
+                <div class="field">
+                    <label for="ImageUrl">图片地址（content.image_url）</label>
+                    <input type="text" id="ImageUrl" name="ImageUrl" value="@Model.ImageUrl" placeholder="https://…/banner.png" />
+                </div>
+                <div class="field">
+                    <label for="Link">跳转（content.link）</label>
+                    <input type="text" id="Link" name="Link" value="@Model.Link" placeholder="kards:shop:category:featured 或 https://…" />
+                </div>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="HeadingText">主标题（content.heading.text）</label>
+                        <input type="text" id="HeadingText" name="HeadingText" value="@Model.HeadingText" />
+                    </div>
+                    <div class="field">
+                        <label for="HeadingSize">主标题字号</label>
+                        <input type="number" id="HeadingSize" name="HeadingSize" value="@Model.HeadingSize" min="1" />
+                    </div>
+                </div>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="SubHeadingText">副标题（content.sub_heading.text）</label>
+                        <input type="text" id="SubHeadingText" name="SubHeadingText" value="@Model.SubHeadingText" />
+                    </div>
+                    <div class="field">
+                        <label for="SubHeadingSize">副标题字号</label>
+                        <input type="number" id="SubHeadingSize" name="SubHeadingSize" value="@Model.SubHeadingSize" min="1" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>完整条目 JSON</h2>
+                <p class="muted">未建模字段（<span class="mono">priority</span>、<span class="mono">slot</span>、<span class="mono">platform_filter</span>、多语言映射等）在这里维护；上方控件的值保存时会覆盖对应字段。</p>
+                <textarea id="fp-entry-json" name="EntryJson" class="json-textarea" spellcheck="false">@Model.EntryJson</textarea>
+            </div>
+
+            <div class="btn-row">
+                <button type="submit" class="btn" data-confirm="确认保存这个首页条目？原文件会备份为 .bak。">保存</button>
+                <a class="btn btn--outline" href="/admin/frontpage">取消</a>
+            </div>
+        </form>
+
+        <div class="card">
+            <h2>游戏内预览</h2>
+            <div class="field">
+                <label for="fp-preview-language">预览语言</label>
+                <select id="fp-preview-language">
+                    @foreach (var language in Model.LanguageOptions)
+                    {
+                        <option value="@language" selected="@(language == Model.InitialLanguage)">@language</option>
+                    }
+                </select>
+            </div>
+            <div class="preview-pane">
+                <div class="preview-stage" id="fp-preview-stage"></div>
+                <div class="preview-meta" id="fp-preview-meta"></div>
+                <p class="muted" style="margin:0">预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564），编辑左侧表单即时刷新。</p>
+            </div>
         </div>
     </div>
-</form>
 
-<div class="card">
-    <h2>字段说明</h2>
-    <dl class="kv">
-        <dt>elements[]</dt>
-        <dd>首页轮播/卡片元素：<span class="mono">heading</span>、<span class="mono">sub_heading</span>、<span class="mono">image_url</span>、<span class="mono">link</span>、<span class="mono">startDate</span> / <span class="mono">endDate</span></dd>
-        <dt>targeted[]</dt>
-        <dd>定向展示元素，结构与 <span class="mono">elements</span> 相同</dd>
-        <dt>link 协议</dt>
-        <dd><span class="mono">kards:openpacks</span>、<span class="mono">kards:shop:category:featured</span>、<span class="mono">https://…</span></dd>
-        <dt>type</dt>
-        <dd>0 = 卡片，1 = 卡包槽位（配合 <span class="mono">slot</span>），2 = 弹窗广告</dd>
-    </dl>
-</div>
+    @* 三种条目类型的 SVG 模板：画布尺寸与客户端一致 *@
+    <template id="fp-template-carousel">
+        <div class="fp-carousel" style="width:auto;height:auto">
+            <svg width="100%" height="100%" viewBox="0 0 1540 770" preserveAspectRatio="xMinYMid meet" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="fp-blacktint" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stop-color="black" stop-opacity="0" />
+                        <stop offset="100%" stop-color="black" />
+                    </linearGradient>
+                </defs>
+                <image data-field="image" href="" x="0" y="0" height="100%" width="100%" />
+                <rect x="9.2%" y="66.66%" width="100%" height="33.34%" fill="url(#fp-blacktint)" />
+                <text data-field="heading" x="13%" y="717.64" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="56"></text>
+                <text data-field="sub_heading" x="13%" y="93.2%" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="30"></text>
+            </svg>
+        </div>
+    </template>
+
+    <template id="fp-template-button">
+        <div class="fp-button" style="width:auto;height:auto">
+            <svg width="100%" height="100%" viewBox="0 0 614 307" preserveAspectRatio="xMinYMid meet" xmlns="http://www.w3.org/2000/svg">
+                <image data-field="image" href="" x="0" y="0" height="100%" width="100%" />
+                <image data-field="icon" href="" x="16" y="16" width="96" height="96" />
+                <text data-field="heading" x="13%" y="150" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="56"></text>
+                <text data-field="sub_heading" x="13%" y="210" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="30"></text>
+            </svg>
+        </div>
+    </template>
+
+    <template id="fp-template-popup">
+        <div class="fp-popup" style="width:auto;height:auto">
+            <svg width="100%" height="100%" viewBox="0 0 1232 564" preserveAspectRatio="xMinYMid meet" xmlns="http://www.w3.org/2000/svg">
+                <image data-field="image" href="" x="0" y="0" height="100%" width="100%" />
+                <text data-field="heading" x="13%" y="300" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="56"></text>
+                <text data-field="sub_heading" x="13%" y="360" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="30"></text>
+            </svg>
+        </div>
+    </template>
+
+    <script src="/admin-assets/admin-frontpage-preview.js"></script>
+}

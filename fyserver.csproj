@@ -22,7 +22,7 @@
 
   <!-- Razor Pages/MVC 声明不支持裁剪与 AOT，添加后台后必然产生 IL2026/IL3053；此处统一降噪 -->
   <PropertyGroup>
-    <NoWarn>$(NoWarn);IL2026;IL2104;IL3053</NoWarn>
+    <NoWarn>$(NoWarn);IL2026;IL2104;IL3053;IL3050</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

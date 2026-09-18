@@ -28,6 +28,7 @@ var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions
 // ==================== 后台（Razor 页面）服务 ====================
 var adminUsers = new AdminUserService(users, webSocketHub);
 var frontpage = new FrontpageConfigService();
+var contentEntries = new ContentEntriesService();
 
 void RegisterSharedServices(IServiceCollection services)
 {
@@ -42,6 +43,7 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(matches);
     services.AddSingleton(adminUsers);
     services.AddSingleton(frontpage);
+    services.AddSingleton(contentEntries);
 }
 
 // ============ HTTP host（含 WebSocket 端点，共用同一端口） ============

@@ -20,6 +20,8 @@
         <a class="nav-link @(current == "users" ? "is-active" : "")" href="/admin/users">用户</a>
         <a class="nav-link @(current == "matches" ? "is-active" : "")" href="/admin/matches">对局</a>
         <a class="nav-link @(current == "frontpage" ? "is-active" : "")" href="/admin/frontpage">首页公告</a>
+        <a class="nav-link @(current == "skirmish" ? "is-active" : "")" href="/admin/skirmish">乱斗</a>
+        <a class="nav-link @(current == "knockout" ? "is-active" : "")" href="/admin/knockout">淘汰赛</a>
     </nav>
     <div class="app-bar__end">
         <span class="app-bar__hint">@DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</span>

@@ -184,15 +184,17 @@ fyserver/
 
 纯静态页面（`wwwroot/admin-ui/`）+ JSON 接口（`/admin/api/*`），自包含 Material 主题（`wwwroot/admin-ui/assets/admin.css`，无外部 CDN 依赖），**不依赖 Razor/MVC**，因此 AOT 与裁剪发布都能带后台。
 
+入口：直接访问 `/admin-ui/` 即可（会 302 到 `index.html`；`/admin-ui/login` 同理）。注：旧的 Razor 后台地址 `/admin/*` 已随 Razor 移除而失效（404）。
+
 鉴权：本机（loopback）直接放行；远程需在 `/admin-ui/login.html` 用 `setting.json` 里的 `adminApiKey` 换取签名 Cookie（SameSite=Strict，7 天），或直接带 `X-Admin-Key` 调接口。未配置 `adminApiKey` 时后台页面仍可打开，但 `/admin/api/*` 拒绝一切远程调用（页面会提示改为本机访问或配置密钥）。
 
 | 页面 | 说明 |
 |---|---|
-| `/admin-ui/index.html` | 概览：端口与地址、在线连接数、用户与封禁数、匹配队列明细、重载商店配置 |
+| `/admin-ui/`（等价 `/admin-ui/index.html`） | 概览：端口与地址、在线连接数、用户与封禁数、匹配队列明细、重载商店配置 |
 | `/admin-ui/users.html` | 用户管理：搜索（ID / 用户名 / 昵称）、封禁 / 解封 / 踢下线 / 删除、用户详情与卡组 |
 | `/admin-ui/matches.html` | 对局与匹配：进行中的真人对局、各队列等待玩家、移除对局 / 清空队列 |
 | `/admin-ui/content.html` | 内容配置：首页公告（**带游戏内 SVG 实时预览**）、乱斗、淘汰赛，JSON 编辑 + 校验 + `.bak` 备份 |
-| `/admin-ui/login.html` | 管理密钥登录 |
+| `/admin-ui/login`（等价 `/admin-ui/login.html`） | 管理密钥登录 |
 
 内容配置落盘：`config/frontpage.json`、`config/skirmish.json`、`config/knockout.json`，结构统一为
 `{"entries":[{id,name,start_date,end_date,…}]}`；frontpage 兼容客户端既有的 `elements`/`targeted` 与 camelCase `elementId`，

@@ -235,7 +235,7 @@ public static class UserEndpoints
                 Payment: "notavailable",
                 PlayerId: user.Id.ToString(),
                 Provider: "device_id",
-                Roles: new List<string>(),
+                Roles: CurrentUser.DefaultRoles.ToList(),
                 Tier: "LIVE",
                 UserId: user.Id,
                 UserName: userName

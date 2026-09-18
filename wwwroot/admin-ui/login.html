@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>登录 · fyserver 后台</title>
+    <link rel="stylesheet" href="/admin-ui/assets/admin.css" />
+</head>
+<body>
+<div class="login-wrap">
+    <div class="login-card">
+        <h1>fyserver 后台</h1>
+        <p class="muted">静态版后台（<span class="mono">/admin-ui</span>）。使用 <span class="mono">setting.json</span> 中的
+            <span class="mono">adminApiKey</span> 登录；本机访问无需密钥。</p>
+
+        <div id="banner-host"></div>
+
+        <form id="login-form">
+            <div class="field">
+                <label for="key">管理密钥</label>
+                <input type="password" id="key" autocomplete="current-password" autofocus />
+            </div>
+            <button type="submit" class="btn" style="width:100%">登录</button>
+        </form>
+
+        <p class="muted" id="hint" style="margin-bottom:0"></p>
+        <p class="muted" style="margin-bottom:0"><a href="/admin-ui/index.html">直接进入（本机模式）</a></p>
+    </div>
+</div>
+
+<script src="/admin-ui/assets/admin.js"></script>
+<script>
+    (function () {
+        var params = new URLSearchParams(location.search);
+        var next = params.get('next') || '/admin-ui/index.html';
+        var hint = document.getElementById('hint');
+
+        Admin.api('/session').then(function (s) {
+            if (s && s.authorized) { location.href = next; return; }
+            if (s && !s.keyConfigured) {
+                hint.textContent = '服务器未配置 adminApiKey：仅本机可访问后台。';
+            } else {
+                hint.textContent = '请输入服务端 setting.json 里配置的 adminApiKey。';
+            }
+        }).catch(function () { hint.textContent = '无法连接后台接口。'; });
+
+        document.getElementById('login-form').addEventListener('submit', async function (event) {
+            event.preventDefault();
+            var key = document.getElementById('key').value;
+            var result = await Admin.api('/login', { method: 'POST', body: { key: key } });
+            if (result && result.ok) {
+                location.href = next;
+            } else {
+                Admin.banner((result && result.message) || '登录失败', 'err');
+            }
+        });
+    })();
+</script>
+</body>
+</html>

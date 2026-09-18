@@ -69,7 +69,7 @@ dotnet run --project fyserver.csproj
 ```
 
 - HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成；`adminApiKey` 留空时管理接口仅允许 loopback 访问，配置后通过 `X-Admin-Key` 请求头或后台登录 Cookie 认证
-- 后台管理面板位于同一个 HTTP 端口的 `/admin`（本机直接访问；远程需 `X-Admin-Key` 或 `/admin/login` 登录），见下文「后台管理」
+- 后台是纯静态页面，位于同一 HTTP 端口的 `/admin-ui/`（本机直接访问；远程需在 `/admin-ui/login.html` 用 `adminApiKey` 登录，或带 `X-Admin-Key` 调接口），见下文「后台管理」
 - 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
 - 后台/无控制台环境下自动进入非交互模式，保持进程存活
 
@@ -79,25 +79,20 @@ dotnet run --project fyserver.csproj
 dotnet publish fyserver.csproj -c Release -r win-x64 --self-contained true
 ```
 
-产物位于 `bin/Release/net10.0/win-x64/publish/`：`fyserver.exe`（约 20MB 原生可执行文件）+ `setting.json` + `config/` + `library/`，拷到目标机直接运行即可，无需安装 .NET 运行时。
+产物位于 `bin/Release/net10.0/win-x64/publish/`：`fyserver.exe`（约 20MB 原生可执行文件）+ `setting.json` + `config/` + `library/` + `wwwroot/`（静态后台页面），拷到目标机直接运行即可，无需安装 .NET 运行时。
 
-> **含后台的发布必须关闭 AOT**：Razor 后台页面依赖 MVC 的运行时反射，NativeAOT 产物会在启动时抛出 `TypeLoadException`（无法解析 `ConsolidatedAssemblyApplicationPartFactory`）。需要后台时用：
->
-> ```bash
-> dotnet publish fyserver.csproj -c Release -r win-x64 --self-contained true -p:EnableAot=false -p:PublishTrimmed=false
-> ```
->
-> 该产物无需安装 .NET 运行时，体积约 108 MB（未裁剪）。纯游戏服务仍可按上面的 AOT 方式发布。
+**后台与 AOT 不冲突**：后台是纯静态 HTML/JS（`wwwroot/admin-ui`）+ JSON 接口（`/admin/api`），不含 Razor/MVC 运行时反射，因此 AOT 产物同样带完整后台。
+
 
 # 目录结构
 
 ```
 fyserver/
 ├── Program.cs                  # Host 引导：配置 → DI 注册 → 单 host（HTTP + WS 同端口）启动
-├── Endpoints/                  # minimal API 分组（User/Player/Deck/Lobby/Match/Admin）
+├── Endpoints/                  # minimal API 分组（User/Player/Deck/Lobby/Match/AdminApi…）
 ├── Services/                   # 服务层（UserStore/FasterKv/MatchManager/WebSocketHub/Codec/Auth…）
 ├── Models/                     # DTO 与实体
-├── Pages/                      # Razor 后台页面（/admin，Material 主题）
+├── wwwroot/admin-ui/           # 静态后台页面（/admin-ui，纯 HTML/JS，Material 主题）
 ├── Middleware/                 # 路径归一化、Content-Type 清理
 ├── wwwroot/admin-assets/       # 后台静态资源（自包含 CSS/JS，无 CDN 依赖）
 └── Serialization/              # System.Text.Json 源生成上下文
@@ -162,34 +157,48 @@ fyserver/
 
 ## 管理接口
 
-> 管理接口已内置保护：`adminApiKey` 留空时仅允许 `127.0.0.1`/loopback 访问；配置 `adminApiKey` 后必须携带 `X-Admin-Key` 请求头。仍建议不要将管理接口直接暴露到公网。
+> 管理接口已内置保护：`adminApiKey` 留空时仅允许 `127.0.0.1`/loopback 访问；配置 `adminApiKey` 后必须携带 `X-Admin-Key` 请求头或登录后的会话 Cookie。仍建议不要将管理接口直接暴露到公网。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/admin/users/count` | 获取用户总数 |
-| `GET` | `/admin/users/list` | 获取用户列表 |
-| `DELETE` | `/admin/users/{userId}` | 删除用户并断开其 WebSocket |
-| `POST` | `/admin/users/{userId}/ban` | 封禁用户，发送 `disconnect` 消息并关闭其 WebSocket |
-| `POST` | `/admin/users/{userId}/unban` | 解除用户封禁 |
-| `POST` | `/admin/users/{userId}/kick?reason=...` | 踢出在线用户：发送 `disconnect` 后关闭其 WebSocket，不封禁账户 |
-
+| `GET` | `/admin/api/session` | 当前会话状态（是否已授权 / 本机 / 是否已配置密钥） |
+| `POST` | `/admin/api/login` | 用管理密钥换取会话 Cookie |
+| `POST` | `/admin/api/logout` | 退出登录（清除会话 Cookie） |
+| `GET` | `/admin/api/stats` | 概览：用户/在线/对局/队列统计与运行信息 |
+| `GET` | `/admin/api/users` | 用户列表（支持 `?q=` 搜索） |
+| `GET` | `/admin/api/users/{id}` | 用户详情（含卡组与进行中对局） |
+| `POST` | `/admin/api/users/{id}/ban` | 封禁用户并断开其 WebSocket |
+| `POST` | `/admin/api/users/{id}/unban` | 解除封禁 |
+| `POST` | `/admin/api/users/{id}/kick?reason=...` | 踢出在线用户（不封禁） |
+| `DELETE` | `/admin/api/users/{id}` | 删除用户并断开其 WebSocket |
+| `GET` | `/admin/api/matches` | 进行中的真人对局与各匹配队列 |
+| `POST` | `/admin/api/matches/{id}/remove` | 强制移除一条对局 |
+| `POST` | `/admin/api/queues/clear` | 清空全部匹配队列 |
+| `POST` | `/admin/api/store/reload` | 热重载 `config/store.json` |
+| `GET` | `/admin/api/content/{frontpage\|skirmish\|knockout}` | 内容条目列表 |
+| `GET` | `/admin/api/content/{kind}/{id}` | 读取单条（含完整 JSON） |
+| `POST` | `/admin/api/content/{kind}` | 新增条目（body: `name` / `startDate` / `endDate` / `raw`） |
+| `POST` | `/admin/api/content/{kind}/{id}` | 更新条目 |
+| `DELETE` | `/admin/api/content/{kind}/{id}` | 删除条目 |
 # 后台管理
 
-Razor Pages + 自包含 Material 主题（`wwwroot/admin-assets/admin.css`，无外部 CDN 依赖）。后台页面与 `/admin/*` 管理 API 一样受 `AdminAuthorizationMiddleware` 保护：本机（loopback）访问直接放行；远程需携带 `X-Admin-Key`，或在 `/admin/login` 输入 `setting.json` 中的 `adminApiKey` 换取签名 Cookie（SameSite=Strict，有效期 7 天）。
+纯静态页面（`wwwroot/admin-ui/`）+ JSON 接口（`/admin/api/*`），自包含 Material 主题（`wwwroot/admin-ui/assets/admin.css`，无外部 CDN 依赖），**不依赖 Razor/MVC**，因此 AOT 与裁剪发布都能带后台。
 
-未配置 `adminApiKey` 时后台处于「仅本机可访问」模式：远程访问 `/admin/*` 返回 `401`，登录页不再显示表单，而是明确说明需在服务端 `setting.json` 填写 `adminApiKey` 后重启（避免出现「输入任何密钥都提示错误」的死循环）。退出登录会在服务端清除会话 Cookie；由于会话为无状态 HMAC 签名，已泄漏的旧 Cookie 在 7 天内仍有效，必要时请更换 `adminApiKey` 使其立即失效。
+鉴权：本机（loopback）直接放行；远程需在 `/admin-ui/login.html` 用 `setting.json` 里的 `adminApiKey` 换取签名 Cookie（SameSite=Strict，7 天），或直接带 `X-Admin-Key` 调接口。未配置 `adminApiKey` 时后台页面仍可打开，但 `/admin/api/*` 拒绝一切远程调用（页面会提示改为本机访问或配置密钥）。
 
-| 路径 | 说明 |
+| 页面 | 说明 |
 |---|---|
-| `/admin/index` | 概览：端口与地址、在线连接数、用户与封禁数、匹配队列明细、重载商店配置、当前 `setting.json` |
-| `/admin/users` | 用户管理：搜索（ID / 用户名 / 昵称）、封禁 / 解封 / 踢下线 / 删除，在线状态标记 |
-| `/admin/user?id={id}` | 用户详情：账户信息、卡组列表、进行中对局，以及单个用户的封禁 / 踢出 / 删除 |
-| `/admin/matches` | 对局与匹配：进行中的真人对局（模式、回合、动作数、双方在线状态）、各队列等待玩家、移除对局 / 清空队列 |
-| `/admin/frontpage` | 首页公告：直接编辑 `config/frontpage.json`，保存前校验 JSON 并备份为 `frontpage.json.bak`，支持格式化 |
-| `/admin/login` | 输入管理密钥换取会话 Cookie（未配置 `adminApiKey` 时本机可直接进入后台） |
+| `/admin-ui/index.html` | 概览：端口与地址、在线连接数、用户与封禁数、匹配队列明细、重载商店配置 |
+| `/admin-ui/users.html` | 用户管理：搜索（ID / 用户名 / 昵称）、封禁 / 解封 / 踢下线 / 删除、用户详情与卡组 |
+| `/admin-ui/matches.html` | 对局与匹配：进行中的真人对局、各队列等待玩家、移除对局 / 清空队列 |
+| `/admin-ui/content.html` | 内容配置：首页公告（**带游戏内 SVG 实时预览**）、乱斗、淘汰赛，JSON 编辑 + 校验 + `.bak` 备份 |
+| `/admin-ui/login.html` | 管理密钥登录 |
 
-后台操作复用与 HTTP 管理 API 相同的服务层（`AdminUserService`）：封禁、踢出、删除都会向目标玩家的 WebSocket 发送 `channel: "disconnect"` 后关闭连接，不会误断 HTTP 请求。
+内容配置落盘：`config/frontpage.json`、`config/skirmish.json`、`config/knockout.json`，结构统一为
+`{"entries":[{id,name,start_date,end_date,…}]}`；frontpage 兼容客户端既有的 `elements`/`targeted` 与 camelCase `elementId`，
+编辑页未建模的字段原样保留。预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564）。
 
+后台操作复用与游戏 API 相同的服务层（`AdminUserService`）：封禁、踢出、删除都会向目标玩家的 WebSocket 发送 `channel: "disconnect"` 后关闭连接。
 # WebSocket
 
 WebSocket 与 HTTP 共用 `setting.json` 的 `portHttp` 端口：任意路径上的 WebSocket 升级请求都由同一管线处理（客户端配置中的 `websocketurl` 为 `ws://<ip>:<portHttp>/`，登录响应里由服务端下发）。支持 `ping`、`touchcard`、`emoji`、`notification` 通道；服务器主动踢出或封禁时发送 `channel: "disconnect"`，随后以 `PolicyViolation` 关闭连接。

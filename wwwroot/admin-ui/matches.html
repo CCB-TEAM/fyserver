@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>对局 · fyserver 后台</title>
+    <link rel="stylesheet" href="/admin-ui/assets/admin.css" />
+</head>
+<body>
+<main class="page">
+    <div id="banner-host"></div>
+    <div class="page-head">
+        <h1>对局与匹配</h1>
+        <p id="summary" class="muted"></p>
+    </div>
+
+    <div class="card">
+        <h2>进行中的对局</h2>
+        <div class="table-wrap" id="matches"></div>
+    </div>
+
+    <div class="card">
+        <h2>匹配队列</h2>
+        <div class="table-wrap" id="queues"></div>
+        <div class="btn-row" style="margin-top:14px">
+            <button class="btn btn--outline" id="clear-queues">清空全部队列</button>
+            <button class="btn btn--outline" id="refresh">刷新</button>
+        </div>
+    </div>
+</main>
+<footer class="page-footer">fyserver · 静态后台（Material 主题）</footer>
+
+<script src="/admin-ui/assets/admin.js"></script>
+<script>
+    (async function () {
+        if (!await Admin.ensureAuth()) return;
+        Admin.mount('matches', '对局');
+
+        async function load() {
+            const d = await Admin.api('/matches');
+            if (!d) return;
+
+            const matches = d.activeMatches || [];
+            document.getElementById('summary').textContent =
+                '进行中的真人对局 ' + matches.length + ' 条 · 队列等待玩家 ' +
+                (d.queues || []).reduce((sum, q) => sum + (q.players || []).length, 0) + ' 人 · 在线连接 ' + d.onlineCount + ' 条';
+
+            document.getElementById('matches').innerHTML = '<table class="md-table"><thead><tr>' +
+                '<th>对局 ID</th><th>模式</th><th>状态</th><th>回合</th><th>动作数</th><th>左侧</th><th>右侧</th><th>操作</th>' +
+                '</tr></thead><tbody>' +
+                (matches.length === 0 ? '<tr><td colspan="8" class="empty">当前没有进行中的对局</td></tr>' : matches.map(function (m) {
+                    function side(id, name, status, online) {
+                        return '<span class="mono">#' + id + '</span> ' + Admin.esc(name) +
+                            (online ? ' <span class="chip chip--ok">在线</span>' : '') +
+                            ' <span class="muted">' + Admin.esc(status) + '</span>';
+                    }
+                    return '<tr><td class="mono">' + m.matchId + '</td><td>' + Admin.esc(m.matchType) + '</td>' +
+                        '<td>' + Admin.esc(m.status) + '</td><td>' + m.currentTurn + '</td><td>' + m.actionCount + '</td>' +
+                        '<td>' + side(m.leftPlayerId, m.leftPlayerName, m.leftStatus, m.leftOnline) + '</td>' +
+                        '<td>' + side(m.rightPlayerId, m.rightPlayerName, m.rightStatus, m.rightOnline) + '</td>' +
+                        '<td><button class="btn btn--small btn--danger" data-remove="' + m.matchId + '">移除</button></td></tr>';
+                }).join('')) + '</tbody></table>';
+
+            const queues = d.queues || [];
+            document.getElementById('queues').innerHTML = '<table class="md-table"><thead><tr><th>队列</th><th>等待玩家</th></tr></thead><tbody>' +
+                (queues.length === 0 ? '<tr><td colspan="2" class="empty">所有队列均为空</td></tr>' : queues.map(function (q) {
+                    return '<tr><td>' + Admin.esc(q.name) + '（' + (q.players || []).length + '）</td><td>' +
+                        (q.players || []).map(p => '<span class="chip chip--off mono" style="margin-right:6px">#' + p.playerId + ' ' + Admin.esc(p.name) + '</span>').join('') +
+                        '</td></tr>';
+                }).join('')) + '</tbody></table>';
+        }
+
+        document.getElementById('refresh').addEventListener('click', load);
+        document.getElementById('clear-queues').addEventListener('click', async function () {
+            if (!confirm('确认清空全部匹配队列？等待中的玩家需要重新加入。')) return;
+            const r = await Admin.api('/queues/clear', { method: 'POST' });
+            Admin.banner((r && r.message) || '完成', r && r.ok ? 'ok' : 'err');
+            await load();
+        });
+        document.addEventListener('click', async function (event) {
+            const btn = event.target.closest('[data-remove]');
+            if (!btn) return;
+            const id = btn.getAttribute('data-remove');
+            if (!confirm('确认移除对局 ' + id + '？两侧玩家会被移出该对局。')) return;
+            const r = await Admin.api('/matches/' + id + '/remove', { method: 'POST' });
+            Admin.banner((r && r.message) || '完成', r && r.ok ? 'ok' : 'err');
+            await load();
+        });
+
+        await load();
+    })();
+</script>
+</body>
+</html>

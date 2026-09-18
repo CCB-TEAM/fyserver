@@ -25,7 +25,7 @@ var webSocketHub = new WebSocketHubService();
 var auth = new AuthService(users, codec);
 var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions);
 
-// ==================== 后台（Razor 页面）服务 ====================
+// ==================== 后台（静态页 /admin-ui 的数据层）服务 ====================
 var adminUsers = new AdminUserService(users, webSocketHub);
 var frontpage = new FrontpageConfigService();
 var contentEntries = new ContentEntriesService();
@@ -49,7 +49,7 @@ void RegisterSharedServices(IServiceCollection services)
 // ============ HTTP host（含 WebSocket 端点，共用同一端口） ============
 var httpBuilder = WebApplication.CreateSlimBuilder();
 RegisterSharedServices(httpBuilder.Services);
-httpBuilder.Services.AddAdminRazorPages();
+
 httpBuilder.WebHost.UseUrls(serverOptions.GetAddressHttp());
 httpBuilder.Services.Configure<JsonOptions>(options =>
 {
@@ -85,7 +85,10 @@ httpApp.UseExceptionHandler(exceptionHandlerApp =>
 httpApp.MapWebSocketEndpoint();
 
 httpApp.UseMiddleware<ContentTypeCleanupMiddleware>();
-httpApp.UseMiddleware<AdminAuthorizationMiddleware>();
+// 静态后台（/admin-ui）的数据接口鉴权：只挡 /admin/api/*，静态页自身匿名可访问
+
+// 后台数据接口鉴权（静态后台 /admin-ui）
+httpApp.UseMiddleware<AdminApiAuthorizationMiddleware>();
 
 // 显式路由注册：保证 PathNormalizationMiddleware 对 // 路径的改写先于路由匹配生效
 httpApp.UseRouting();
@@ -95,10 +98,9 @@ httpApp.MapPlayerEndpoints();
 httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();
 httpApp.MapMatchEndpoints();
-httpApp.MapAdminEndpoints();
-// 后台静态资源（wwwroot/admin-assets/*）：CreateSlimBuilder 默认未启用静态文件中间件
+httpApp.MapAdminApiEndpoints();
+// 静态资源（wwwroot/admin-assets、wwwroot/admin-ui）：CreateSlimBuilder 默认未启用静态文件中间件
 httpApp.UseStaticFiles();
-httpApp.MapRazorPages();
 
 
 // 未找到路由的处理

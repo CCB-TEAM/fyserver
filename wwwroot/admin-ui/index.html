@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>概览 · fyserver 后台</title>
+    <link rel="stylesheet" href="/admin-ui/assets/admin.css" />
+</head>
+<body>
+<main class="page">
+    <div id="banner-host"></div>
+    <div class="page-head">
+        <h1>服务器概览</h1>
+        <p>静态后台（<span class="mono">/admin-ui</span>）· 数据来自 <span class="mono">/admin/api</span>，与 Razor 后台共用同一套服务层。</p>
+    </div>
+
+    <div class="card-grid" id="stats"></div>
+    <div class="card" id="runinfo-card"><h2>运行信息</h2><dl class="kv" id="runinfo"></dl></div>
+    <div class="card"><h2>匹配队列</h2><div class="table-wrap" id="queues"></div></div>
+    <div class="card">
+        <h2>运维操作</h2>
+        <div class="btn-row">
+            <button class="btn" id="reload-store">重载商店配置</button>
+            <button class="btn btn--outline" id="refresh">刷新数据</button>
+            <a class="btn btn--outline" href="/admin-ui/users.html">用户管理</a>
+            <a class="btn btn--outline" href="/admin-ui/content.html">内容配置</a>
+        </div>
+    </div>
+</main>
+<footer class="page-footer">fyserver · 静态后台（Material 主题）</footer>
+
+<script src="/admin-ui/assets/admin.js"></script>
+<script>
+    (async function () {
+        if (!await Admin.ensureAuth()) return;
+        Admin.mount('overview', '概览');
+
+        function stat(label, value, hint) {
+            return '<div class="stat-card"><div class="stat-card__label">' + Admin.esc(label) + '</div>' +
+                '<div class="stat-card__value">' + Admin.esc(value) + '</div>' +
+                '<div class="stat-card__hint">' + Admin.esc(hint || '') + '</div></div>';
+        }
+
+        async function load() {
+            const s = await Admin.api('/stats');
+            if (!s) return;
+
+            document.getElementById('stats').innerHTML =
+                stat('用户总数', s.userCount, '封禁 ' + s.bannedCount + ' 人 · 卡组 ' + s.deckCount) +
+                stat('在线连接', s.onlineCount, 'WebSocket 长连接') +
+                stat('进行中对局', s.activeMatchCount, '已排除人机') +
+                stat('匹配队列', s.queuedPlayerCount, '等待匹配中的玩家');
+
+            const rows = [
+                ['HTTP 监听', s.httpAddress], ['客户端 HTTP', s.clientHttpAddress],
+                ['客户端 WebSocket', s.webSocketAddress], ['端口 / 对外 IP', s.port + ' / ' + s.ip],
+                ['反作弊开关', s.bancheat ? '已开启' : '已关闭'],
+                ['管理密钥', s.adminKeyConfigured ? '已配置' : '未配置（仅本机可访问）'],
+                ['启动时间', s.startedAt + '（已运行 ' + s.uptime + '）'],
+                ['运行环境', s.runtime + ' · ' + s.os],
+            ];
+            document.getElementById('runinfo').innerHTML = rows.map(function (r) {
+                return '<dt>' + Admin.esc(r[0]) + '</dt><dd class="mono">' + Admin.esc(r[1]) + '</dd>';
+            }).join('');
+
+            const queues = s.queues || [];
+            document.getElementById('queues').innerHTML = '<table class="md-table"><thead><tr><th>队列</th><th>等待人数</th></tr></thead><tbody>' +
+                queues.map(q => '<tr><td>' + Admin.esc(q.name) + '</td><td>' + Admin.esc(q.count) + '</td></tr>').join('') +
+                '</tbody></table>';
+        }
+
+        document.getElementById('refresh').addEventListener('click', load);
+        document.getElementById('reload-store').addEventListener('click', async function () {
+            const r = await Admin.api('/store/reload', { method: 'POST' });
+            Admin.banner((r && r.message) || '已请求重载', r && r.ok ? 'ok' : 'err');
+        });
+
+        await load();
+    })();
+</script>
+</body>
+</html>

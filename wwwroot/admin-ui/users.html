@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>用户 · fyserver 后台</title>
+    <link rel="stylesheet" href="/admin-ui/assets/admin.css" />
+</head>
+<body>
+<main class="page">
+    <div id="banner-host"></div>
+    <div class="page-head">
+        <h1>用户管理</h1>
+        <p>封禁、踢出、删除都走与 <span class="mono">/admin/*</span> API 相同的服务层，会向目标玩家的 WebSocket 发送 <span class="mono">disconnect</span>。</p>
+    </div>
+
+    <form class="search-row" id="search-form">
+        <div class="field">
+            <label for="q">搜索（ID / 用户名 / 昵称）</label>
+            <input type="text" id="q" placeholder="例如 1001 或 player" />
+        </div>
+        <button class="btn" type="submit">搜索</button>
+        <a class="btn btn--outline" href="/admin-ui/users.html">清除</a>
+    </form>
+
+    <div class="card"><div class="table-wrap" id="user-table"></div></div>
+
+    <div class="card" id="detail-card" style="display:none">
+        <h2 id="detail-title">用户详情</h2>
+        <dl class="kv" id="detail"></dl>
+        <div class="btn-row" id="detail-actions"></div>
+        <div class="table-wrap" id="detail-decks" style="margin-top:14px"></div>
+    </div>
+</main>
+<footer class="page-footer">fyserver · 静态后台（Material 主题）</footer>
+
+<script src="/admin-ui/assets/admin.js"></script>
+<script>
+    (async function () {
+        if (!await Admin.ensureAuth()) return;
+        Admin.mount('users', '用户');
+
+        const params = new URLSearchParams(location.search);
+        const table = document.getElementById('user-table');
+
+        async function act(id, action, label) {
+            if (!confirm('确认对用户 ' + id + ' 执行「' + label + '」？')) return;
+            let path = '/users/' + id;
+            let method = 'POST';
+            if (action === 'delete') { method = 'DELETE'; }
+            else { path += '/' + action + (action === 'kick' ? '?reason=' + encodeURIComponent(prompt('踢出原因（可留空）', '您已被服务器断开连接') || '') : ''); }
+            const r = await Admin.api(path, { method: method });
+            Admin.banner((r && r.message) || '完成', r && r.ok ? 'ok' : 'err');
+            await load();
+            if (document.getElementById('detail-card').style.display !== 'none') await detail(id);
+        }
+
+        function actionsFor(u) {
+            return '<form class="inline-form" onsubmit="return false">' +
+                (u.banned
+                    ? '<button class="btn btn--small btn--outline" data-act="unban" data-id="' + u.id + '">解封</button>'
+                    : '<button class="btn btn--small btn--outline" data-act="ban" data-id="' + u.id + '">封禁</button>') +
+                '<button class="btn btn--small btn--outline" data-act="kick" data-id="' + u.id + '">踢出</button>' +
+                '<button class="btn btn--small btn--danger" data-act="delete" data-id="' + u.id + '">删除</button>' +
+                '</form>';
+        }
+
+        async function load() {
+            const q = document.getElementById('q').value.trim();
+            const data = await Admin.api('/users' + (q ? '?q=' + encodeURIComponent(q) : ''));
+            const users = (data && data.users) || [];
+            table.innerHTML = '<table class="md-table"><thead><tr>' +
+                '<th>ID</th><th>用户名</th><th>昵称</th><th>Tag</th><th>卡组</th><th>状态</th><th>创建时间</th><th>操作</th>' +
+                '</tr></thead><tbody>' +
+                (users.length === 0 ? '<tr><td colspan="8" class="empty">没有匹配的用户</td></tr>' : users.map(function (u) {
+                    return '<tr>' +
+                        '<td class="mono">' + u.id + '</td>' +
+                        '<td><a href="#" data-detail="' + u.id + '">' + Admin.esc(u.userName) + '</a></td>' +
+                        '<td>' + Admin.esc(u.name) + '</td>' +
+                        '<td class="mono">' + u.tag + '</td>' +
+                        '<td>' + u.deckCount + '</td>' +
+                        '<td>' + (u.banned ? '<span class="chip chip--err">已封禁</span> ' : '') +
+                                  (u.online ? '<span class="chip chip--ok">在线</span>' : (u.banned ? '' : '<span class="chip chip--off">离线</span>')) + '</td>' +
+                        '<td class="mono">' + Admin.esc(u.createdAt) + '</td>' +
+                        '<td>' + actionsFor(u) + '</td>' +
+                        '</tr>';
+                }).join('')) + '</tbody></table>';
+        }
+
+        async function detail(id) {
+            const d = await Admin.api('/users/' + id);
+            if (!d) return;
+            const card = document.getElementById('detail-card');
+            card.style.display = '';
+            document.getElementById('detail-title').textContent = '用户详情 · ' + d.userName + ' #' + d.id;
+            document.getElementById('detail').innerHTML = [
+                ['用户 ID', d.id], ['用户名', d.userName], ['昵称', d.name], ['Tag', d.tag],
+                ['语言', d.locale], ['封禁', d.banned ? '已封禁' : '正常'],
+                ['在线', d.online ? '在线' : '离线'], ['装备物品', d.equippedItemCount + ' 件'],
+                ['进行中对局', d.activeMatchId || '—'],
+                ['创建时间', d.createdAt], ['最后更新', d.updatedAt],
+            ].map(r => '<dt>' + Admin.esc(r[0]) + '</dt><dd>' + Admin.esc(r[1]) + '</dd>').join('');
+            document.getElementById('detail-actions').innerHTML = actionsFor({ id: d.id, banned: d.banned });
+            const decks = d.decks || [];
+            document.getElementById('detail-decks').innerHTML = '<table class="md-table"><thead><tr>' +
+                '<th>ID</th><th>名称</th><th>主阵营</th><th>副阵营</th><th>收藏</th><th>最后使用</th></tr></thead><tbody>' +
+                (decks.length === 0 ? '<tr><td colspan="6" class="empty">该用户还没有卡组</td></tr>' : decks.map(function (deck) {
+                    return '<tr><td class="mono">' + deck.id + '</td><td>' + Admin.esc(deck.name) + '</td>' +
+                        '<td>' + Admin.esc(deck.mainFaction) + '</td><td>' + Admin.esc(deck.allyFaction) + '</td>' +
+                        '<td>' + (deck.favorite ? '★' : '—') + '</td><td class="mono">' + Admin.esc(deck.lastPlayed) + '</td></tr>';
+                }).join('')) + '</tbody></table>';
+            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        document.addEventListener('click', function (event) {
+            const btn = event.target.closest('[data-act]');
+            if (btn) { event.preventDefault(); act(btn.getAttribute('data-id'), btn.getAttribute('data-act'), btn.textContent.trim()); return; }
+            const link = event.target.closest('[data-detail]');
+            if (link) { event.preventDefault(); detail(link.getAttribute('data-detail')); }
+        });
+
+        document.getElementById('search-form').addEventListener('submit', function (event) { event.preventDefault(); load(); });
+        if (params.get('q')) document.getElementById('q').value = params.get('q');
+
+        await load();
+        const focus = params.get('id');
+        if (focus) await detail(focus);
+    })();
+</script>
+</body>
+</html>

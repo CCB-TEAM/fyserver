@@ -17,7 +17,7 @@ public sealed class AdminApiAuthorizationMiddleware
 
     public AdminApiAuthorizationMiddleware(RequestDelegate next) => _next = next;
 
-    public async Task InvokeAsync(HttpContext context, ServerOptions options)
+    public async Task InvokeAsync(HttpContext context, ServerOptions options, AdminAccountService account)
     {
         if (!context.Request.Path.StartsWithSegments("/admin/api", StringComparison.OrdinalIgnoreCase))
         {
@@ -25,15 +25,16 @@ public sealed class AdminApiAuthorizationMiddleware
             return;
         }
 
-        // 登录接口放行（静态页用它换 Cookie）
-        if (context.Request.Path.Equals("/admin/api/login", StringComparison.OrdinalIgnoreCase))
+        // 登录、会话状态和首次初始化必须匿名可达。
+        if (context.Request.Path.Equals("/admin/api/login", StringComparison.OrdinalIgnoreCase) ||
+            context.Request.Path.Equals("/admin/api/session", StringComparison.OrdinalIgnoreCase) ||
+            context.Request.Path.Equals("/admin/api/setup", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
         }
 
-        var authorized = ClientAddress.IsLoopback(context) ||
-                         AdminAuth.ValidateSession(context.Request.Cookies[AdminAuth.CookieName], options) ||
+        var authorized = account.ValidateSession(context.Request.Cookies[AdminAccountService.CookieName]) ||
                          AdminAuth.CheckKey(context.Request.Headers["X-Admin-Key"].FirstOrDefault(), options);
 
         if (!authorized)

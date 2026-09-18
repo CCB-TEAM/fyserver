@@ -68,8 +68,8 @@ dotnet build FYServer.sln
 dotnet run --project fyserver.csproj
 ```
 
-- HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成；`adminApiKey` 留空时管理接口仅允许 loopback 访问，配置后通过 `X-Admin-Key` 请求头或后台登录 Cookie 认证
-- 后台是纯静态页面，位于同一 HTTP 端口的 `/admin-ui/`（本机直接访问；远程需在 `/admin-ui/login.html` 用 `adminApiKey` 登录，或带 `X-Admin-Key` 调接口），见下文「后台管理」
+- HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成。
+- 后台位于同一 HTTP 端口的 `/admin-ui/`。首次启动需在服务器本机创建管理员账户，之后本机和远程访问都必须登录；`adminApiKey` 仅作为脚本调用 `/admin/api/*` 的兼容认证方式。
 - 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
 - 后台/无控制台环境下自动进入非交互模式，保持进程存活
 
@@ -162,7 +162,8 @@ fyserver/
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/admin/api/session` | 当前会话状态（是否已授权 / 本机 / 是否已配置密钥） |
-| `POST` | `/admin/api/login` | 用管理密钥换取会话 Cookie |
+| `POST` | `/admin/api/setup` | 首次启动时在服务器本机创建管理员账户 |
+| `POST` | `/admin/api/login` | 用管理员用户名、密码换取会话 Cookie |
 | `POST` | `/admin/api/logout` | 退出登录（清除会话 Cookie） |
 | `GET` | `/admin/api/stats` | 概览：用户/在线/对局/队列统计与运行信息 |
 | `GET` | `/admin/api/users` | 用户列表（支持 `?q=` 搜索） |
@@ -186,7 +187,7 @@ fyserver/
 
 入口：直接访问 `/admin-ui/` 即可（会 302 到 `index.html`；`/admin-ui/login` 同理）。注：旧的 Razor 后台地址 `/admin/*` 已随 Razor 移除而失效（404）。
 
-鉴权：本机（loopback）直接放行；远程需在 `/admin-ui/login.html` 用 `setting.json` 里的 `adminApiKey` 换取签名 Cookie（SameSite=Strict，7 天），或直接带 `X-Admin-Key` 调接口。未配置 `adminApiKey` 时后台页面仍可打开，但 `/admin/api/*` 拒绝一切远程调用（页面会提示改为本机访问或配置密钥）。
+鉴权：第一次启动时，控制台会打印初始化地址；必须从服务器本机在 `/admin-ui/login.html` 创建管理员用户名和密码。密码以 PBKDF2-SHA256 派生哈希保存于 `data/admin-auth.json`，不会保存明文。初始化后本机与远程均须登录，会话使用 HttpOnly、SameSite=Strict 的 7 天签名 Cookie。`setting.json` 的 `adminApiKey` 仍可通过 `X-Admin-Key` 用于自动化脚本，但不用于浏览器登录。
 
 | 页面 | 说明 |
 |---|---|
@@ -194,7 +195,7 @@ fyserver/
 | `/admin-ui/users.html` | 用户管理：搜索（ID / 用户名 / 昵称）、封禁 / 解封 / 踢下线 / 删除、用户详情与卡组 |
 | `/admin-ui/matches.html` | 对局与匹配：进行中的真人对局、各队列等待玩家、移除对局 / 清空队列 |
 | `/admin-ui/content.html` | 内容配置：首页公告（**带游戏内 SVG 实时预览**）、乱斗、淘汰赛，JSON 编辑 + 校验 + `.bak` 备份 |
-| `/admin-ui/login`（等价 `/admin-ui/login.html`） | 管理密钥登录 |
+| `/admin-ui/login`（等价 `/admin-ui/login.html`） | 首次创建管理员 / 管理员账户登录 |
 
 内容配置落盘：`config/frontpage.json`、`config/skirmish.json`、`config/knockout.json`，结构统一为
 `{"entries":[{id,name,start_date,end_date,…}]}`；frontpage 兼容客户端既有的 `elements`/`targeted` 与 camelCase `elementId`，

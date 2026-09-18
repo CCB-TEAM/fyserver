@@ -1,82 +1,24 @@
-<!DOCTYPE html>
-<html lang="zh-Hans">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>概览 · fyserver 后台</title>
-    <link rel="stylesheet" href="/admin-ui/assets/admin.css" />
-</head>
-<body>
-<main class="page">
-    <div id="banner-host"></div>
-    <div class="page-head">
-        <h1>服务器概览</h1>
-        <p>静态后台（<span class="mono">/admin-ui</span>）· 数据来自 <span class="mono">/admin/api</span>，与 Razor 后台共用同一套服务层。</p>
-    </div>
-
-    <div class="card-grid" id="stats"></div>
-    <div class="card" id="runinfo-card"><h2>运行信息</h2><dl class="kv" id="runinfo"></dl></div>
-    <div class="card"><h2>匹配队列</h2><div class="table-wrap" id="queues"></div></div>
-    <div class="card">
-        <h2>运维操作</h2>
-        <div class="btn-row">
-            <button class="btn" id="reload-store">重载商店配置</button>
-            <button class="btn btn--outline" id="refresh">刷新数据</button>
-            <a class="btn btn--outline" href="/admin-ui/users.html">用户管理</a>
-            <a class="btn btn--outline" href="/admin-ui/content.html">内容配置</a>
-        </div>
-    </div>
-</main>
-<footer class="page-footer">fyserver · 静态后台（Material 主题）</footer>
-
-<script src="/admin-ui/assets/admin.js"></script>
-<script>
-    (async function () {
-        if (!await Admin.ensureAuth()) return;
-        Admin.mount('overview', '概览');
-
-        function stat(label, value, hint) {
-            return '<div class="stat-card"><div class="stat-card__label">' + Admin.esc(label) + '</div>' +
-                '<div class="stat-card__value">' + Admin.esc(value) + '</div>' +
-                '<div class="stat-card__hint">' + Admin.esc(hint || '') + '</div></div>';
-        }
-
-        async function load() {
-            const s = await Admin.api('/stats');
-            if (!s) return;
-
-            document.getElementById('stats').innerHTML =
-                stat('用户总数', s.userCount, '封禁 ' + s.bannedCount + ' 人 · 卡组 ' + s.deckCount) +
-                stat('在线连接', s.onlineCount, 'WebSocket 长连接') +
-                stat('进行中对局', s.activeMatchCount, '已排除人机') +
-                stat('匹配队列', s.queuedPlayerCount, '等待匹配中的玩家');
-
-            const rows = [
-                ['HTTP 监听', s.httpAddress], ['客户端 HTTP', s.clientHttpAddress],
-                ['客户端 WebSocket', s.webSocketAddress], ['端口 / 对外 IP', s.port + ' / ' + s.ip],
-                ['反作弊开关', s.bancheat ? '已开启' : '已关闭'],
-                ['管理密钥', s.adminKeyConfigured ? '已配置' : '未配置（仅本机可访问）'],
-                ['启动时间', s.startedAt + '（已运行 ' + s.uptime + '）'],
-                ['运行环境', s.runtime + ' · ' + s.os],
-            ];
-            document.getElementById('runinfo').innerHTML = rows.map(function (r) {
-                return '<dt>' + Admin.esc(r[0]) + '</dt><dd class="mono">' + Admin.esc(r[1]) + '</dd>';
-            }).join('');
-
-            const queues = s.queues || [];
-            document.getElementById('queues').innerHTML = '<table class="md-table"><thead><tr><th>队列</th><th>等待人数</th></tr></thead><tbody>' +
-                queues.map(q => '<tr><td>' + Admin.esc(q.name) + '</td><td>' + Admin.esc(q.count) + '</td></tr>').join('') +
-                '</tbody></table>';
-        }
-
-        document.getElementById('refresh').addEventListener('click', load);
-        document.getElementById('reload-store').addEventListener('click', async function () {
-            const r = await Admin.api('/store/reload', { method: 'POST' });
-            Admin.banner((r && r.message) || '已请求重载', r && r.ok ? 'ok' : 'err');
-        });
-
-        await load();
-    })();
-</script>
-</body>
-</html>
+<!doctype html><html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>基础信息 · FYServer</title><link rel="stylesheet" href="/admin-ui/assets/admin.css"></head><body>
+<main class="page dashboard-page"><div id="banner-host"></div>
+  <section class="dashboard-hero"><div><p class="dashboard-eyebrow">SERVER OVERVIEW</p><h1>晚上好，管理员</h1><p>欢迎回到 FYServer 控制台。一切运行平稳。</p></div><div class="online-box"><span></span><div><b>Online</b><small id="uptime">正在读取运行状态…</small></div></div></section>
+  <section class="metric-grid">
+    <article class="metric-card"><i class="metric-icon blue">♙</i><div><small>注册用户</small><strong id="user-count">—</strong><em id="user-hint">读取中</em></div></article>
+    <article class="metric-card"><i class="metric-icon purple">◉</i><div><small>当前在线</small><strong id="online-count">—</strong><em>WebSocket 长连接</em></div></article>
+    <article class="metric-card"><i class="metric-icon green">⚔</i><div><small>活跃对局</small><strong id="match-count">—</strong><em>已排除人机</em></div></article>
+    <article class="metric-card"><i class="metric-icon amber">⌁</i><div><small>等待匹配</small><strong id="queue-count">—</strong><em>所有匹配队列</em></div></article>
+  </section>
+  <section class="dashboard-main-grid">
+    <article class="card activity-card"><div class="panel-head"><div><p class="dashboard-eyebrow">REALTIME</p><h2>服务器活动</h2></div><button class="btn btn--outline btn--small" id="refresh">刷新数据</button></div><div class="chart-legend"><span class="online">在线玩家</span><span class="matches">活跃对局</span><span class="queued">等待匹配</span></div><div class="chart-wrap"><div class="chart-labels" id="chart-labels"><span>3</span><span>2</span><span>1</span><span>0</span></div><svg class="activity-chart" viewBox="0 0 700 240" preserveAspectRatio="none"><path class="chart-gridline" d="M0 30H700M0 90H700M0 150H700M0 210H700"/><path id="online-line" class="chart-line online-line"/><path id="matches-line" class="chart-line matches-line"/><path id="queued-line" class="chart-line queued-line"/></svg><div class="chart-times" id="chart-times"><span>等待数据</span><span>现在</span></div></div></article>
+    <article class="card status-card"><div class="panel-head"><div><p class="dashboard-eyebrow">SYSTEM</p><h2>服务状态</h2></div><span class="chip chip--ok">健康</span></div><div class="status-logo"><img src="/admin-ui/assets/fyserver-logo-transparent.png" alt="FYServer"><span><b>FYServer</b><small id="runtime">.NET Runtime</small></span></div><dl class="compact-kv" id="runinfo"></dl></article>
+  </section>
+  <section class="performance-grid">
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon cpu">▦</i><span><small>CPU 使用率</small><strong id="cpu-percent">—%</strong></span></div><div class="progress"><i id="cpu-bar"></i></div><p>FYServer 进程即时占用</p></article>
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon memory">▤</i><span><small>内存占用</small><strong id="memory-percent">—%</strong></span></div><div class="progress"><i id="memory-bar"></i></div><p id="memory-value">— / —</p></article>
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon disk">◫</i><span><small>数据库磁盘占用</small><strong id="disk-percent">—%</strong></span></div><div class="progress"><i id="disk-bar"></i></div><p id="disk-value">— / —</p></article>
+  </section>
+  <section class="dashboard-lower-grid">
+    <article class="card"><div class="panel-head"><div><p class="dashboard-eyebrow">MATCHMAKING</p><h2>匹配队列</h2></div><button class="circle-action" id="queue-refresh">↻</button></div><div class="queue-cards" id="queues"></div></article>
+    <article class="card"><div class="panel-head"><div><p class="dashboard-eyebrow">OPERATIONS</p><h2>快捷操作</h2></div><span class="chip chip--off">ADMIN</span></div><div class="operation-list"><button id="reload-store"><i>◇</i><span><b>重载商店配置</b><small>立即重新读取 config/store.json</small></span><strong>›</strong></button><a href="/admin-ui/users.html"><i>♙</i><span><b>管理玩家</b><small>用户查询、封禁与在线状态</small></span><strong>›</strong></a><a href="/admin-ui/matches.html"><i>⚔</i><span><b>查看对局</b><small>活跃对局与匹配队列</small></span><strong>›</strong></a></div></article>
+  </section>
+</main><footer class="page-footer">FYServer · Server Control Center</footer>
+<script src="/admin-ui/assets/admin.js"></script><script>(async function(){if(!await Admin.ensureAuth())return;Admin.mount('overview','基础信息');const $=id=>document.getElementById(id);function bytes(n){if(!Number.isFinite(n))return '—';const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i<2?0:1)+' '+u[i]}function line(points,key,max){if(!points.length)return '';if(points.length===1)points=[points[0],points[0]];return points.map((p,i)=>((i?'L':'M')+(i*700/(points.length-1)).toFixed(1)+' '+(210-(Number(p[key])||0)*180/max).toFixed(1))).join(' ')}function chart(activity){const a=activity||[],max=Math.max(3,...a.flatMap(p=>[p.online,p.matches,p.queued]));$('online-line').setAttribute('d',line(a,'online',max));$('matches-line').setAttribute('d',line(a,'matches',max));$('queued-line').setAttribute('d',line(a,'queued',max));$('chart-labels').innerHTML=[max,Math.round(max*2/3),Math.round(max/3),0].map(x=>'<span>'+x+'</span>').join('');if(a.length){const first=new Date(a[0].timestamp),last=new Date(a[a.length-1].timestamp);$('chart-times').innerHTML='<span>'+first.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</span><span>'+last.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+'</span>'}}function performance(p){if(!p)return;const cpu=Math.max(0,Math.min(100,p.cpuPercent||0)),mem=Math.max(0,Math.min(100,p.memoryPercent||0)),disk=Math.max(0,Math.min(100,p.diskPercent||0));$('cpu-percent').textContent=cpu.toFixed(1)+'%';$('memory-percent').textContent=mem.toFixed(1)+'%';$('disk-percent').textContent=(disk<.01&&disk>0?'<0.01':disk.toFixed(2))+'%';$('cpu-bar').style.width=cpu+'%';$('memory-bar').style.width=mem+'%';$('disk-bar').style.width=Math.max(disk,.3)+'%';$('memory-value').textContent=bytes(p.memoryUsedBytes)+' / '+bytes(p.memoryTotalBytes);$('disk-value').textContent=bytes(p.databaseBytes)+' / '+bytes(p.diskTotalBytes)}async function load(){const s=await Admin.api('/stats');if(!s)return;$('user-count').textContent=s.userCount;$('user-hint').textContent='封禁 '+s.bannedCount+' 人 · 卡组 '+s.deckCount;$('online-count').textContent=s.onlineCount;$('match-count').textContent=s.activeMatchCount;$('queue-count').textContent=s.queuedPlayerCount;$('uptime').textContent='已连续运行 '+s.uptime;$('runtime').textContent=s.runtime;$('runinfo').innerHTML=[['监听地址',s.httpAddress],['对外地址',s.clientHttpAddress],['WebSocket',s.webSocketAddress],['反作弊',s.bancheat?'已开启':'已关闭']].map(r=>'<dt>'+Admin.esc(r[0])+'</dt><dd>'+Admin.esc(r[1])+'</dd>').join('');const colors=['blue','purple','amber','green'];$('queues').innerHTML=(s.queues||[]).map((q,i)=>'<div><i class="queue-badge '+colors[i%colors.length]+'">'+(i+1)+'</i><span><b>'+Admin.esc(q.name)+'</b><small>等待中的玩家</small></span><strong>'+q.count+'</strong></div>').join('');chart(s.activity);performance(s.performance)}$('refresh').onclick=load;$('queue-refresh').onclick=load;$('reload-store').onclick=async()=>{const r=await Admin.api('/store/reload',{method:'POST'});Admin.banner(r&&r.message||'已请求重载',r&&r.ok?'ok':'err')};await load();setInterval(load,5000)})();</script></body></html>

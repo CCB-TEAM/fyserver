@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>fyserver.ico</ApplicationIcon>
     <!-- 反射 JSON 序列化关闭：全部走源生成上下文（FyJsonContext / ConfigJsonContext / StoreJsonContext），NativeAOT 兼容 -->
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
@@ -38,6 +39,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 支持直接从 bin/<Configuration>/<TFM> 启动可执行文件。 -->
+    <Content Update="wwwroot\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Update="library\bitemLib.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>

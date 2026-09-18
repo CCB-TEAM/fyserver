@@ -20,58 +20,67 @@ public static class AdminApiEndpoints
         var api = app.MapGroup("/admin/api");
 
         // ---------------------------------------------------------- 会话（静态页登录用）
-        api.MapGet("/session", (HttpContext context, ServerOptions options) =>
+        api.MapGet("/session", (HttpContext context, ServerOptions options, AdminAccountService account) =>
         {
             var loopback = ClientAddress.IsLoopback(context);
-            var authorized = loopback ||
-                             AdminAuth.ValidateSession(context.Request.Cookies[AdminAuth.CookieName], options) ||
+            var authorized = account.ValidateSession(context.Request.Cookies[AdminAccountService.CookieName]) ||
                              AdminAuth.CheckKey(context.Request.Headers["X-Admin-Key"].FirstOrDefault(), options);
 
             return Results.Text(new JsonObject
             {
                 ["authorized"] = authorized,
                 ["loopback"] = loopback,
+                ["initialized"] = account.IsInitialized,
+                ["username"] = authorized ? account.Username : null,
                 ["keyConfigured"] = !string.IsNullOrEmpty(options.adminApiKey),
-                ["hasSession"] = AdminAuth.ValidateSession(context.Request.Cookies[AdminAuth.CookieName], options)
+                ["hasSession"] = account.ValidateSession(context.Request.Cookies[AdminAccountService.CookieName])
             }.ToJsonString(), "application/json");
         });
 
-        api.MapPost("/login", async (HttpContext context, ServerOptions options) =>
+        api.MapPost("/setup", async (HttpContext context, AdminAccountService account) =>
+        {
+            if (!ClientAddress.IsLoopback(context))
+                return Results.Text(new JsonObject { ["ok"] = false, ["message"] = "首次设置仅允许在服务器本机完成" }.ToJsonString(), "application/json", statusCode: 403);
+            var body = await ReadJsonBody(context);
+            var result = account.Initialize(body?["username"]?.GetValue<string>(), body?["password"]?.GetValue<string>());
+            if (!result.Ok)
+                return Results.Text(new JsonObject { ["ok"] = false, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: 400);
+            SetSessionCookie(context, account.CreateSession());
+            return Results.Text(new JsonObject { ["ok"] = true, ["message"] = result.Message }.ToJsonString(), "application/json");
+        });
+
+        api.MapPost("/login", async (HttpContext context, AdminAccountService account) =>
         {
             var body = await ReadJsonBody(context);
-            var supplied = body?["key"]?.GetValue<string>();
+            var username = body?["username"]?.GetValue<string>();
+            var password = body?["password"]?.GetValue<string>();
 
-            System.Console.WriteLine($"[LOGIN] remote={context.Connection.RemoteIpAddress} supplied=({supplied}) configured=({options.adminApiKey}) len={supplied?.Length}/{options.adminApiKey.Length}");
-            if (!AdminAuth.CheckKey(supplied, options))
-                return Results.Text(new JsonObject { ["ok"] = false, ["message"] = "管理密钥不正确" }.ToJsonString(),
+            if (!account.IsInitialized)
+                return Results.Text(new JsonObject { ["ok"] = false, ["message"] = "请先完成管理员初始设置" }.ToJsonString(), "application/json", statusCode: 428);
+            if (!account.VerifyCredentials(username, password))
+                return Results.Text(new JsonObject { ["ok"] = false, ["message"] = "用户名或密码不正确" }.ToJsonString(),
                     "application/json", statusCode: StatusCodes.Status401Unauthorized);
-
-            var value = AdminAuth.CreateSessionValue(options);
-            if (value == null)
-                return Results.Text(new JsonObject { ["ok"] = false, ["message"] = "服务器未配置 adminApiKey" }.ToJsonString(),
-                    "application/json", statusCode: StatusCodes.Status400BadRequest);
-
-            context.Response.Cookies.Append(AdminAuth.CookieName, value, new CookieOptions
-            {
-                HttpOnly = true,
-                SameSite = SameSiteMode.Strict,
-                IsEssential = true,
-                Expires = DateTimeOffset.UtcNow.AddDays(7)
-            });
+            SetSessionCookie(context, account.CreateSession());
 
             return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "登录成功" }.ToJsonString(), "application/json");
         });
 
         api.MapPost("/logout", (HttpContext context) =>
         {
-            context.Response.Cookies.Delete(AdminAuth.CookieName);
+            context.Response.Cookies.Delete(AdminAccountService.CookieName);
             return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "已退出" }.ToJsonString(), "application/json");
         });
 
         // ---------------------------------------------------------- 概览
-        api.MapGet("/stats", async (UserStoreService users, WebSocketHubService hub, MatchManagerService matches, ServerOptions options) =>
+        api.MapGet("/stats", async (UserStoreService users, WebSocketHubService hub, MatchManagerService matches,
+            ServerOptions options, ServerMetricsService metrics) =>
         {
             var all = await users.GetAllUsersAsync();
+            var activeMatchCount = matches.GetActiveRealMatches().Count;
+            var queuedPlayerCount = matches.WaitingPlayers1.Count + matches.WaitingPlayers2.Count +
+                                    matches.WaitingPlayersClassic.Count + matches.WaitingPlayersUnranked.Count +
+                                    matches.WaitingPlayersDraft.Count + matches.WaitingPlayersBrawl.Count;
+            var metricSnapshot = metrics.Capture(hub.OnlineCount, activeMatchCount, queuedPlayerCount);
             var queues = new JsonArray
             {
                 Queue("经典", matches.WaitingPlayers1.Count + matches.WaitingPlayers2.Count),
@@ -90,10 +99,8 @@ public static class AdminApiEndpoints
                 ["bannedCount"] = all.Count(u => u.Banned),
                 ["deckCount"] = all.Sum(u => u.Decks.Count),
                 ["onlineCount"] = hub.OnlineCount,
-                ["activeMatchCount"] = matches.GetActiveRealMatches().Count,
-                ["queuedPlayerCount"] = matches.WaitingPlayers1.Count + matches.WaitingPlayers2.Count +
-                                        matches.WaitingPlayersClassic.Count + matches.WaitingPlayersUnranked.Count +
-                                        matches.WaitingPlayersDraft.Count + matches.WaitingPlayersBrawl.Count,
+                ["activeMatchCount"] = activeMatchCount,
+                ["queuedPlayerCount"] = queuedPlayerCount,
                 ["queues"] = queues,
                 ["httpAddress"] = options.GetAddressHttp(),
                 ["clientHttpAddress"] = options.GetAddressHttpR(),
@@ -105,7 +112,24 @@ public static class AdminApiEndpoints
                 ["startedAt"] = process.StartTime.ToString("yyyy-MM-dd HH:mm:ss"),
                 ["uptime"] = $"{(int)uptime.TotalDays} 天 {uptime.Hours} 小时 {uptime.Minutes} 分 {uptime.Seconds} 秒",
                 ["os"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
-                ["runtime"] = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription
+                ["runtime"] = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+                ["performance"] = new JsonObject
+                {
+                    ["cpuPercent"] = Math.Round(metricSnapshot.CpuPercent, 1),
+                    ["memoryUsedBytes"] = metricSnapshot.MemoryUsedBytes,
+                    ["memoryTotalBytes"] = metricSnapshot.MemoryTotalBytes,
+                    ["memoryPercent"] = Math.Round(metricSnapshot.MemoryPercent, 1),
+                    ["databaseBytes"] = metricSnapshot.DatabaseBytes,
+                    ["diskTotalBytes"] = metricSnapshot.DiskTotalBytes,
+                    ["diskPercent"] = Math.Round(metricSnapshot.DiskPercent, 4)
+                },
+                ["activity"] = new JsonArray(metricSnapshot.Activity.Select(point => (JsonNode)new JsonObject
+                {
+                    ["timestamp"] = point.Timestamp,
+                    ["online"] = point.Online,
+                    ["matches"] = point.Matches,
+                    ["queued"] = point.Queued
+                }).ToArray())
             };
 
             return Results.Text(payload.ToJsonString(), "application/json");
@@ -333,6 +357,17 @@ public static class AdminApiEndpoints
 
         return app;
     }
+
+    private static void SetSessionCookie(HttpContext context, string value) => context.Response.Cookies.Append(
+        AdminAccountService.CookieName, value, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = context.Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
+            IsEssential = true,
+            Path = "/",
+            Expires = DateTimeOffset.UtcNow.AddDays(7)
+        });
 
     // ---------------------------------------------------------------- 辅助
 

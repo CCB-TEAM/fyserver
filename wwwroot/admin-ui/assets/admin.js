@@ -1,83 +1,18 @@
-// fyserver 静态后台 —— 共用工具（无框架、无 CDN 依赖）
-window.Admin = (function () {
-    'use strict';
-
-    function esc(value) {
-        if (value === null || value === undefined) return '';
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
-
-    async function api(path, options) {
-        const opts = Object.assign({ headers: {} }, options || {});
-        if (opts.body !== undefined && typeof opts.body !== 'string') {
-            opts.headers['Content-Type'] = 'application/json';
-            opts.body = JSON.stringify(opts.body);
-        }
-        const response = await fetch('/admin/api' + path, opts);
-        if (response.status === 401) {
-            location.href = '/admin-ui/login.html?next=' + encodeURIComponent(location.pathname + location.search);
-            throw new Error('未授权');
-        }
-        const text = await response.text();
-        let data = null;
-        try { data = text ? JSON.parse(text) : null; } catch (e) { data = { ok: false, message: text }; }
-        if (!response.ok && data && data.message === undefined) data.message = 'HTTP ' + response.status;
-        return data;
-    }
-
-    function banner(message, kind) {
-        const host = document.getElementById('banner-host');
-        if (!host) { alert(message); return; }
-        host.innerHTML = '<div class="banner banner--' + (kind || 'ok') + '">' + esc(message) + '</div>';
-        if (kind !== 'err') setTimeout(() => { if (host.innerHTML.indexOf(esc(message)) >= 0) host.innerHTML = ''; }, 6000);
-    }
-
-    /** 顶栏：active 为概览/用户/对局/内容 之一 */
-    function nav(active) {
-        const items = [
-            ['overview', '/admin-ui/index.html', '概览'],
-            ['users', '/admin-ui/users.html', '用户'],
-            ['matches', '/admin-ui/matches.html', '对局'],
-            ['content', '/admin-ui/content.html', '内容'],
-        ];
-        const links = items.map(([key, href, label]) =>
-            '<a class="nav-link' + (key === active ? ' is-active' : '') + '" href="' + href + '">' + label + '</a>').join('');
-        return '<header class="app-bar">' +
-            '<div class="app-bar__title"><span class="brand-dot"></span><span>fyserver 后台</span></div>' +
-            '<nav class="app-bar__nav">' + links + '</nav>' +
-            '<div class="app-bar__end"><span id="whoami" class="mono"></span>' +
-            '<a class="nav-link" href="#" id="logout">退出</a></div>' +
-            '</header>';
-    }
-
-    function mount(active, title) {
-        document.body.insertAdjacentHTML('afterbegin', nav(active));
-        const logout = document.getElementById('logout');
-        if (logout) {
-            logout.addEventListener('click', async function (event) {
-                event.preventDefault();
-                await api('/logout', { method: 'POST' });
-                location.href = '/admin-ui/login.html';
-            });
-        }
-        return fetch('/admin/api/session').then(r => r.json()).then(function (s) {
-            const who = document.getElementById('whoami');
-            if (who && s) who.textContent = (s.loopback ? '本机' : '远程') + (s.keyConfigured ? ' · 已配密钥' : ' · 仅本机');
-        }).catch(() => {});
-    }
-
-    async function ensureAuth() {
-        try {
-            const s = await api('/session');
-            if (s && s.authorized) return true;
-        } catch (e) { return false; }
-        location.href = '/admin-ui/login.html?next=' + encodeURIComponent(location.pathname);
-        return false;
-    }
-
-    return { esc, api, banner, nav, mount, ensureAuth };
-})();
+window.Admin=(function(){'use strict';
+const KEY='fyserver.admin.theme.v2',defaults={title:'FYServer',subtitle:'SERVER CONTROL CENTER',primary:'#006fee',accent:'#7828c8',background:'#f7f9fc',surface:'#ffffff',font:'system',customFont:'',backgroundImage:'',dark:false};
+const fonts={system:'"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif',cute:'"FY Cute","Microsoft YaHei UI",sans-serif',rounded:'"Arial Rounded MT Bold","Microsoft YaHei UI",sans-serif',mono:'"Cascadia Code",Consolas,monospace'};
+function readTheme(){try{return Object.assign({},defaults,JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(_){return Object.assign({},defaults)}}
+function rgb(h){h=String(h||'').replace('#','');return /^[0-9a-f]{6}$/i.test(h)?[0,2,4].map(i=>parseInt(h.slice(i,i+2),16)).join(','):'0,111,238'}
+function applyTheme(value){const t=Object.assign({},defaults,value||readTheme()),r=document.documentElement;r.style.setProperty('--primary',t.primary);r.style.setProperty('--primary-rgb',rgb(t.primary));r.style.setProperty('--accent',t.accent);r.style.setProperty('--background',t.background);r.style.setProperty('--surface-custom',t.surface);r.style.setProperty('--app-font',t.customFont.trim()||fonts[t.font]||fonts.system);r.style.setProperty('--custom-background',t.backgroundImage?'url("'+t.backgroundImage.replace(/"/g,'%22')+'")':'none');document.body.classList.toggle('theme-dark',!!t.dark);document.querySelectorAll('[data-brand-title]').forEach(e=>e.textContent=t.title);document.querySelectorAll('[data-brand-subtitle]').forEach(e=>e.textContent=t.subtitle);return t}
+function saveTheme(t){try{localStorage.setItem(KEY,JSON.stringify(t))}catch(_){banner('背景图片过大，浏览器无法保存。','err');return false}applyTheme(t);return true}applyTheme(defaults);
+function esc(v){return v==null?'':String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+async function api(path,options){const o=Object.assign({headers:{}},options||{});if(o.body!==undefined&&typeof o.body!=='string'){o.headers['Content-Type']='application/json';o.body=JSON.stringify(o.body)}const res=await fetch('/admin/api'+path,o);if(res.status===401){location.href='/admin-ui/login.html?next='+encodeURIComponent(location.pathname+location.search);throw new Error('未授权')}const text=await res.text();let data=null;try{data=text?JSON.parse(text):null}catch(_){data={ok:false,message:text}}if(!res.ok&&data&&data.message===undefined)data.message='HTTP '+res.status;return data}
+function banner(message,kind){const h=document.getElementById('banner-host');if(!h){alert(message);return}h.innerHTML='<div class="banner banner--'+(kind||'ok')+'">'+esc(message)+'</div>';if(kind!=='err')setTimeout(()=>{if(h.textContent===String(message))h.innerHTML=''},5000)}
+const items=[['overview','/admin-ui/index.html','⌂','基础信息'],['users','/admin-ui/users.html','♙','用户管理'],['matches','/admin-ui/matches.html','⚔','对局监控'],['content','/admin-ui/content.html','▤','内容配置']];
+function layout(active,title){const links=items.map(([k,h,i,l])=>'<a class="side-link'+(k===active?' is-active':'')+'" href="'+h+'"><span class="side-icon">'+i+'</span><span class="side-label">'+l+'</span><i></i></a>').join('');return '<aside class="admin-sidebar"><div class="admin-brand"><img src="/admin-ui/assets/fyserver-logo-transparent.png" alt="FYServer"><span class="brand-copy"><b>FYServer</b><small>SERVER CONTROL CENTER</small></span></div><nav>'+links+'</nav><div class="sidebar-actions"><button id="theme-toggle" class="side-action"><span>☼</span><span>切换主题</span></button><button id="logout" class="side-action danger"><span>↪</span><span>退出登录</span></button></div></aside><div class="admin-stage"><header class="admin-topbar"><button id="sidebar-toggle" class="round-btn">☰</button><div class="breadcrumbs"><span>FYServer</span><b>/</b><strong>'+esc(title)+'</strong></div><div class="top-status"><i></i><span id="whoami">服务运行中</span><img src="/admin-ui/assets/fyserver-logo-transparent.png" alt="Admin"></div></header></div>'}
+function dialog(){return '<div class="theme-backdrop" id="theme-backdrop" hidden><section class="theme-dialog"><div class="theme-dialog__head"><div><span class="eyebrow">APPEARANCE</span><h2>主题自定义</h2></div><button type="button" class="round-btn" id="theme-close">×</button></div><form id="theme-form"><div class="theme-grid"><label class="field"><span>后台标题</span><input id="theme-title-input" maxlength="32"></label><label class="field"><span>英文副标题</span><input id="theme-subtitle-input" maxlength="48"></label><label class="field"><span>字体</span><select id="theme-font"><option value="system">系统默认</option><option value="cute">FY Cute</option><option value="rounded">圆体</option><option value="mono">等宽字体</option><option value="custom">自定义字体</option></select></label><label class="field"><span>自定义 CSS 字体名称</span><input id="theme-custom-font" placeholder="例如 MiSans, sans-serif"></label><label class="color-field"><span>主色</span><input id="theme-primary" type="color"></label><label class="color-field"><span>辅助色</span><input id="theme-accent" type="color"></label><label class="color-field"><span>背景色</span><input id="theme-background" type="color"></label><label class="color-field"><span>卡片色</span><input id="theme-surface" type="color"></label></div><label class="field"><span>背景图片 URL</span><input id="theme-background-url" placeholder="https://… 或留空"></label><label class="field"><span>上传本地背景（建议小于 2 MB）</span><input id="theme-background-file" type="file" accept="image/*"></label><div class="theme-preview"><img src="/admin-ui/assets/fy-placeholder.svg"><div><b id="theme-preview-title">FYServer</b><small id="theme-preview-subtitle">SERVER CONTROL CENTER</small></div></div><div class="btn-row"><button class="btn" type="submit">保存主题</button><button class="btn btn--outline" type="button" id="theme-reset">恢复默认</button><button class="btn btn--outline" type="button" id="theme-remove-bg">移除背景</button></div></form></section></div>'}
+function openTheme(){const t=readTheme(),$=id=>document.getElementById(id);$('theme-title-input').value=t.title;$('theme-subtitle-input').value=t.subtitle;$('theme-font').value=t.customFont?'custom':t.font;$('theme-custom-font').value=t.customFont;$('theme-primary').value=t.primary;$('theme-accent').value=t.accent;$('theme-background').value=t.background;$('theme-surface').value=t.surface;$('theme-background-url').value=t.backgroundImage.startsWith('data:')?'':t.backgroundImage;$('theme-preview-title').textContent=t.title;$('theme-preview-subtitle').textContent=t.subtitle;$('theme-backdrop').hidden=false}
+function wireTheme(){const $=id=>document.getElementById(id);$('theme-open').onclick=openTheme;$('theme-close').onclick=()=>$('theme-backdrop').hidden=true;$('theme-backdrop').onclick=e=>{if(e.target===$('theme-backdrop'))$('theme-backdrop').hidden=true};$('theme-title-input').oninput=e=>$('theme-preview-title').textContent=e.target.value||defaults.title;$('theme-subtitle-input').oninput=e=>$('theme-preview-subtitle').textContent=e.target.value||defaults.subtitle;$('theme-toggle').onclick=()=>{const t=readTheme();t.dark=!t.dark;saveTheme(t)};$('theme-remove-bg').onclick=()=>{const t=readTheme();t.backgroundImage='';saveTheme(t);$('theme-background-url').value='';$('theme-background-file').value=''};$('theme-reset').onclick=()=>{localStorage.removeItem(KEY);applyTheme(defaults);openTheme()};$('theme-form').onsubmit=async e=>{e.preventDefault();const old=readTheme(),file=$('theme-background-file').files[0];let bg=$('theme-background-url').value.trim()||old.backgroundImage;if(file)bg=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(file)});const choice=$('theme-font').value,next=Object.assign(old,{title:$('theme-title-input').value.trim()||defaults.title,subtitle:$('theme-subtitle-input').value.trim()||defaults.subtitle,primary:$('theme-primary').value,accent:$('theme-accent').value,background:$('theme-background').value,surface:$('theme-surface').value,font:choice==='custom'?'system':choice,customFont:choice==='custom'?$('theme-custom-font').value.trim():'',backgroundImage:bg});if(saveTheme(next)){$('theme-backdrop').hidden=true;banner('主题已保存到当前浏览器','ok')}}}
+function mount(active,title){const page=document.querySelector('.page'),footer=document.querySelector('.page-footer');document.body.insertAdjacentHTML('afterbegin','<div class="admin-shell">'+layout(active,title)+'</div>');const shell=document.querySelector('.admin-shell'),stage=shell.querySelector('.admin-stage');if(page)stage.appendChild(page);if(footer)stage.appendChild(footer);const t=Object.assign({},defaults,{dark:localStorage.getItem('fyserver.admin.dark')==='1'});applyTheme(t);document.getElementById('theme-toggle').onclick=()=>{t.dark=!t.dark;localStorage.setItem('fyserver.admin.dark',t.dark?'1':'0');applyTheme(t)};document.getElementById('sidebar-toggle').onclick=()=>shell.classList.toggle('sidebar-collapsed');document.getElementById('logout').onclick=async()=>{await api('/logout',{method:'POST'});location.href='/admin-ui/login.html'};return fetch('/admin/api/session').then(r=>r.json()).then(s=>{const w=document.getElementById('whoami');if(w&&s)w.textContent=s.username||'管理员'}).catch(()=>{})}
+async function ensureAuth(){try{const s=await api('/session');if(s&&s.authorized)return true}catch(_){return false}location.href='/admin-ui/login.html?next='+encodeURIComponent(location.pathname);return false}
+return{esc,api,banner,mount,ensureAuth,applyTheme,readTheme};})();

@@ -29,6 +29,8 @@ var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions
 var adminUsers = new AdminUserService(users, webSocketHub);
 var frontpage = new FrontpageConfigService();
 var contentEntries = new ContentEntriesService();
+var serverMetrics = new ServerMetricsService();
+var adminAccount = new AdminAccountService();
 
 void RegisterSharedServices(IServiceCollection services)
 {
@@ -44,6 +46,8 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(adminUsers);
     services.AddSingleton(frontpage);
     services.AddSingleton(contentEntries);
+    services.AddSingleton(serverMetrics);
+    services.AddSingleton(adminAccount);
 }
 
 // ============ HTTP host（含 WebSocket 端点，共用同一端口） ============
@@ -128,6 +132,16 @@ httpApp.Lifetime.ApplicationStarted.Register(() =>
     Console.WriteLine($"Application started on {serverOptions.GetAddressHttp()}");
     Console.WriteLine($"WebSocket endpoint: {serverOptions.GetAddressWsR()}");
     Console.WriteLine("Faster 已准备");
+    if (!adminAccount.IsInitialized)
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("============================================================");
+        Console.WriteLine("管理员后台尚未初始化，请在浏览器完成初始设置：");
+        Console.WriteLine($"http://127.0.0.1:{serverOptions.portHttp}/admin-ui/login.html");
+        Console.WriteLine("首次设置仅允许从服务器本机访问。");
+        Console.WriteLine("============================================================");
+        Console.ResetColor();
+    }
 });
 httpApp.Lifetime.ApplicationStopping.Register(() =>
 {

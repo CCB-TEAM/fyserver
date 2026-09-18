@@ -28,6 +28,11 @@
     <Content Remove="faster-log\**" />
     <EmbeddedResource Remove="faster-log\**" />
     <None Remove="faster-log\**" />
+    <!-- 本地运行数据与分发产物绝不能递归进入 publish 输出。 -->
+    <Compile Remove="data\**;artifacts\**;wwwroot\admin-preview\**" />
+    <Content Remove="data\**;artifacts\**;wwwroot\admin-preview\**;wwwroot\admin-ui\assets\fyserver-logo.png" />
+    <EmbeddedResource Remove="data\**;artifacts\**;wwwroot\admin-preview\**" />
+    <None Remove="data\**;artifacts\**;wwwroot\admin-preview\**;wwwroot\admin-ui\assets\fyserver-logo.png" />
   </ItemGroup>
 
   <ItemGroup>

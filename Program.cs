@@ -99,7 +99,7 @@ httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();
 httpApp.MapMatchEndpoints();
 httpApp.MapAdminApiEndpoints();
-// 静态资源（wwwroot/admin-assets、wwwroot/admin-ui）：CreateSlimBuilder 默认未启用静态文件中间件
+// 静态资源（wwwroot/admin-ui）：CreateSlimBuilder 默认未启用静态文件中间件
 httpApp.UseStaticFiles();
 
 

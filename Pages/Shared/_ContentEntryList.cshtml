@@ -31,8 +31,7 @@
                 <td>
                     <div class="btn-row">
                         <a class="btn btn--small btn--outline" href="@basePath?id=@entry.Id">编辑</a>
-                        <form method="post" action="@basePath?handler=Delete" class="inline-form">
-                            <input type="hidden" name="id" value="@entry.Id" />
+                        <form method="post" action="@(basePath)?handler=Delete&targetId=@(entry.Id)" class="inline-form">
                             <button type="submit" class="btn btn--small btn--danger"
                                     data-confirm="确认删除条目 @entry.Id（@entry.Name）？删除会立即写入配置文件，原文件备份为 .bak。">删除</button>
                         </form>

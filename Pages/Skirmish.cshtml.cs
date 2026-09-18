@@ -214,10 +214,14 @@ public class SkirmishModel : PageModel
         ["turn_length"] = 90,
         ["reward"] = new JsonObject { ["type"] = "gold", ["amount"] = 100 }
     };
-    /// <summary>列表页的删除操作（独立 URL：/admin/<页面>/delete）。</summary>
-    public IActionResult OnPostDelete(int id)
+    /// <summary>
+    /// 列表页的删除（POST /admin/skirmish?handler=Delete&amp;targetId=N）。
+    /// 注意：targetId 必须走 URL 查询串，不能用表单字段——本宿主用 CreateSlimBuilder，
+    /// POST 表单值绑定到 handler 参数会得到 0（表现为"删除返回 302 但条目还在"），查询串参数则正常。
+    /// </summary>
+    public IActionResult OnPostDelete(int targetId)
     {
-        var (ok, message) = _entries.Delete(ContentEntriesService.SkirmishPath, id);
+        var (ok, message) = _entries.Delete(ContentEntriesService.SkirmishPath, targetId);
         if (ok)
             TempData["Message"] = message;
         else

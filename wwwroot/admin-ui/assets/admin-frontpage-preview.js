@@ -70,16 +70,14 @@ window.FpPreview = (function () {
             if (subText) yOffset -= subSize * 1.05;
         }
 
-        if (type !== TYPE_POPUP) {
-            if (heading) {
-                heading.setAttribute('y', yOffset);
-                heading.setAttribute('font-size', headingSize);
-                heading.textContent = localised(entry.content.heading && entry.content.heading.text);
-            }
-            if (subHeading) {
-                subHeading.setAttribute('font-size', subSize);
-                subHeading.textContent = subText;
-            }
+        if (heading) {
+            if (type !== TYPE_POPUP) heading.setAttribute('y', yOffset);
+            heading.setAttribute('font-size', headingSize);
+            heading.textContent = localised(entry.content.heading && entry.content.heading.text);
+        }
+        if (subHeading) {
+            subHeading.setAttribute('font-size', subSize);
+            subHeading.textContent = subText;
         }
 
         return node;

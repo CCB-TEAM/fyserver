@@ -1,0 +1,892 @@
+{
+  "source": "qa-1939api-mirror/mirror/admin/serverconfig.html",
+  "entries": [
+    {
+      "key": "account_linking_show_in_settings",
+      "type": "int",
+      "description": "If set it will show account sync under the settings menu even if the \"account_linking\" config is not set.",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "account_linking_url",
+      "type": "string",
+      "description": "URL to kards.com account linking page from client",
+      "sendToClient": true,
+      "default": "https://www.kards.com/{lang}/client/account_linkin... (click edit to see the whole value)",
+      "truncated": true
+    },
+    {
+      "key": "achievements",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "android_apk_noiap_link_enabled",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "anzac",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "apk_1939_provider_url",
+      "type": "string",
+      "description": "1939 APK download link",
+      "sendToClient": true,
+      "default": "https://kards-hk-information.kardsplayer.com/"
+    },
+    {
+      "key": "apk_4399_noiap_provider_url",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://kards-hk-cftn.kardsplayer.com/"
+    },
+    {
+      "key": "apk_4399_provider_url",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://kards-hk-cftn.kardsplayer.com/"
+    },
+    {
+      "key": "apk_haoyou_noiap_provider_url",
+      "type": "string",
+      "description": "Haoyou Noiap APK download link",
+      "sendToClient": true,
+      "default": "https://kards-hk-information.kardsplayer.com/"
+    },
+    {
+      "key": "apk_haoyou_provider_url",
+      "type": "string",
+      "description": "Haoyou APK download link",
+      "sendToClient": true,
+      "default": "https://kards-hk-information.kardsplayer.com/"
+    },
+    {
+      "key": "apk_jiuyou_noiap_provider_url",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://kards-hk-cjy.kardsplayer.com/"
+    },
+    {
+      "key": "apk_jiuyou_provider_url",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://kards-hk-cjy.kardsplayer.com/"
+    },
+    {
+      "key": "appscale_desktop_default",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "appscale_desktop_max",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "1.4"
+    },
+    {
+      "key": "appscale_desktop_min",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "0.8"
+    },
+    {
+      "key": "appscale_mobile_default",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "1.4"
+    },
+    {
+      "key": "appscale_mobile_max",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "1.4"
+    },
+    {
+      "key": "appscale_mobile_min",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "appscale_tablet_default",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "1.1"
+    },
+    {
+      "key": "appscale_tablet_max",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "1.1"
+    },
+    {
+      "key": "appscale_tablet_min",
+      "type": "double",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "battle_wait_time",
+      "type": "int",
+      "description": "How long until a player is offered an AI match when waiting for a Battle (in seconds).",
+      "sendToClient": true,
+      "default": "60"
+    },
+    {
+      "key": "beta_expiry_date",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "2024-10-01 00:00:00"
+    },
+    {
+      "key": "broken_deck_check",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "brothers_in_arms_date",
+      "type": "string",
+      "description": "The date when Brothers in Arms becomes available in Client",
+      "sendToClient": true,
+      "default": "2023.06.18-09.30.00"
+    },
+    {
+      "key": "brothers_in_arms_is_here_gift_urls",
+      "type": "json",
+      "description": "",
+      "sendToClient": true,
+      "default": "{ \"de-de\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_de.jpg\", \"en-en\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_en.jpg\", \"es-es\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_es.jpg\", \"fr-fr\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_fr.jpg\", \"it-it\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_it.jpg\", \"ko-kr\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_kr.jpg\", \"pl-pl\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_pl.jpg\", \"pt-br\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_pt.jpg\", \"ru-ru\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_ru.jpg\", \"zh-hans\": \"https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/es_sch.jpg\", \"zh-hant\": \"https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/es_tch.jpg\" }"
+    },
+    {
+      "key": "buddy_program_invite_link",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://kards.onelink.me/snSY/90fbwrt6"
+    },
+    {
+      "key": "cards_blacklist",
+      "type": "json",
+      "description": "Cards in this list will not be shown anywhere in the client until end_date (for example handy for skirmish cards)",
+      "sendToClient": false,
+      "default": "[]"
+    },
+    {
+      "key": "christmas",
+      "type": "int",
+      "description": "Turns on Christmas! Need to be tested before turned on since a lot has changed in the client and this might not work correctly.",
+      "sendToClient": true,
+      "default": "0"
+    },
+    {
+      "key": "content_restructure_store",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "covert_ops_date",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "2024.05.11-11.00.00"
+    },
+    {
+      "key": "CovertOps_release_date",
+      "type": "string",
+      "description": "",
+      "sendToClient": false,
+      "default": "2024.05.11-11.00.00"
+    },
+    {
+      "key": "crate_hour",
+      "type": "int",
+      "description": "14=14:00, etc, the hour when the crate is claimable.",
+      "sendToClient": true,
+      "default": "10"
+    },
+    {
+      "key": "crate_weekday",
+      "type": "int",
+      "description": "0=Monday, 1=Tuesday, 2=Wednesday, etc",
+      "sendToClient": true,
+      "default": "2"
+    },
+    {
+      "key": "current_extended_8_day_offer",
+      "type": "json",
+      "description": "",
+      "sendToClient": true,
+      "default": "{ \"offer_ids\": \"7;7\" }"
+    },
+    {
+      "key": "custom_wrap_enabled",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "diamonds",
+      "type": "int",
+      "description": "Please don't change this. We should probably remove this flag.",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "disable_custom_wrapping",
+      "type": "int",
+      "description": "0=use custom wrapping, 1=use normal wrapping",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "disable_review_window",
+      "type": "int",
+      "description": "If set to true then the review window will not pop-up for users (Steam).",
+      "sendToClient": true,
+      "default": "0"
+    },
+    {
+      "key": "disable_right_click_in_battle",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "disable_simulation",
+      "type": "int",
+      "description": "1: disable_simulation=true, newly implemented 0: disable_simulation=false, as before",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "discount_products",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "11:66;12:20;96:48;202:16;203:21;204:25;221:4;222:8... (click edit to see the whole value)",
+      "truncated": true
+    },
+    {
+      "key": "do_action_mingling",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "double_xp_dates",
+      "type": "json",
+      "description": "",
+      "sendToClient": false,
+      "default": "[ { \"end\": \"2022-04-16T12:02:01\", \"start\": \"2022-04-14T23:59:01\" } ]"
+    },
+    {
+      "key": "draft_card_test",
+      "type": "int",
+      "description": "2d Widget cards in draft hover",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "enable_bob_when_losing",
+      "type": "int",
+      "description": "",
+      "sendToClient": false,
+      "default": "0"
+    },
+    {
+      "key": "enable_bob_when_waiting",
+      "type": "int",
+      "description": "",
+      "sendToClient": false,
+      "default": "0"
+    },
+    {
+      "key": "enable_chat",
+      "type": "int",
+      "description": "Can players open the chat window",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "extended_8_day_rewards",
+      "type": "json",
+      "description": "",
+      "sendToClient": true,
+      "default": "[ { \"rewards\": [ { \"qty\": 2, \"officer\": true, \"expansion\": \"core\", \"item_name\": \"pack\" }, { \"qty\": 1, \"days\": 1, \"item_name\": \"medkit\" }, { \"qty\": 2, \"card_name\": \"card_wildcard_special\", \"item_name\": \"card\" }, { \"qty\": 1, \"gold\": true, \"rarity\": \"Rare\", \"item_name\": \"random_card\" }, { \"qty\": 1, \"item_name\": \"avatar\", \"avatar_name\": \"avatar_commander\" }, { \"qty\": 3, \"officer\": false, \"expansion\": \"core\", \"item_name\": \"pack\" }, { \"item_name\": \"cardback_option\", \"cardback_usa\": \"cardback_blue_and_grey\", \"cardback_germany\": \"cardback_11_infantry\" }, { \"qty\": 1, \"card_usa\": \"card_unit_101st_airborne\", \"item_name\": \"day8\", \"card_germany\": \"card_event_bismarck\" } ], \"offer_id\": 7 } ]"
+    },
+    {
+      "key": "feature_compact_action_values_only_enabled",
+      "type": "int",
+      "description": "if true, old action data values are not going to be sent. only make this true after the old version has been banned.",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "feature_copy_battleready_decks_enabled",
+      "type": "int",
+      "description": "Allow copying battleready decks",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "feature_marketing_checkbox",
+      "type": "int",
+      "description": "Show marketing opt-in after creating a linker account or existing linker",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "feature_socketerror_popup_enabled",
+      "type": "int",
+      "description": "Mobile client shows popup if socket fails",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "feature_stop_reading_old_action_values_enabled",
+      "type": "int",
+      "description": "old full action values are not readable for the client. true only after AI is ready as well.",
+      "sendToClient": true,
+      "default": "0"
+    },
+    {
+      "key": "feature_vfx_preloading_enabled",
+      "type": "int",
+      "description": "VFX Preload",
+      "sendToClient": true,
+      "default": "0"
+    },
+    {
+      "key": "feature_virtual_keyboard",
+      "type": "int",
+      "description": "Android phones have custom textbox",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "finland",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "first_win_of_the_day_bonuses",
+      "type": "json",
+      "description": "",
+      "sendToClient": false,
+      "default": "[ { \"end\": \"2023-01-02T00:00:00\", \"items\": [ \"cardback_holidays2022\" ], \"start\": \"2022-12-22T00:00:00\", \"reason\": \"\", \"one-time\": false }, { \"end\": \"2022-12-24T00:00:00\", \"gold\": 50, \"start\": \"2022-12-23T00:00:00\", \"reason\": \"\", \"one-time\": true }, { \"end\": \"2022-12-25T00:00:00\", \"packs\": [ { \"set\": \"Basic\", \"count\": 1, \"card_count_per_pack\": 5 } ], \"start\": \"2022-12-24T00:00:00\", \"reason\": \"\", \"one-time\": true }, { \"end\": \"2022-12-26T00:00:00\", \"start\": \"2022-12-25T00:00:00\", \"reason\": \"\", \"one-time\": true, \"random_cards\": [ { \"rarity\": \"Unique\" } ] }, { \"end\": \"2022-12-27T00:00:00\", \"cards\": [ \"card_wildcard_special\" ], \"start\": \"2022-12-26T00:00:00\", \"reason\": \"\", \"one-time\": true }, { \"end\": \"2022-12-28T00:00:00\", \"gold\": 50, \"start\": \"2022-12-27T00:00:00\", \"reason\": \"\", \"one-time\": true }, { \"end\": \"2022-12-29T00:00:00\", \"start\": \"2022-12-28T00:00:00\", \"drafts\": 1, \"reason\": \"\", \"one-time\": true }, { \"end\": \"2022-12-30T00:00:00\", \"gold\": 50, \"start\": \"2022-12-29T00:00:00\", \"reason\": \"\", \"one-time\": true }, { \"end\": \"2022-12-31T00:00:00\", \"cards\": [ \"card_wildcard_limited\" ], \"start\": \"2022-12-30T00:00:00\", \"reason\": \"\", \"one-time\": true }, { \"end\": \"2023-01-01T00:00:00\", \"gold\": 50, \"start\": \"2022-12-31T00:00:00\", \"reason\": \"\", \"one-time\": true }, { \"end\": \"2023-01-02T00:00:00\", \"packs\": [ { \"set\": \"Basic\", \"count\": 1, \"card_count_per_pack\": 5 } ], \"start\": \"2023-01-01T00:00:00\", \"reason\": \"\", \"one-time\": true } ]"
+    },
+    {
+      "key": "forgot_password_url",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://www.kards.com/auth/recovery?lang={lang}"
+    },
+    {
+      "key": "front_page_data",
+      "type": "json",
+      "description": "This is the NUI data for the frontpage, it contains instructions where to put the side bar buttons , what goes into the main carousel and where these buttons link to or if they open other game modes.",
+      "sendToClient": true,
+      "default": ""
+    },
+    {
+      "key": "get_recent_opponents",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "give_guest_name",
+      "type": "int",
+      "description": "1=Give guest name by default instead of platform username 0=Use platform username",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "homefront_date",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "2025.11.27-09.00.00"
+    },
+    {
+      "key": "idel_disconnect_minutes",
+      "type": "int",
+      "description": "Number of minutes until a idle client gets disconnected. default 51",
+      "sendToClient": true,
+      "default": "51"
+    },
+    {
+      "key": "invite_friends_button",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "is_create_callsign_after_tutorial",
+      "type": "int",
+      "description": "1=do after tutorial 0=do before tutorial",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "key_encryption",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "147148"
+    },
+    {
+      "key": "korean_stove_only",
+      "type": "int",
+      "description": "If enabled then Korean language is only selectable on Stove clients.",
+      "sendToClient": true,
+      "default": "0"
+    },
+    {
+      "key": "maintenance_mode",
+      "type": "int",
+      "description": "Maintenance mode: Don't change here. Should only be changed under \"Admin-&gt;Maintenance mode\"",
+      "sendToClient": false,
+      "default": "0"
+    },
+    {
+      "key": "maintenance_mode_check_on_enter_foreground",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "matchmaking_client_version_ranges",
+      "type": "json",
+      "description": "What client versions can be matches together. if the value is for example: [11000, 12000] then versions less than 11000 are in the same pool 11000-11999 in the next pool and 12000+ in the same pool.",
+      "sendToClient": false,
+      "default": "[]"
+    },
+    {
+      "key": "match_stat_gatherer_batch_size",
+      "type": "int",
+      "description": "",
+      "sendToClient": false,
+      "default": "50"
+    },
+    {
+      "key": "match_stat_gatherer_sleep_time",
+      "type": "int",
+      "description": "",
+      "sendToClient": false,
+      "default": "5000"
+    },
+    {
+      "key": "mobile_local_notifications",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "monitor_battle",
+      "type": "int",
+      "description": "Monitoring battles failing to start correctly.",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "more_filters",
+      "type": "int",
+      "description": "Adds more filters to collection (currently only Reserved cards)",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "most_popular_products",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "304;238;318;319;320;321;322;324;11;270;1;52;45;18;... (click edit to see the whole value)",
+      "truncated": true
+    },
+    {
+      "key": "naval_warfare_date",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "2025.04.15-09.00.00"
+    },
+    {
+      "key": "new_effect_bar_pc",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "new_effect_icons",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "new_medkits",
+      "type": "int",
+      "description": "Enable 1 3 7 day medkits",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "new_player_ip_whitelist",
+      "type": "json",
+      "description": "New players are disabled by default on STAGING... unless their IP is in this list. 91.195.184.241, 146.120.165.104 Dmytro 153.92.153.131 Gisli 193.186.4.48 Mykola 89.17.132.6 Reynir 84.253.230.57 Helsinki. 91.241.177.52 and 91.241.177.95 Mykola again",
+      "sendToClient": false,
+      "default": "[ \"213.181.100.253\", \"82.181.11.114\", \"146.120.163.236\", \"146.120.165.104\", \"188.163.97.229\", \"91.195.184.241\", \"193.186.4.48\", \"195.49.149.45\", \"195.49.149.41\", \"89.17.132.6\", \"86.115.51.75\", \"82.181.71.234\", \"84.253.230.57\", \"93.106.13.105\", \"80.220.84.239\", \"82.181.169.239\", \"146.120.165.148\", \"180.171.116.194\", \"1.15.243.122\", \"113.89.9.225\", \"91.241.177.52\", \"91.241.177.95\" ]"
+    },
+    {
+      "key": "new_premade_decks",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "new_rewards",
+      "type": "int",
+      "description": "Enable new reward system",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "new_xpbar",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "nui_desktop",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "0"
+    },
+    {
+      "key": "nui_mobile",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "oceania_storm_date",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "2025.05.05-09.00.00"
+    },
+    {
+      "key": "reconnect",
+      "type": "int",
+      "description": "Don't change, client will be foobar if set to zero",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "reduce_reward_animation_fps",
+      "type": "int",
+      "description": "Some mobile platforms (iOS tablet) have flickering during reward animation with high fps. This config will change which platforms are affected by fps reduction during animation (forced to 30 fps), which will remove flicker. 0=None 1=iOS 2=Android 3=Both",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "reserve_changes",
+      "type": "json",
+      "description": "Array of Json objects that each stores a date to become active and a list of cards that should go in the reserved pool and a list of cards that should be coming back from the reserved pool. Cards that are on a list with a due date that has already passed or within 60 days are not supposed to be dropped from packs. This 60 day limit might be changed... and probably has?",
+      "sendToClient": true,
+      "default": "[ { \"due_date\": \"2024-09-11T12:00:00\", \"coming_back\": [ \"card_event_breakthrough\", \"card_event_hel\", \"card_event_men_of_steel\", \"card_event_outmaneuver\", \"card_event_overwhelming_force\", \"card_event_sabotage\", \"card_event_suppression_fire\", \"card_event_tactical_withdrawal\", \"card_unit_144th_infantry_regiment\", \"card_unit_a_24_banshee\", \"card_unit_b_26_marauder\", \"card_unit_cromwell_mk_iv\", \"card_unit_kv_ii\", \"card_unit_pak_40\", \"card_unit_royal_west_kents\", \"card_unit_shibata_regiment_bal\", \"card_unit_sm_79\", \"card_unit_su_85\" ], \"to_be_reserved\": [] } ]"
+    },
+    {
+      "key": "reserved_system_compensation_urls",
+      "type": "json",
+      "description": "",
+      "sendToClient": true,
+      "default": "{ \"de-de\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_de.jpg\", \"en-en\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_en.jpg\", \"es-es\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_es.jpg\", \"fr-fr\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_fr.jpg\", \"it-it\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_it.jpg\", \"ko-kr\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_kr.jpg\", \"pl-pl\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_pl.jpg\", \"pt-br\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_pt.jpg\", \"ru-ru\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_ru.jpg\", \"zh-hans\": \"https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/re_sch.jpg\", \"zh-hant\": \"https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/re_tch.jpg\" }"
+    },
+    {
+      "key": "response_zero_max_retries",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "10"
+    },
+    {
+      "key": "returning_player_rewards",
+      "type": "json",
+      "description": "",
+      "sendToClient": true,
+      "default": "[ { \"qty\": 100, \"item_name\": \"gold\" }, { \"qty\": 1, \"officer\": false, \"expansion\": \"Core\", \"item_name\": \"pack\" }, { \"qty\": 1, \"gold\": true, \"rarity\": \"Limited\", \"item_name\": \"random_card\" }, { \"qty\": 1, \"item_name\": \"draft_ticket\" }, { \"qty\": 2, \"card_name\": \"card_wildcard_limited\", \"item_name\": \"card\" }, { \"qty\": 1, \"days\": 3, \"item_name\": \"medkit\" }, { \"qty\": 1, \"card_name\": \"card_wildcard_special\", \"item_name\": \"card\" }, { \"qty\": 1, \"officer\": true, \"expansion\": \"core\", \"item_name\": \"pack\" } ]"
+    },
+    {
+      "key": "review_lost",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "review_url_de",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://forms.gle/D3hhAk8Tuu5mHF2M6"
+    },
+    {
+      "key": "review_url_en",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://forms.gle/75nzdjwret1kXA2S6"
+    },
+    {
+      "key": "review_url_fr",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://forms.gle/FdemapkcpRPn6oBCA"
+    },
+    {
+      "key": "review_url_pl",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://forms.gle/qWoQw4MM9wrAwRkS9"
+    },
+    {
+      "key": "review_url_pt",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://forms.gle/jL7qc5hfA7yV3n2u8"
+    },
+    {
+      "key": "review_url_ru",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://forms.gle/o5kbvZwZ5yfkN4v19"
+    },
+    {
+      "key": "review_url_zh",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://wj.qq.com/s2/10069780/f345"
+    },
+    {
+      "key": "review_wins",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "6"
+    },
+    {
+      "key": "salvage_enabled",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "shop_2023",
+      "type": "int",
+      "description": "1=use new shop (2023) 0=use old shop",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "show_rewards_after_purchase",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "skip_sending_subactions",
+      "type": "int",
+      "description": "1=true: SubActions not transmitted. Enable only after confirming local subActions work properly.",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "skip_unlocking",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "subactions_control1",
+      "type": "int",
+      "description": "challegen and code use local subactions",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "subactions_control2",
+      "type": "int",
+      "description": "unranked battles use local subactions",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "subactions_control3",
+      "type": "int",
+      "description": "all pvp matches use subactions",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "tournament_id",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "7"
+    },
+    {
+      "key": "tow_show",
+      "type": "int",
+      "description": "Show TOW campaign scenarios to all or only owners of them",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "use_oc_redis_set",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "use_tutorial_handpointer",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "validate_turn_switches",
+      "type": "int",
+      "description": "Make server validate actions in numerical order to prevent sync errors",
+      "sendToClient": true,
+      "default": "0"
+    },
+    {
+      "key": "versions",
+      "type": "json",
+      "description": "Which client versions can connect to the backend, list of strings.",
+      "sendToClient": true,
+      "default": "[ \"Kards 1.53\", \"Kards 1.54\", \"Kards 1.55\", \"Kards 1.56\", \"Kards 1.57\", \"Kards 1.58\" ]"
+    },
+    {
+      "key": "vertical_shop",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "1"
+    },
+    {
+      "key": "wc_button",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "0"
+    },
+    {
+      "key": "wc_cutoff",
+      "type": "int",
+      "description": "",
+      "sendToClient": true,
+      "default": "57"
+    },
+    {
+      "key": "wc_qualifiers_1",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "只是做了点微小的工作;圆寂都察院;Liszt;冲矢猫;Lok;Der_Admiral;劣质暗杀兵;R... (click edit to see the whole value)",
+      "truncated": true
+    },
+    {
+      "key": "wc_steam_url",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "https://store.steampowered.com/news/app/544810/vie... (click edit to see the whole value)",
+      "truncated": true
+    },
+    {
+      "key": "websocketurl",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "wss://ws.staging.1939api.com/ws"
+    },
+    {
+      "key": "winter_war_date",
+      "type": "string",
+      "description": "",
+      "sendToClient": true,
+      "default": "2023.10.25-09.00.00"
+    },
+    {
+      "key": "winter_war_is_here_gift_urls",
+      "type": "json",
+      "description": "",
+      "sendToClient": true,
+      "default": "{ \"de-de\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_de.jpg\", \"en-en\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_en.jpg\", \"es-es\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_es.jpg\", \"fr-fr\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_fr.jpg\", \"it-it\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_it.jpg\", \"ko-kr\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_kr.jpg\", \"pl-pl\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_pl.jpg\", \"pt-br\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_pt.jpg\", \"ru-ru\": \"https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_ru.jpg\", \"zh-hans\": \"https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/es_sch.jpg\", \"zh-hant\": \"https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/es_tch.jpg\" }"
+    },
+    {
+      "key": "xxxnew_unlocking_modulus",
+      "type": "string",
+      "description": "",
+      "sendToClient": false,
+      "default": "758360:10;761555:3;763330:2;769830:1"
+    }
+  ]
+}

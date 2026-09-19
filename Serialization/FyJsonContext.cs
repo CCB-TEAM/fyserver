@@ -26,6 +26,8 @@ namespace fyserver.Serialization;
 [JsonSerializable(typeof(StoreGroup))]
 [JsonSerializable(typeof(StoreOffer))]
 [JsonSerializable(typeof(StoreItem))]
+[JsonSerializable(typeof(PlayerPack))]
+[JsonSerializable(typeof(List<PlayerPack>))]
 [JsonSerializable(typeof(StoreItemData))]
 [JsonSerializable(typeof(AlwaysFeaturedGroup))]
 [JsonSerializable(typeof(ItemsResponse))]

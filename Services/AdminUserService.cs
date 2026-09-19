@@ -13,13 +13,18 @@ public class AdminUserService(UserStoreService users, WebSocketHubService webSoc
     public Task<User?> GetAsync(int userId) => users.GetByIdAsync(userId);
 
     /// <summary>封禁并断开该用户当前连接。</summary>
-    public async Task<(bool ok, string message)> BanAsync(int userId)
+    public async Task<(bool ok, string message)> BanAsync(int userId, string? reason = null, DateTime? expiresAt = null)
     {
         var user = await users.GetByIdAsync(userId);
         if (user == null)
             return (false, $"用户 {userId} 不存在");
 
+        if (expiresAt is { } expiry && expiry <= DateTime.UtcNow)
+            return (false, "解封时间必须晚于当前时间");
         user.Banned = true;
+        user.BanReason = reason?.Trim() ?? "";
+        user.BanExpiresAt = expiresAt?.ToUniversalTime();
+        user.BannedAt = DateTime.UtcNow;
         user.UpdatedAt = DateTime.UtcNow;
         await users.SaveUserAsync(user);
         await webSockets.DisconnectAsync(userId, "该账户已被封禁");
@@ -34,6 +39,8 @@ public class AdminUserService(UserStoreService users, WebSocketHubService webSoc
             return (false, $"用户 {userId} 不存在");
 
         user.Banned = false;
+        user.BanReason = "";
+        user.BanExpiresAt = null;
         user.UpdatedAt = DateTime.UtcNow;
         await users.SaveUserAsync(user);
         return (true, $"已解封 {user.UserName}（{userId}）");

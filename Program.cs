@@ -8,6 +8,10 @@ using Microsoft.AspNetCore.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+// 发行版可能从快捷方式、服务管理器或其它工作目录启动；所有相对路径
+//（setting.json、config、library、data 与 wwwroot）都必须固定到 exe 所在目录。
+Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+
 // ==================== 配置与共享服务 ====================
 // 单例实例由本进程显式创建，HTTP 与 WebSocket 合并到同一个 host，
 // 从而共享用户存储 / 匹配队列 / WebSocket 连接表等运行时状态。
@@ -31,6 +35,8 @@ var frontpage = new FrontpageConfigService();
 var contentEntries = new ContentEntriesService();
 var serverMetrics = new ServerMetricsService();
 var adminAccount = new AdminAccountService();
+var adminAudit = new AdminAuditLogService();
+var clientServerConfig = new ClientServerConfigService();
 
 void RegisterSharedServices(IServiceCollection services)
 {
@@ -48,6 +54,8 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(contentEntries);
     services.AddSingleton(serverMetrics);
     services.AddSingleton(adminAccount);
+    services.AddSingleton(adminAudit);
+    services.AddSingleton(clientServerConfig);
 }
 
 // ============ HTTP host（含 WebSocket 端点，共用同一端口） ============
@@ -106,7 +114,15 @@ httpApp.MapAdminApiEndpoints();
 // 后台入口别名：/admin-ui/ → index.html、/admin-ui/login → login.html
 httpApp.UseMiddleware<AdminUiEntryMiddleware>();
 // 静态资源（wwwroot/admin-ui）：CreateSlimBuilder 默认未启用静态文件中间件
-httpApp.UseStaticFiles();
+httpApp.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        // Always revalidate admin pages and assets after replacing a distribution.
+        if (context.Context.Request.Path.StartsWithSegments("/admin-ui"))
+            context.Context.Response.Headers.CacheControl = "no-cache";
+    }
+});
 
 
 // 未找到路由的处理

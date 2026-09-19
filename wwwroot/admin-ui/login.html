@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-Hans">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理员登录 · FYServer</title><link rel="stylesheet" href="/admin-ui/assets/admin.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>管理员登录 · FYServer</title><link rel="stylesheet" href="/admin-ui/assets/admin-v4.css?v=20260919-4"></head>
 <body class="auth-body">
 <button type="button" class="auth-theme" id="auth-theme" aria-label="切换主题"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg></button>
 <main class="auth-wrap"><section class="auth-card">
@@ -9,18 +9,18 @@
 <form id="auth-form" class="auth-form" autocomplete="on">
 <label class="auth-field"><span>管理员用户名</span><div><i><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.8 20c.7-4 3.1-6 7.2-6s6.5 2 7.2 6"/></svg></i><input id="username" name="username" autocomplete="username" placeholder="请输入管理员用户名" required maxlength="32"></div></label>
 <label class="auth-field"><span>密码</span><div><i><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10M12 14v3"/></svg></i><input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required minlength="10"><button type="button" id="reveal" aria-label="显示密码"><svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10.7 10.7 0 0 1 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-2.3 3M6.2 6.3C3.8 8 2.5 12 2.5 12s3.5 6 9.5 6a9.8 9.8 0 0 0 3.2-.5M9.9 9.8a3 3 0 0 0 4.3 4.3"/></svg></button></div></label>
-<label class="auth-field" id="confirm-field" hidden><span>确认密码</span><div><i><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10M12 14v3"/></svg></i><input id="confirm" name="confirm" type="password" autocomplete="new-password" placeholder="请再次输入密码" minlength="10"></div></label>
+<label class="auth-field" id="confirm-field" hidden style="display:none"><span>确认密码</span><div><i><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10M12 14v3"/></svg></i><input id="confirm" name="confirm" type="password" autocomplete="new-password" placeholder="请再次输入密码" minlength="10" disabled></div></label>
 <p class="auth-tip" id="hint">正在检查服务器状态…</p>
 <button class="auth-submit" id="submit" type="submit"><img src="/admin-ui/assets/fyserver-logo-transparent.png" alt=""><span>登录</span></button>
 </form></section></main>
-<script src="/admin-ui/assets/admin.js"></script>
+<script src="/admin-ui/assets/admin-v4.js?v=20260919-13"></script>
 <script>
 (async function(){
 const $=id=>document.getElementById(id),params=new URLSearchParams(location.search),next=params.get('next')||'/admin-ui/index.html';let setup=false;
 $('auth-theme').onclick=()=>{const dark=document.documentElement.classList.toggle('theme-dark');localStorage.setItem('fyserver.admin.dark',dark?'1':'0')};
 if(localStorage.getItem('fyserver.admin.dark')==='1')document.documentElement.classList.add('theme-dark');
 $('reveal').onclick=()=>{const hidden=$('password').type==='password';$('password').type=hidden?'text':'password';$('reveal').classList.toggle('is-revealed',hidden);$('reveal').setAttribute('aria-label',hidden?'隐藏密码':'显示密码')};
-try{const res=await fetch('/admin/api/session'),s=await res.json();if(s.authorized){location.replace(next);return}setup=!s.initialized;
+try{const res=await fetch('/admin/api/session',{cache:'no-store'});if(!res.ok)throw Error('无法获取登录状态');const s=await res.json();if(s.authorized){location.replace(next);return}setup=s.initialized===false;$('confirm-field').hidden=!setup;$('confirm-field').style.display=setup?'grid':'none';$('confirm').disabled=!setup;$('confirm').required=setup;
 if(setup){$('title-mode').textContent='Setup';$('subtitle').textContent='首次启动 · 创建后台管理员';$('confirm-field').hidden=false;$('confirm').required=true;$('password').autocomplete='new-password';$('hint').textContent=s.loopback?'密码至少 10 个字符，创建后即可进入控制台。':'请在服务器本机打开此页面完成首次设置。';$('submit').querySelector('span').textContent='完成设置';$('submit').disabled=!s.loopback}else $('hint').textContent='请输入初始化时创建的管理员账户。'}catch(_){$('hint').textContent='无法连接后台接口，请确认服务器正在运行。'}
 $('auth-form').addEventListener('submit',async e=>{e.preventDefault();const username=$('username').value.trim(),password=$('password').value;if(setup&&password!==$('confirm').value){Admin.banner('两次输入的密码不一致','err');return}$('submit').disabled=true;$('submit').classList.add('is-loading');
 try{const res=await fetch('/admin/api/'+(setup?'setup':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});const data=await res.json();if(!res.ok){Admin.banner(data.message||'操作失败','err');return}location.replace(next)}catch(_){Admin.banner('无法连接服务器','err')}finally{$('submit').disabled=false;$('submit').classList.remove('is-loading')}})

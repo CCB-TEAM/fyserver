@@ -66,7 +66,7 @@ public static class LobbyEndpoints
             return Results.BadRequest("账户无效");
         }
 
-        if (user.Banned)
+        if (user.IsBanActive(DateTime.UtcNow))
         {
             await webSockets.DisconnectAsync(user.Id, "该账户已被封禁");
             return Results.StatusCode(StatusCodes.Status403Forbidden);

@@ -4,79 +4,248 @@ using System.Text.Json.Nodes;
 
 namespace fyserver.Services;
 
-/// <summary>管理员账户、密码校验与签名会话。账户文件不保存明文密码。</summary>
+public sealed class AdminAccount
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Username { get; set; } = "";
+    public string Salt { get; set; } = "";
+    public string PasswordHash { get; set; } = "";
+    public bool IsOwner { get; set; }
+    public bool Enabled { get; set; } = true;
+    public HashSet<string> Permissions { get; set; } = new(StringComparer.Ordinal);
+    public int SessionVersion { get; set; } = 1;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastLoginAt { get; set; }
+    public string? LastLoginIp { get; set; }
+}
+
+/// <summary>后台多账号、权限及签名会话；兼容旧单账号文件并将其迁移为 owner。</summary>
 public sealed class AdminAccountService
 {
     public const string CookieName = "fyserver_admin_session";
+    public static readonly string[] AvailablePermissions = ["players", "content", "matches", "serverConfig", "systemSettings", "permissions"];
     private const string AccountPath = "./data/admin-auth.json";
     private const int Iterations = 210_000;
     private readonly object _gate = new();
-    private string _username = "";
-    private byte[] _salt = [];
-    private byte[] _passwordHash = [];
-    private byte[] _sessionSecret = [];
-    private int _sessionVersion = 1;
+    private readonly List<AdminAccount> _accounts = [];
+    private readonly Dictionary<string, SessionPresence> _presence = new(StringComparer.Ordinal);
+    private byte[] _sessionSecret = RandomNumberGenerator.GetBytes(32);
+    private bool _loadFailed;
+    private sealed record SessionPresence(string AccountId, int Version, DateTime SeenAt, DateTime ExpiresAt);
 
     public AdminAccountService() => Load();
-
-    public bool IsInitialized { get { lock (_gate) return _passwordHash.Length > 0; } }
-    public string? Username { get { lock (_gate) return IsInitialized ? _username : null; } }
+    public bool IsInitialized { get { lock (_gate) return _accounts.Any(a => a.IsOwner); } }
 
     public (bool Ok, string Message) Initialize(string? username, string? password)
     {
-        username = username?.Trim();
-        if (string.IsNullOrWhiteSpace(username) || username.Length is < 3 or > 32)
-            return (false, "管理员用户名长度应为 3–32 个字符");
-        if (string.IsNullOrEmpty(password) || password.Length < 10)
-            return (false, "密码至少需要 10 个字符");
-
+        var validation = ValidateCredentials(username, password);
+        if (validation != null) return (false, validation);
         lock (_gate)
         {
-            if (_passwordHash.Length > 0) return (false, "管理员账户已经初始化");
-            _username = username;
-            _salt = RandomNumberGenerator.GetBytes(32);
-            _passwordHash = HashPassword(password, _salt);
-            _sessionSecret = RandomNumberGenerator.GetBytes(32);
-            _sessionVersion = 1;
+            if (_loadFailed) return (false, "管理员账户文件读取失败，请先修复 data/admin-auth.json");
+            if (_accounts.Count != 0) return (false, "管理员账户已经初始化");
+            _accounts.Add(NewAccount(username!.Trim(), password!, true, []));
             Save();
-            return (true, "初始化完成");
+            return (true, "Owner 账户初始化完成");
         }
     }
 
-    public bool VerifyCredentials(string? username, string? password)
+    public AdminAccount? Authenticate(string? username, string? password)
     {
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password)) return false;
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password)) return null;
         lock (_gate)
         {
-            if (_passwordHash.Length == 0 || !string.Equals(_username, username.Trim(), StringComparison.Ordinal)) return false;
-            return CryptographicOperations.FixedTimeEquals(_passwordHash, HashPassword(password, _salt));
+            var account = _accounts.FirstOrDefault(a => a.Enabled && a.Username == username.Trim());
+            if (account == null) return null;
+            var actual = HashPassword(password, Convert.FromBase64String(account.Salt));
+            var expected = Convert.FromBase64String(account.PasswordHash);
+            return CryptographicOperations.FixedTimeEquals(expected, actual) ? Copy(account) : null;
         }
     }
 
-    public string CreateSession()
+    public string CreateSession(AdminAccount account)
     {
         lock (_gate)
         {
+            var current = _accounts.First(a => a.Id == account.Id && a.Enabled);
             var expires = DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeSeconds();
-            var payload = $"{_sessionVersion}.{expires}.{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}";
-            return payload + "." + Sign(payload);
+            var payload = $"{current.Id}.{current.SessionVersion}.{expires}.{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}";
+            var token = payload + "." + Sign(payload);
+            _presence[TokenKey(token)] = new SessionPresence(current.Id, current.SessionVersion, DateTime.UtcNow, DateTimeOffset.FromUnixTimeSeconds(expires).UtcDateTime);
+            return token;
         }
     }
 
-    public bool ValidateSession(string? token)
+    public AdminAccount? GetSessionAccount(string? token)
     {
-        if (string.IsNullOrWhiteSpace(token)) return false;
+        if (string.IsNullOrWhiteSpace(token)) return null;
         lock (_gate)
         {
             var parts = token.Split('.');
-            if (parts.Length != 4 || !int.TryParse(parts[0], out var version) || version != _sessionVersion ||
-                !long.TryParse(parts[1], out var expires) || expires < DateTimeOffset.UtcNow.ToUnixTimeSeconds()) return false;
-            var payload = string.Join('.', parts[0], parts[1], parts[2]);
+            if (parts.Length != 5 || !int.TryParse(parts[1], out var version) ||
+                !long.TryParse(parts[2], out var expires) || expires < DateTimeOffset.UtcNow.ToUnixTimeSeconds()) return null;
+            var payload = string.Join('.', parts[0], parts[1], parts[2], parts[3]);
             var expected = Encoding.ASCII.GetBytes(Sign(payload));
-            var supplied = Encoding.ASCII.GetBytes(parts[3]);
-            return expected.Length == supplied.Length && CryptographicOperations.FixedTimeEquals(expected, supplied);
+            var supplied = Encoding.ASCII.GetBytes(parts[4]);
+            if (expected.Length != supplied.Length || !CryptographicOperations.FixedTimeEquals(expected, supplied)) return null;
+            var account = _accounts.FirstOrDefault(a => a.Id == parts[0] && a.Enabled && a.SessionVersion == version);
+            if (account == null) return null;
+            _presence[TokenKey(token)] = new SessionPresence(account.Id, account.SessionVersion, DateTime.UtcNow, DateTimeOffset.FromUnixTimeSeconds(expires).UtcDateTime);
+            if (_presence.Count > 10000) PrunePresence();
+            return Copy(account);
         }
     }
+
+    public void RevokeSession(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return;
+        lock (_gate) _presence.Remove(TokenKey(token));
+    }
+
+    public (bool Online, int Sessions, DateTime? LastSeenAt) PresenceFor(string accountId)
+    {
+        lock (_gate)
+        {
+            var account = _accounts.FirstOrDefault(a => a.Id == accountId);
+            if (account == null || !account.Enabled) return (false, 0, null);
+            var cutoff = DateTime.UtcNow.AddMinutes(-2);
+            var sessions = _presence.Values.Where(p => p.AccountId == accountId && p.Version == account.SessionVersion && p.SeenAt >= cutoff && p.ExpiresAt > DateTime.UtcNow).ToList();
+            return (sessions.Count > 0, sessions.Count, sessions.Count == 0 ? null : sessions.Max(p => p.SeenAt));
+        }
+    }
+
+    public void RecordSuccessfulLogin(string accountId, string? address)
+    {
+        lock (_gate)
+        {
+            var account = _accounts.FirstOrDefault(a => a.Id == accountId);
+            if (account == null) return;
+            account.LastLoginAt = DateTime.UtcNow;
+            account.LastLoginIp = address;
+            Save();
+        }
+    }
+
+    public bool ValidateSession(string? token) => GetSessionAccount(token) != null;
+    public AdminAccount? GetByUsername(string? username)
+    {
+        lock (_gate) return _accounts.FirstOrDefault(a => a.Username == username) is { } account ? Copy(account) : null;
+    }
+    public bool HasPermission(AdminAccount account, string permission) => account.IsOwner || account.Permissions.Contains(permission);
+    public List<AdminAccount> ListAccounts() { lock (_gate) return _accounts.Select(Copy).ToList(); }
+
+    public (bool Ok, string Message) CreateAccount(AdminAccount actor, string? username, string? password, IEnumerable<string>? permissions)
+    {
+        var validation = ValidateCredentials(username, password);
+        if (validation != null) return (false, validation);
+        var selected = permissions?.ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
+        if (selected.Except(AvailablePermissions).Any()) return (false, "包含未知权限");
+        if (!actor.IsOwner && selected.Any(permission => !actor.Permissions.Contains(permission))) return (false, "不能授予自己没有的权限");
+        lock (_gate)
+        {
+            if (_accounts.Any(a => a.Username.Equals(username!.Trim(), StringComparison.OrdinalIgnoreCase))) return (false, "用户名已存在");
+            _accounts.Add(NewAccount(username!.Trim(), password!, false, selected));
+            Save();
+            return (true, "后台账号已创建");
+        }
+    }
+
+    public (bool Ok, string Message) UpdateAccount(AdminAccount actor, string id, bool? enabled, IEnumerable<string>? permissions, string? newPassword)
+    {
+        var selected = permissions?.ToHashSet(StringComparer.Ordinal);
+        if (selected != null && selected.Except(AvailablePermissions).Any()) return (false, "包含未知权限");
+        if (!actor.IsOwner && selected != null && selected.Any(permission => !actor.Permissions.Contains(permission))) return (false, "不能授予自己没有的权限");
+        if (newPassword != null && newPassword.Length < 10) return (false, "新密码至少需要 10 个字符");
+        lock (_gate)
+        {
+            var account = _accounts.FirstOrDefault(a => a.Id == id);
+            if (account == null) return (false, "账号不存在");
+            if (account.IsOwner) return (false, "Owner 账号不可通过此接口修改");
+            if (enabled.HasValue) account.Enabled = enabled.Value;
+            if (selected != null) account.Permissions = selected;
+            if (newPassword != null)
+            {
+                var salt = RandomNumberGenerator.GetBytes(32);
+                account.Salt = Convert.ToBase64String(salt);
+                account.PasswordHash = Convert.ToBase64String(HashPassword(newPassword, salt));
+            }
+            account.SessionVersion++;
+            Save();
+            return (true, "后台账号已更新，原会话已失效");
+        }
+    }
+
+    public (bool Ok, string Message) DeleteAccount(string id)
+    {
+        lock (_gate)
+        {
+            var account = _accounts.FirstOrDefault(a => a.Id == id);
+            if (account == null) return (false, "账号不存在");
+            if (account.IsOwner) return (false, "不能删除 Owner 账号");
+            _accounts.Remove(account);
+            Save();
+            return (true, "后台账号已删除");
+        }
+    }
+
+    public (bool Ok, string Message) ResetPassword(AdminAccount actor, string id, string? newPassword, string? currentPassword)
+    {
+        if (string.IsNullOrEmpty(newPassword) || newPassword.Length is < 10 or > 256)
+            return (false, "新密码长度应为 10–256 个字符");
+        lock (_gate)
+        {
+            var account = _accounts.FirstOrDefault(a => a.Id == id);
+            if (account == null) return (false, "账号不存在");
+            if (account.IsOwner)
+            {
+                if (!actor.IsOwner || actor.Id != account.Id || string.IsNullOrEmpty(currentPassword))
+                    return (false, "Owner 修改密码必须提供当前密码");
+                var existing = Convert.FromBase64String(account.PasswordHash);
+                var actual = HashPassword(currentPassword, Convert.FromBase64String(account.Salt));
+                if (!CryptographicOperations.FixedTimeEquals(existing, actual)) return (false, "当前密码不正确");
+            }
+            var salt = RandomNumberGenerator.GetBytes(32);
+            account.Salt = Convert.ToBase64String(salt);
+            account.PasswordHash = Convert.ToBase64String(HashPassword(newPassword, salt));
+            account.SessionVersion++;
+            Save();
+            return (true, "密码已重置，原有会话已失效");
+        }
+    }
+
+    private static string TokenKey(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    private void PrunePresence()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        foreach (var key in _presence.Where(p => p.Value.SeenAt < cutoff || p.Value.ExpiresAt <= DateTime.UtcNow).Select(p => p.Key).ToList())
+            _presence.Remove(key);
+    }
+
+    private static string? ValidateCredentials(string? username, string? password)
+    {
+        if (string.IsNullOrWhiteSpace(username) || username.Trim().Length is < 3 or > 32) return "管理员用户名长度应为 3–32 个字符";
+        if (string.IsNullOrEmpty(password) || password.Length < 10) return "密码至少需要 10 个字符";
+        return null;
+    }
+
+    private static AdminAccount NewAccount(string username, string password, bool owner, IEnumerable<string> permissions)
+    {
+        var salt = RandomNumberGenerator.GetBytes(32);
+        return new AdminAccount
+        {
+            Username = username, Salt = Convert.ToBase64String(salt),
+            PasswordHash = Convert.ToBase64String(HashPassword(password, salt)), IsOwner = owner,
+            Permissions = permissions.ToHashSet(StringComparer.Ordinal)
+        };
+    }
+
+    private static AdminAccount Copy(AdminAccount a) => new()
+    {
+        Id = a.Id, Username = a.Username, Salt = a.Salt, PasswordHash = a.PasswordHash,
+        IsOwner = a.IsOwner, Enabled = a.Enabled, Permissions = new HashSet<string>(a.Permissions, StringComparer.Ordinal),
+        SessionVersion = a.SessionVersion, CreatedAt = a.CreatedAt
+        , LastLoginAt = a.LastLoginAt, LastLoginIp = a.LastLoginIp
+    };
 
     private string Sign(string payload) => Convert.ToHexString(HMACSHA256.HashData(_sessionSecret, Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
     private static byte[] HashPassword(string password, byte[] salt) => Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, HashAlgorithmName.SHA256, 32);
@@ -88,26 +257,66 @@ public sealed class AdminAccountService
         {
             var json = JsonNode.Parse(File.ReadAllText(AccountPath))?.AsObject();
             if (json == null) return;
-            _username = json["username"]?.GetValue<string>() ?? "";
-            _salt = Convert.FromBase64String(json["salt"]?.GetValue<string>() ?? "");
-            _passwordHash = Convert.FromBase64String(json["passwordHash"]?.GetValue<string>() ?? "");
             _sessionSecret = Convert.FromBase64String(json["sessionSecret"]?.GetValue<string>() ?? "");
-            _sessionVersion = json["sessionVersion"]?.GetValue<int>() ?? 1;
+            if (_sessionSecret.Length < 32) throw new InvalidDataException("会话密钥无效");
+            if (json["accounts"] is JsonArray accounts)
+            {
+                foreach (var node in accounts.OfType<JsonObject>())
+                    _accounts.Add(new AdminAccount
+                    {
+                        Id = node["id"]?.GetValue<string>() ?? "",
+                        Username = node["username"]?.GetValue<string>() ?? "",
+                        Salt = node["salt"]?.GetValue<string>() ?? "",
+                        PasswordHash = node["passwordHash"]?.GetValue<string>() ?? "",
+                        IsOwner = node["isOwner"]?.GetValue<bool>() ?? false,
+                        Enabled = node["enabled"]?.GetValue<bool>() ?? true,
+                        SessionVersion = node["sessionVersion"]?.GetValue<int>() ?? 1,
+                        CreatedAt = DateTime.TryParse(node["createdAt"]?.GetValue<string>(), out var created) ? created : DateTime.UtcNow,
+                        LastLoginAt = DateTime.TryParse(node["lastLoginAt"]?.GetValue<string>(), out var loginAt) ? loginAt : null,
+                        LastLoginIp = node["lastLoginIp"]?.GetValue<string>(),
+                        Permissions = (node["permissions"] as JsonArray)?.Select(p => p?.GetValue<string>() ?? "").Where(p => AvailablePermissions.Contains(p)).ToHashSet(StringComparer.Ordinal) ?? []
+                    });
+            }
+            else if (json["passwordHash"] != null)
+            {
+                if (!File.Exists(AccountPath + ".bak")) File.Copy(AccountPath, AccountPath + ".bak");
+                _accounts.Add(new AdminAccount
+                {
+                    Username = json["username"]?.GetValue<string>() ?? "",
+                    Salt = json["salt"]?.GetValue<string>() ?? "",
+                    PasswordHash = json["passwordHash"]?.GetValue<string>() ?? "",
+                    IsOwner = true
+                });
+                Save(); // 旧单账号迁移成 owner，原有密码哈希保持不变。
+            }
+            if (_accounts.Count(a => a.IsOwner) != 1) throw new InvalidDataException("必须且只能存在一个 Owner 账号");
         }
-        catch (Exception ex) { Console.WriteLine($"管理员账户配置读取失败：{ex.Message}"); }
+        catch (Exception ex)
+        {
+            _accounts.Clear();
+            _loadFailed = true;
+            Console.WriteLine($"管理员账户配置读取失败：{ex.Message}");
+        }
     }
 
     private void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(AccountPath)!);
-        var json = new JsonObject
+        var accounts = new JsonArray();
+        foreach (var a in _accounts)
         {
-            ["username"] = _username,
-            ["salt"] = Convert.ToBase64String(_salt),
-            ["passwordHash"] = Convert.ToBase64String(_passwordHash),
-            ["sessionSecret"] = Convert.ToBase64String(_sessionSecret),
-            ["sessionVersion"] = _sessionVersion
-        };
+            var permissions = new JsonArray();
+            foreach (var permission in a.Permissions.Order()) permissions.Add(JsonValue.Create(permission));
+            accounts.Add(new JsonObject
+            {
+                ["id"] = a.Id, ["username"] = a.Username, ["salt"] = a.Salt,
+                ["passwordHash"] = a.PasswordHash, ["isOwner"] = a.IsOwner,
+                ["enabled"] = a.Enabled, ["sessionVersion"] = a.SessionVersion,
+                ["createdAt"] = a.CreatedAt.ToString("O"), ["lastLoginAt"] = a.LastLoginAt?.ToString("O"),
+                ["lastLoginIp"] = a.LastLoginIp, ["permissions"] = permissions
+            });
+        }
+        var json = new JsonObject { ["version"] = 2, ["sessionSecret"] = Convert.ToBase64String(_sessionSecret), ["accounts"] = accounts };
         var temp = AccountPath + ".tmp";
         File.WriteAllText(temp, json.ToJsonString(new() { WriteIndented = true }));
         File.Move(temp, AccountPath, true);

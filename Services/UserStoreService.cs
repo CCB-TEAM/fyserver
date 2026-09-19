@@ -9,6 +9,7 @@ namespace fyserver.Services;
 public class UserStoreService
 {
     private readonly FasterKvService _db;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> _userLocks = new();
     // 保护"检查存在 -> 分配 ID -> 保存"的原子性
     private readonly SemaphoreSlim _createLock = new(1, 1);
 
@@ -35,6 +36,19 @@ public class UserStoreService
             return Task.FromResult<User?>(null);
         var u = _db.Get<User>($"user:id:{userId}");
         return Task.FromResult<User?>(u);
+    }
+
+    /// <summary>对同一玩家的余额、改名及购买操作串行化，避免重复扣款或丢失更新。</summary>
+    public async Task<TResult?> WithUserLockAsync<TResult>(int userId, Func<User, Task<TResult>> action) where TResult : class
+    {
+        var gate = _userLocks.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        try
+        {
+            var user = await GetByIdAsync(userId);
+            return user == null ? null : await action(user);
+        }
+        finally { gate.Release(); }
     }
 
     // 核心保存逻辑

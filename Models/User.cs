@@ -14,9 +14,9 @@ public class User
     {
         UserName = userName;
         // 默认值
-        Name = "XDLG";
+        Name = "<anon>";
         Locale = "zh-Hans";
-        Tag = Random.Shared.Next(1000, 9999);
+        Tag = 0;
         Banned = false;
     }
 
@@ -25,9 +25,9 @@ public class User
         Id = id;
         UserName = userName;
         // 默认值
-        Name = userName;
+        Name = "<anon>";
         Locale = "zh-Hans";
-        Tag = Random.Shared.Next(1000, 9999);
+        Tag = 0;
         Banned = false;
     }
 
@@ -36,6 +36,11 @@ public class User
     public string Name { get; set; } = "";
     public string Locale { get; set; } = "";
     public int Tag { get; set; }
+    public int Gold { get; set; }
+    public int Diamonds { get; set; }
+    public int Dust { get; set; } = 1000;
+    public List<PlayerPack> Packs { get; set; } = new();
+    public Dictionary<int, int> PurchasedOffers { get; set; } = new();
 
     // System.Text.Json 支持 Dictionary<int, T> 的序列化
     // 会自动将 int key 转为 string key ("1": {...})
@@ -43,6 +48,18 @@ public class User
 
     public List<EquippedItem> EquippedItem { get; set; } = new();
     public bool Banned { get; set; }
+    public string BanReason { get; set; } = "";
+    public DateTime? BanExpiresAt { get; set; }
+    public DateTime? BannedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+
+    public bool IsBanActive(DateTime nowUtc) => Banned && (BanExpiresAt == null || BanExpiresAt > nowUtc);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string BanDescription => !string.IsNullOrWhiteSpace(BanReason)
+        ? BanReason
+        : BanExpiresAt is { } expires
+            ? $"解封时间：{expires.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}"
+            : "永久封禁";
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

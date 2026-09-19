@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>玩家详情 · fyserver 后台</title>
+  <link rel="stylesheet" href="/admin-ui/assets/admin-v4.css?v=20260919-4" />
+  <style>input[type=datetime-local]{font:14px var(--app-font);color:var(--text);background:color-mix(in srgb,var(--surface-custom) 78%,transparent);border:1px solid var(--outline);border-radius:12px;padding:10px 12px;width:100%}</style>
+</head>
+<body>
+<main class="page">
+  <div id="banner-host"></div>
+  <div class="page-head"><h1 id="title">玩家详情</h1><p><a href="/admin-ui/users.html">← 返回玩家列表</a> · 资料、账号状态与管理操作</p></div>
+  <div class="card-grid" id="summary"></div>
+  <div class="split-2">
+    <section class="card"><h2>基本资料</h2><dl class="kv" id="identity"></dl>
+      <form id="profile-form" style="margin-top:20px"><div class="form-grid">
+        <div class="field"><label for="name">昵称</label><input id="name" type="text" maxlength="32" required /></div>
+        <div class="field"><label for="tag">Tag</label><input id="tag" type="text" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required /></div>
+        <div class="field"><label for="locale">语言</label><input id="locale" type="text" maxlength="20" required /></div>
+      </div><button class="btn" type="submit">保存资料</button></form>
+    </section>
+    <section class="card"><h2>封禁与连接</h2><dl class="kv" id="ban-status"></dl>
+      <form id="ban-form" style="margin-top:20px">
+        <div class="field"><label for="reason">封禁原因（可留空；留空时游戏显示解封时间）</label><textarea id="reason" maxlength="500" placeholder="输入给玩家看到的原因"></textarea></div>
+        <div class="field"><label for="expiry">解封时间（本地时间）</label><input id="expiry" type="datetime-local" /></div>
+        <div class="field"><label><input id="permanent" type="checkbox" /> 永久封禁</label></div>
+        <div class="btn-row"><button class="btn btn--danger" type="submit">封禁 / 更新封禁</button><button class="btn btn--outline" id="unban" type="button">解封</button><button class="btn btn--outline" id="kick" type="button">踢出连接</button></div>
+      </form>
+    </section>
+  </div>
+  <section class="card"><h2>玩家货币</h2><p class="muted">余额保存在玩家账户中，游戏下次请求 /session 时会读到最新数值。</p>
+    <form id="wallet-form"><div class="form-grid">
+      <div class="field"><label for="gold">金币</label><input id="gold" type="number" min="0" step="1" required /></div>
+      <div class="field"><label for="diamonds">钻石</label><input id="diamonds" type="number" min="0" step="1" required /></div>
+    </div><button class="btn" type="submit">保存货币</button></form>
+  </section>
+  <section class="card"><h2>卡组（只读）</h2><div class="table-wrap" id="decks"></div></section>
+  <section class="card"><h2>危险操作</h2><p class="muted">删除玩家账户不可撤销。</p><button class="btn btn--danger" id="delete-user" type="button">删除玩家</button></section>
+</main>
+<footer class="page-footer">FYServer · Server Control Center</footer>
+<script src="/admin-ui/assets/admin-v4.js?v=20260919-13"></script>
+<script>
+(async function () {
+  if (!await Admin.ensureAuth()) return;
+  Admin.mount('users', '玩家详情');
+  const id = Number(new URLSearchParams(location.search).get('id'));
+  if (!Number.isInteger(id) || id <= 0) { Admin.banner('玩家 ID 无效', 'err'); return; }
+  const $ = id => document.getElementById(id);
+  const fmt = value => value ? new Date(value).toLocaleString() : '—';
+  const kv = rows => rows.map(([key, value]) => '<dt>' + Admin.esc(key) + '</dt><dd>' + Admin.esc(value ?? '—') + '</dd>').join('');
+  let player;
+  async function load() {
+    player = await Admin.api('/users/' + id);
+    if (!player || !player.id) { Admin.banner('无法读取玩家资料', 'err'); return; }
+    $('title').textContent = player.name + ' · #' + player.id;
+    $('summary').innerHTML = [
+      ['账号状态', player.banned ? '已封禁' : '正常', player.banned ? player.banDescription : '可登录'],
+      ['连接状态', player.online ? '在线' : '离线', player.activeMatchId ? '对局 #' + player.activeMatchId : '无进行中对局'],
+      ['卡组', (player.decks || []).length, '已保存的卡组'],
+      ['装备', player.equippedItemCount, '当前装备物品']
+    ].map(x => '<div class="stat-card"><div class="stat-card__label">' + Admin.esc(x[0]) + '</div><div class="stat-card__value">' + Admin.esc(x[1]) + '</div><div class="stat-card__hint">' + Admin.esc(x[2]) + '</div></div>').join('');
+    $('identity').innerHTML = kv([['玩家 ID', player.id], ['注册时间', player.createdAt], ['最近登录', fmt(player.lastLoginAt)], ['资料更新时间', player.updatedAt]]);
+    $('ban-status').innerHTML = kv([['状态', player.banned ? '已封禁' : '正常'], ['封禁时间', fmt(player.bannedAt)], ['解封时间', player.banned ? (player.banExpiresAt ? fmt(player.banExpiresAt) : '永久') : '—'], ['玩家看到的说明', player.banned ? player.banDescription : '—']]);
+    $('name').value = player.name || '';
+    $('tag').value = String(player.tag).padStart(4, '0');
+    $('locale').value = player.locale || '';
+    $('gold').value = player.gold;
+    $('diamonds').value = player.diamonds;
+    $('reason').value = player.banned ? player.banReason || '' : '';
+    $('permanent').checked = !!(player.banned && !player.banExpiresAt);
+    $('expiry').disabled = $('permanent').checked;
+    const localExpiry = player.banExpiresAt ? new Date(player.banExpiresAt) : new Date(Date.now() + 7 * 86400000);
+    $('expiry').value = new Date(localExpiry.getTime() - localExpiry.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    $('unban').disabled = !player.banned;
+    const decks = player.decks || [];
+    $('decks').innerHTML = '<table class="md-table"><thead><tr><th>ID</th><th>名称</th><th>主阵营</th><th>副阵营</th><th>收藏</th><th>最后使用</th></tr></thead><tbody>' +
+      (decks.length ? decks.map(d => '<tr><td class="mono">' + d.id + '</td><td>' + Admin.esc(d.name) + '</td><td>' + Admin.esc(d.mainFaction) + '</td><td>' + Admin.esc(d.allyFaction) + '</td><td>' + (d.favorite ? '是' : '否') + '</td><td>' + Admin.esc(d.lastPlayed) + '</td></tr>').join('') : '<tr><td colspan="6" class="empty">暂无卡组</td></tr>') + '</tbody></table>';
+  }
+  async function action(path, options) { const result = await Admin.api('/users/' + id + path, options); Admin.banner(result?.message || '操作完成', result?.ok ? 'ok' : 'err'); if (result?.ok) await load(); return result; }
+  $('profile-form').onsubmit = async event => { event.preventDefault(); await action('/profile', { method: 'PUT', body: { name: $('name').value, tag: Number($('tag').value), locale: $('locale').value } }); };
+  $('wallet-form').onsubmit = async event => { event.preventDefault(); await action('/wallet', { method: 'PUT', body: { gold: Number($('gold').value), diamonds: Number($('diamonds').value) } }); };
+  $('permanent').onchange = () => { $('expiry').disabled = $('permanent').checked; };
+  $('ban-form').onsubmit = async event => {
+    event.preventDefault();
+    const expiresAt = $('permanent').checked ? null : ($('expiry').value ? new Date($('expiry').value).toISOString() : null);
+    if (!expiresAt && !$('permanent').checked) { Admin.banner('请选择解封时间或勾选永久封禁', 'err'); return; }
+    if (!confirm('确认封禁玩家 #' + id + '？玩家当前连接将被断开。')) return;
+    await action('/ban', { method: 'POST', body: { reason: $('reason').value, expiresAt } });
+  };
+  $('unban').onclick = async () => { if (confirm('确认解封此玩家？')) await action('/unban', { method: 'POST' }); };
+  $('kick').onclick = async () => { const reason = prompt('踢出原因（可留空）', '您已被服务器断开连接'); if (reason !== null) await action('/kick?reason=' + encodeURIComponent(reason), { method: 'POST' }); };
+  $('delete-user').onclick = async () => { if (prompt('删除不可撤销。请输入玩家 ID 确认：') !== String(id)) return; const result = await Admin.api('/users/' + id, { method: 'DELETE' }); if (result?.ok) location.href = '/admin-ui/users.html'; else Admin.banner(result?.message || '删除失败', 'err'); };
+  await load();
+})();
+</script>
+</body>
+</html>

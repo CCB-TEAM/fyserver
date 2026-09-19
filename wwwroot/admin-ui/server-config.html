@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>服务器配置 · FYServer</title><link rel="stylesheet" href="/admin-ui/assets/admin-v4.css?v=20260919-11"></head>
+<body>
+<main class="page">
+  <div id="banner-host"></div>
+  <div class="page-head"><p class="dashboard-eyebrow">SERVER OPTIONS</p><h1>服务器配置</h1><p>参考镜像站管理界面：每项都可以独立启用或关闭，关闭只停止发送，不会删除已保存的值；编辑和新增使用独立页面。</p></div>
+  <section class="card"><div class="btn-row"><a class="btn" href="/admin-ui/server-config-edit.html">新增配置项</a><label class="field" style="margin:0;min-width:240px"><span>筛选配置项</span><input type="text" id="filter" placeholder="按名称、说明或默认值搜索"></label><button class="btn btn--outline" id="reload" type="button">重新读取文件</button><span class="muted mono" id="count"></span></div></section>
+  <section class="card"><h2>配置项与注释</h2><p class="muted">操作按钮位于最左侧。关闭开关会保留配置值，但下次登录不再发送该项。镜像抓取中 6 项缺少完整默认值，已以空值占位且默认关闭；请填入有效值后再启用。</p><div class="table-wrap"><table class="md-table config-table"><thead><tr><th>操作</th><th>启用</th><th>配置项</th><th>类型</th><th>当前值</th><th>注释 / 参考默认值</th></tr></thead><tbody id="rows"></tbody></table></div></section>
+</main><footer class="page-footer">FYServer · Server Control Center</footer>
+<script src="/admin-ui/assets/admin-v4.js?v=20260919-13"></script>
+<script>
+(async function(){
+if(!await Admin.ensureAuth())return;Admin.mount('server-config','服务器配置');
+const $=id=>document.getElementById(id);let data={},schemaMap={},flags={},comments={};
+const incomplete=new Set(['account_linking_url','discount_products','front_page_data','most_popular_products','wc_qualifiers_1','wc_steam_url']);
+function typeOf(v){return v===null?'null':Array.isArray(v)?'array':typeof v}
+function textValue(v){return typeof v==='object'?JSON.stringify(v):String(v)}
+function render(){
+ const query=$('filter').value.trim().toLowerCase(),keys=Array.from(new Set(Object.keys(data).concat(Object.keys(schemaMap)))).filter(k=>{const i=schemaMap[k]||{},description=Object.prototype.hasOwnProperty.call(comments,k)?comments[k]:i.description;return !query||(k+' '+(description||'')+' '+(i.default||'')).toLowerCase().includes(query)});
+ $('count').textContent=keys.length+' / '+Object.keys(data).length+' 项已配置 · '+Object.keys(schemaMap).length+' 项镜像参考';
+ $('rows').innerHTML=keys.map(k=>{
+  const info=schemaMap[k]||{},exists=Object.prototype.hasOwnProperty.call(data,k),v=exists?data[k]:undefined,kind=exists?typeOf(v):(info.type||'未设置'),display=exists?textValue(v):'未设置',enabled=flags[k]!==false,reference=info.truncated?'镜像默认值（页面已截断，不可直接使用）：'+(info.default||''):info.default!==undefined&&info.default!==''?'镜像参考默认：'+info.default:'',description=Object.prototype.hasOwnProperty.call(comments,k)?comments[k]:info.description;
+  return '<tr><td class="config-actions"><div class="config-actions-inner"><a class="btn btn--outline btn--small" href="/admin-ui/server-config-edit.html?key='+encodeURIComponent(k)+'">编辑</a><button class="btn btn--danger btn--small delete-config" data-key="'+Admin.esc(k)+'" '+(!exists||k==='websocketurl'?'disabled title="未配置或自动生成，不可删除"':'')+'>删除</button></div></td><td><label class="switch"><input class="config-toggle" type="checkbox" data-key="'+Admin.esc(k)+'" '+(enabled?'checked':'')+' '+(!exists?'disabled title="请先新增配置项"':'')+'><span></span></label></td><td class="mono">'+Admin.esc(k)+(incomplete.has(k)&&!enabled?' <span class="chip chip--err">待填完整值</span>':'')+'</td><td>'+Admin.esc(kind)+'</td><td class="config-value" title="'+Admin.esc(display)+'">'+Admin.esc(display)+'</td><td class="config-description">'+Admin.esc(description||'')+(reference?'<small class="mirror-default">'+Admin.esc(reference)+'</small>':'')+'</td></tr>'
+ }).join('')||'<tr><td class="empty" colspan="6">没有匹配的配置项</td></tr>';
+}
+async function load(){const r=await Admin.api('/server-config');if(!r)return;data=JSON.parse(r.raw||'{}');schemaMap=Object.fromEntries((r.schema||[]).map(x=>[x.key,x]));flags=r.flags||{};comments=r.comments||{};render()}
+$('filter').oninput=render;$('reload').onclick=load;
+$('rows').onclick=async e=>{
+ const toggle=e.target.closest('.config-toggle');if(toggle){const key=toggle.dataset.key;if(toggle.checked&&incomplete.has(key)&&(data[key]===''||(data[key]&&typeof data[key]==='object'&&!Object.keys(data[key]).length))&&!confirm('该项仍是空占位值，确定发送给客户端？')){toggle.checked=false;return}const result=await Admin.api('/server-config/item/'+encodeURIComponent(key)+'/enabled',{method:'PUT',body:{enabled:toggle.checked}});if(!result.ok){toggle.checked=!toggle.checked;Admin.banner(result.message||'开关保存失败','err')}else{flags[key]=toggle.checked;Admin.banner(toggle.checked?'已启用配置项':'已关闭发送（值仍保留）','ok');render()}return}
+ const del=e.target.closest('.delete-config');if(!del||del.disabled)return;const key=del.dataset.key;if(!confirm('删除配置项 '+key+'？如只想停止发送，请关闭启用开关。'))return;const result=await Admin.api('/server-config/item/'+encodeURIComponent(key),{method:'DELETE'});Admin.banner(result.message||'删除失败',result.ok?'ok':'err');if(result.ok)await load()
+};
+await load();
+})();
+</script></body></html>

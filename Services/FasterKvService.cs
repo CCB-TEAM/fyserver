@@ -59,6 +59,7 @@ public class FasterKvService : IDisposable
         if (File.Exists("./YCDR"))
         {
             _fasterKv.Recover();
+            RebuildIndex();
         }
 
         _session = _fasterKv.NewSession(new SimpleFunctions<string, string, Empty>());
@@ -243,7 +244,28 @@ public class FasterKvService : IDisposable
     // 恢复到最后一次检查点
     public void Recover()
     {
-        _fasterKv.Recover();
+        lock (_sync)
+        {
+            _fasterKv.Recover();
+            RebuildIndex();
+        }
+    }
+
+    private void RebuildIndex()
+    {
+        _index.Clear();
+        using var iterator = _fasterKv.Log.Scan(
+            _fasterKv.Log.BeginAddress,
+            _fasterKv.Log.TailAddress,
+            ScanBufferingMode.DoublePageBuffering);
+
+        while (iterator.GetNext(out var recordInfo, out var key, out var value))
+        {
+            if (recordInfo.Tombstone)
+                _index.TryRemove(key, out _);
+            else if (!recordInfo.Invalid && !string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(value))
+                _index[key] = value;
+        }
     }
 
     // 清空数据库 (注意：FASTER 没有直接清空的方法，需要删除日志文件)

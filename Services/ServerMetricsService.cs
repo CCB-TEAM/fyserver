@@ -1,8 +1,9 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace fyserver.Services;
 
-/// <summary>为管理后台采集当前进程资源占用，并保存最近一段活动趋势。</summary>
+/// <summary>采集 Windows 整机与 FYServer 进程资源占用，并保存最近一段活动趋势。</summary>
 public sealed class ServerMetricsService
 {
     public sealed record ActivityPoint(long Timestamp, int Online, int Matches, int Queued);
@@ -14,6 +15,12 @@ public sealed class ServerMetricsService
         long DatabaseBytes,
         long DiskTotalBytes,
         double DiskPercent,
+        double? SystemCpuPercent,
+        long? SystemMemoryUsedBytes,
+        long? SystemMemoryTotalBytes,
+        double? SystemMemoryPercent,
+        long? DiskUsedBytes,
+        double? DiskUsedPercent,
         IReadOnlyList<ActivityPoint> Activity);
 
     private const int MaxSamples = 72;
@@ -22,10 +29,54 @@ public sealed class ServerMetricsService
     private readonly Queue<ActivityPoint> _activity = new();
     private DateTime _lastCpuAt = DateTime.UtcNow;
     private TimeSpan _lastCpuTime;
+    private ulong _idle, _kernel, _user;
+    private bool _systemCpuReady;
+    private double? _systemCpuPercent;
+    private long _lastSystemSample;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetSystemTimes(out ulong idle, out ulong kernel, out ulong user);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryStatus
+    {
+        public uint Length, Load;
+        public ulong TotalPhysical, AvailablePhysical, TotalPageFile, AvailablePageFile;
+        public ulong TotalVirtual, AvailableVirtual, AvailableExtendedVirtual;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
+
+    private void SampleSystemCpu()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var now = Stopwatch.GetTimestamp();
+        if (_lastSystemSample != 0 && Stopwatch.GetElapsedTime(_lastSystemSample, now).TotalSeconds < 1)
+            return;
+        _lastSystemSample = now;
+        if (!GetSystemTimes(out var idle, out var kernel, out var user))
+        {
+            _systemCpuPercent = null;
+            _systemCpuReady = false;
+            return;
+        }
+        if (_systemCpuReady && kernel >= _kernel && user >= _user && idle >= _idle)
+        {
+            var total = (kernel - _kernel) + (user - _user);
+            _systemCpuPercent = total == 0 ? null :
+                Math.Clamp(100d * (1d - (double)(idle - _idle) / total), 0, 100);
+        }
+        _idle = idle; _kernel = kernel; _user = user;
+        _systemCpuReady = true;
+    }
 
     public ServerMetricsService()
     {
         _lastCpuTime = _process.TotalProcessorTime;
+        SampleSystemCpu();
     }
 
     public Snapshot Capture(int online, int matches, int queued)
@@ -45,13 +96,29 @@ public sealed class ServerMetricsService
             var memoryTotal = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
             if (memoryTotal <= 0) memoryTotal = memoryUsed;
             var memoryPercent = memoryTotal == 0 ? 0 : Math.Clamp(memoryUsed * 100d / memoryTotal, 0d, 100d);
+            SampleSystemCpu();
+            long? systemMemoryUsed = null, systemMemoryTotal = null;
+            double? systemMemoryPercent = null;
+            var memory = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
+            if (OperatingSystem.IsWindows() && GlobalMemoryStatusEx(ref memory) && memory.TotalPhysical > 0)
+            {
+                systemMemoryTotal = (long)memory.TotalPhysical;
+                systemMemoryUsed = (long)(memory.TotalPhysical - memory.AvailablePhysical);
+                systemMemoryPercent = systemMemoryUsed * 100d / systemMemoryTotal;
+            }
 
             var databaseBytes = GetDirectorySize(Path.GetFullPath("./faster-log"));
             long diskTotal = 0;
+            long? diskUsed = null;
             try
             {
                 var root = Path.GetPathRoot(Path.GetFullPath("./faster-log"));
-                if (!string.IsNullOrEmpty(root)) diskTotal = new DriveInfo(root).TotalSize;
+                if (!string.IsNullOrEmpty(root))
+                {
+                    var drive = new DriveInfo(root);
+                    diskTotal = drive.TotalSize;
+                    diskUsed = diskTotal - drive.TotalFreeSpace;
+                }
             }
             catch { }
             var diskPercent = diskTotal == 0 ? 0 : Math.Clamp(databaseBytes * 100d / diskTotal, 0d, 100d);
@@ -64,7 +131,9 @@ public sealed class ServerMetricsService
             }
 
             return new Snapshot(cpuPercent, memoryUsed, memoryTotal, memoryPercent,
-                databaseBytes, diskTotal, diskPercent, _activity.ToArray());
+                databaseBytes, diskTotal, diskPercent,
+                _systemCpuPercent, systemMemoryUsed, systemMemoryTotal, systemMemoryPercent,
+                diskUsed, diskTotal > 0 ? diskUsed * 100d / diskTotal : null, _activity.ToArray());
         }
     }
 

@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>内容配置 · fyserver 后台</title>
-    <link rel="stylesheet" href="/admin-ui/assets/admin.css" />
+    <link rel="stylesheet" href="/admin-ui/assets/admin-v4.css?v=20260919-16" />
+    <style>.schedule-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}.schedule-day{min-height:92px;padding:7px;border:1px solid var(--outline);border-radius:10px;background:rgba(var(--primary-rgb),.025)}.schedule-day.outside{opacity:.42}.schedule-day.today{border-color:var(--primary)}.schedule-day b{display:block;font-size:11px}.schedule-event{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px;padding:2px 5px;border-radius:5px;background:rgba(var(--primary-rgb),.13);color:var(--primary);font-size:10px;cursor:pointer}.schedule-event.targeted{background:rgba(120,40,200,.12);color:#7828c8}.schedule-event.unpublished{opacity:.48;text-decoration:line-through}.schedule-weekday{text-align:center;font-size:11px;color:var(--muted)}.fp-editor{padding:16px;margin:16px 0;border:1px solid var(--outline);border-radius:14px}.fp-editor h3{margin:4px 0 12px}.fp-editor .field small{font-size:12px;color:var(--muted)}.fp-editor details{border-top:1px solid var(--outline);padding:12px 0}.fp-editor details:first-of-type{border:0}.fp-editor summary,.fp-json-details summary{cursor:pointer;font-weight:700;margin-bottom:10px}.fp-json-details{margin:16px 0}#sk-effects>details{padding:10px 0}#sk-blacklist{margin:10px 0 20px}input[type=datetime-local]{font:14px var(--app-font);color:var(--text);background:color-mix(in srgb,var(--surface-custom) 78%,transparent);border:1px solid var(--outline);border-radius:12px;padding:10px 12px;width:100%;outline:0}@media(max-width:800px){.schedule-day{min-height:70px}.schedule-event{font-size:9px}}</style>
 </head>
 <body>
 <main class="page">
@@ -24,13 +25,23 @@
             </select>
             <button class="btn" id="new-entry">新建条目</button>
             <button class="btn btn--outline" id="refresh">刷新列表</button>
+            <button class="btn btn--outline" id="export-content">导出 JSON</button>
+            <button class="btn btn--outline" id="import-content">导入 JSON</button>
+            <input id="import-file" type="file" accept=".json,application/json" hidden />
             <span class="muted" id="content-path"></span>
         </div>
+        <div class="btn-row" id="frontpage-filters" style="margin-top:12px"><label class="field" style="margin:0;min-width:150px"><span>投放状态</span><select id="status-filter"><option value="">全部状态</option><option value="active">生效中</option><option value="scheduled">待投放</option><option value="expired">已结束</option><option value="unpublished">未发布</option></select></label><label class="field" style="margin:0;min-width:150px"><span>内容类型</span><select id="type-filter"><option value="">全部类型</option><option value="0">轮播</option><option value="1">侧栏按钮</option><option value="2">弹窗</option></select></label><label class="field" style="margin:0;min-width:150px"><span>分组</span><select id="group-filter"><option value="">全部</option><option value="global">普通</option><option value="targeted">定向</option></select></label></div>
     </div>
 
     <div class="card">
         <h2>条目列表</h2>
         <div class="table-wrap" id="entry-table"></div>
+    </div>
+
+    <div class="card" id="schedule-card" hidden>
+        <div class="btn-row"><h2 style="margin:0;flex:1">首页投放日历</h2><button class="btn btn--outline btn--small" id="prev-month">上个月</button><strong id="schedule-month"></strong><button class="btn btn--outline btn--small" id="next-month">下个月</button><button class="btn btn--outline btn--small" id="today-month">本月</button></div>
+        <p class="muted">按 UTC 时间显示。蓝色为普通内容，紫色为定向分组；未发布条目会划线。点击条目可打开编辑。</p>
+        <div class="schedule-grid" id="schedule-grid"></div>
     </div>
 
     <form id="entry-form" style="display:none">
@@ -43,18 +54,56 @@
                         <input type="text" id="name" />
                     </div>
                     <div class="field">
-                        <label for="startDate">开始时间</label>
-                        <input type="text" id="startDate" placeholder="2026-01-01 00:00:00" />
+                        <label for="startDate">开始时间（UTC）</label>
+                        <input type="datetime-local" id="startDate" step="1" />
                     </div>
                     <div class="field">
-                        <label for="endDate">结束时间</label>
-                        <input type="text" id="endDate" placeholder="9999-12-31 23:59:00" />
+                        <label for="endDate">结束时间（UTC）</label>
+                        <input type="datetime-local" id="endDate" step="1" />
                     </div>
                 </div>
-                <div class="field">
-                    <label for="raw">完整条目 JSON（<span id="raw-hint" class="mono"></span>）</label>
-                    <textarea id="raw" class="json" spellcheck="false"></textarea>
-                </div>
+                <div class="btn-row" id="publication-fields"><label><input type="checkbox" id="isPublished" checked /> 已发布</label><label><input type="checkbox" id="isTargeted" /> 定向分组</label><span class="muted">定向规则引擎尚未接入；定向条目会保存，但不会下发给玩家。</span></div>
+                <section class="fp-editor" id="frontpage-editor" hidden>
+                    <h3>可视化编辑</h3><p class="muted">直接输入中文即可。切换语言可编辑对应翻译；无翻译时使用“默认文案”。输入后会同步到下方 JSON 和右侧预览。</p>
+                    <div class="form-grid">
+                        <label class="field"><span>展示类型</span><select id="fp-type"><option value="0">轮播图</option><option value="1">侧栏按钮</option><option value="2">弹窗</option></select></label>
+                        <label class="field"><span>编辑文案语言</span><select id="fp-language"><option value="_">默认文案</option><option value="zh-hans">简体中文</option><option value="en-en">English</option><option value="zh-hant">繁体中文</option><option value="ja-jp">日本語</option><option value="ko-kr">한국어</option><option value="ru-ru">Русский</option><option value="de-de">Deutsch</option><option value="fr-fr">Français</option><option value="es-es">Español</option><option value="it-it">Italiano</option><option value="pl-pl">Polski</option><option value="pt-br">Português</option></select></label>
+                        <label class="field"><span>主标题</span><input id="fp-heading" type="text"></label>
+                        <label class="field"><span>主标题字号</span><input id="fp-heading-size" type="number" min="1" max="300"></label>
+                        <label class="field"><span>副标题</span><input id="fp-sub-heading" type="text"></label>
+                        <label class="field"><span>副标题字号</span><input id="fp-sub-heading-size" type="number" min="1" max="300"></label>
+                        <label class="field"><span>横幅文案</span><input id="fp-banner-text" type="text"></label>
+                        <label class="field"><span>横幅文案字号</span><input id="fp-banner-size" type="number" min="1" max="300"></label>
+                        <label class="field"><span>点击链接 / 游戏内跳转</span><input id="fp-link" type="text" placeholder="kards:shop:category:featured"></label>
+                        <label class="field"><span>优先级</span><input id="fp-priority" type="number" min="0" max="9999"></label>
+                        <label class="field"><span>侧栏槽位（仅按钮）</span><input id="fp-slot" type="number" min="0" max="9999"></label>
+                    </div>
+                    <h3>图片</h3><div class="form-grid">
+                        <label class="field"><span>主图 URL / 图床链接</span><input id="fp-image-url" type="text" placeholder="https://…"></label>
+                        <label class="field"><span>图标 URL（侧栏按钮）</span><input id="fp-icon-url" type="text" placeholder="https://…"></label>
+                    </div>
+                    <div class="btn-row"><label class="field"><span>上传主图至服务器</span><input id="fp-image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><label class="field"><span>上传图标至服务器</span><input id="fp-icon-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label></div>
+                    <p class="muted">图片最大 5 MB，支持 PNG / JPEG / WebP / GIF。上传后生成本站 URL；如客户端在其他设备上运行，请确保客户端能访问服务器对外地址。</p>
+                </section>
+                <section class="fp-editor" id="skirmish-editor" hidden>
+                    <h3>乱斗规则编辑器</h3><p class="muted">参考镜像后台分组编辑。填写的字段会同步到下方 JSON；留空表示不设置该可选规则。未覆盖的规则仍可在 JSON 中编辑。</p>
+                    <details open><summary>多语言说明</summary><div class="form-grid">
+                        <label class="field"><span>语言</span><select id="sk-language"><option value="EN">English</option><option value="ZH-HANS">简体中文</option><option value="ZH-HANT">繁体中文</option><option value="JA">日本語</option><option value="KO">한국어</option><option value="FR">Français</option><option value="DE">Deutsch</option><option value="IT">Italiano</option><option value="ES">Español</option><option value="PT">Português</option><option value="PL">Polski</option><option value="RU">Русский</option></select></label>
+                        <label class="field"><span>规则要点（每行一项）</span><textarea id="sk-rules-list" placeholder="每行输入一条规则，可直接输入中文"></textarea></label>
+                        <label class="field"><span>说明文案</span><textarea id="sk-description" placeholder="本语言的乱斗说明"></textarea></label>
+                    </div></details>
+                    <details open><summary>奖励与基础规则</summary><div class="form-grid">
+                        <label class="field"><span>奖励类型</span><select id="sk-reward-type"><option value="">不设置</option><option value="gold">金币 gold</option><option value="diamonds">钻石 diamonds</option><option value="medkit_1_d">1 天补给</option><option value="medkit_3_d">3 天补给</option><option value="medkit_7_d">7 天补给</option><option value="core_pack">核心卡包</option><option value="random_pack">随机卡包</option></select></label>
+                        <label class="field"><span>奖励数量</span><input id="sk-reward-amount" type="number" min="0" step="1"></label>
+                        <label class="field"><span>初始 kredits</span><input id="sk-starting-kredits" type="number" min="0" step="1"></label>
+                        <label class="field"><span>初始总部防御</span><input id="sk-hq-starting-defense" type="number" min="0" step="1"></label>
+                        <label class="field"><span>每回合时长（秒）</span><input id="sk-turn-length" type="number" min="1" step="1"></label>
+                        <label class="field"><span>卡牌最低费用</span><input id="sk-card-min-cost" type="number" min="0" step="1"></label>
+                    </div><div class="btn-row"><label><input id="sk-officer-pack" type="checkbox"> 军官卡包</label><label><input id="sk-skip-draw" type="checkbox"> 跳过回合开始抽牌</label><label><input id="sk-skip-kredit" type="checkbox"> 跳过回合开始增加 kredits</label></div></details>
+                    <details><summary>卡牌限制与随机牌组</summary><p class="muted">黑名单按镜像后台的阵营、卡牌类别选择；已有的其他黑名单值会保留。</p><div class="btn-row" id="sk-blacklist"></div><div class="form-grid"><label class="field"><span>随机牌组导入码（每行一个）</span><textarea id="sk-random-decks"></textarea></label></div><div id="sk-card-limits" class="form-grid"></div></details>
+                    <details><summary>回合与部署效果</summary><p class="muted">回合编号、卡牌和作用类型用英文逗号分隔；未填写的可选规则不会新增。编辑现有复杂对象时请展开 JSON 核对。</p><div id="sk-effects"></div></details>
+                </section>
+                <details class="fp-json-details" id="json-details" open><summary>完整条目 JSON（高级编辑，保留未建模字段）</summary><div class="field"><label for="raw">JSON（<span id="raw-hint" class="mono"></span>）</label><textarea id="raw" class="json" spellcheck="false"></textarea></div></details>
                 <div class="btn-row">
                     <button class="btn" type="submit">保存</button>
                     <button class="btn btn--outline" type="button" id="format">格式化</button>
@@ -86,7 +135,7 @@
                 <div class="preview-pane">
                     <div class="preview-stage" id="fp-preview-stage"></div>
                     <div class="preview-meta" id="fp-preview-meta"></div>
-                    <p class="muted" style="margin:0">按客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564），修改 JSON 即时刷新；仅首页条目有预览。</p>
+                    <p class="muted" style="margin:0">按客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564），表单或 JSON 修改后即时刷新；仅首页条目有预览。</p>
                 </div>
             </div>
         </div>
@@ -132,8 +181,9 @@
     </div>
 </template>
 
-<script src="/admin-ui/assets/admin.js"></script>
-<script src="/admin-ui/assets/admin-frontpage-preview.js"></script>
+<script src="/admin-ui/assets/admin-v4.js?v=20260919-13"></script>
+<script src="/admin-ui/assets/admin-frontpage-preview.js?v=20260919-14"></script>
+<script src="/admin-ui/assets/admin-skirmish-editor.js?v=20260919-16"></script>
 <script>
     (async function () {
         if (!await Admin.ensureAuth()) return;
@@ -143,11 +193,79 @@
         const form = document.getElementById('entry-form');
         const raw = document.getElementById('raw');
         const previewCard = document.getElementById('preview-card');
+        const fpFields = ['type','heading','heading-size','sub-heading','sub-heading-size','banner-text','banner-size','link','priority','slot','image-url','icon-url'];
+        const $fp = key => document.getElementById('fp-' + key);
+        SkirmishEditor.init(raw, Admin.banner);
         let currentId = 0;
+        let calendarEntries = [];
+        let calendarMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+
+        function statusText(status) { return ({active:'生效中',scheduled:'待投放',expired:'已结束',unpublished:'未发布',invalid_date:'日期无效'})[status] || status; }
+        function typeText(type){return ({0:'轮播',1:'侧栏按钮',2:'弹窗'})[type]||'—'}
+        function parseUtcDate(value,fallback){const text=String(value||fallback).trim().replace(' ','T');return Date.parse(/(?:Z|[+-]\d\d:?\d\d)$/i.test(text)?text:text+'Z')}
+        function dateInput(value){return String(value||'').replace(' ','T').replace(/Z$/i,'').slice(0,19)}
+        function dateOutput(value){return value?value+'Z':''}
+        function renderSchedule() {
+            const card = document.getElementById('schedule-card'); card.hidden = !isFrontpage(); if (!isFrontpage()) return;
+            const year=calendarMonth.getUTCFullYear(),month=calendarMonth.getUTCMonth();
+            document.getElementById('schedule-month').textContent=year+' 年 '+(month+1)+' 月';
+            const first=new Date(Date.UTC(year,month,1)),offset=(first.getUTCDay()+6)%7,grid=document.getElementById('schedule-grid');
+            let html=['一','二','三','四','五','六','日'].map(day=>'<span class="schedule-weekday">'+day+'</span>').join('');
+            for(let day=1-offset;day<=42-offset;day++){
+                const date=new Date(Date.UTC(year,month,day)),stamp=date.getTime(),matches=calendarEntries.filter(e=>{const start=parseUtcDate(e.startDate,'0001-01-01T00:00:00Z'),end=parseUtcDate(e.endDate,'9999-12-31T23:59:00Z');return !Number.isNaN(start)&&!Number.isNaN(end)&&stamp<=end&&stamp+86400000>start});
+                const outside=date.getUTCMonth()!==month,today=new Date().toISOString().slice(0,10)===date.toISOString().slice(0,10);
+                html+='<div class="schedule-day'+(outside?' outside':'')+(today?' today':'')+'"><b>'+date.getUTCDate()+'</b>'+matches.slice(0,4).map(e=>'<span class="schedule-event'+(e.isTargeted?' targeted':'')+(!e.isPublished?' unpublished':'')+'" data-edit="'+e.id+'" title="'+Admin.esc(e.name)+'">'+Admin.esc(e.name)+'</span>').join('')+(matches.length>4?'<small>+'+(matches.length-4)+'</small>':'')+'</div>';
+            }
+            grid.innerHTML=html;
+        }
 
         function kind() { return kindSelect.value; }
 
         function isFrontpage() { return kind() === 'frontpage'; }
+
+        function localized(value, language) {
+            if (value && typeof value === 'object' && !Array.isArray(value)) return value[language] ?? (language === '_' ? '' : value._ ?? '');
+            return language === '_' ? (value ?? '') : '';
+        }
+        function setLocalized(value, language, next) {
+            if (language === '_' && (!value || typeof value !== 'object' || Array.isArray(value))) return next;
+            const copy = value && typeof value === 'object' && !Array.isArray(value) ? {...value} : {_ : value ?? ''};
+            copy[language] = next;
+            return copy;
+        }
+        function readSimpleFields() {
+            if (!isFrontpage()) return;
+            let item;try { item=JSON.parse(raw.value||'{}'); } catch (_) { return; }
+            const c=item.content||{},lang=$fp('language').value;
+            const fields={type:c.type??0,heading:localized(c.heading?.text,lang),'heading-size':localized(c.heading?.font_size,lang),'sub-heading':localized(c.sub_heading?.text,lang),'sub-heading-size':localized(c.sub_heading?.font_size,lang),'banner-text':localized(c.banner_text?.text,lang),'banner-size':localized(c.banner_text?.font_size,lang),link:c.link??'',priority:c.priority??'',slot:c.slot??'','image-url':localized(c.image_url,'_'),'icon-url':localized(c.icon?.icon_url,'_')};
+            for(const key of fpFields)$fp(key).value=fields[key];
+        }
+        function writeSimpleFields(changedKey) {
+            if (!isFrontpage()) return;
+            let item;try { item=JSON.parse(raw.value||'{}'); } catch (_) { Admin.banner('请先修正 JSON 格式，表单暂不能同步','err'); return; }
+            const c=item.content||(item.content={}),lang=$fp('language').value;
+            if(changedKey==='type')c.type=Number($fp('type').value);
+            for(const [key,property] of [['heading','heading'],['sub-heading','sub_heading'],['banner-text','banner_text']]){
+                if(changedKey!==key&&changedKey!==key+'-size')continue;
+                const target=c[property]&&typeof c[property]==='object'?c[property]:(c[property]={});
+                if(changedKey===key)target.text=setLocalized(target.text,lang,$fp(key).value);
+                if(changedKey===key+'-size'&&$fp(key+'-size').value!=='')target.font_size=setLocalized(target.font_size,lang,Number($fp(key+'-size').value));
+            }
+            if(changedKey==='link')c.link=$fp('link').value;
+            if(changedKey==='image-url')c.image_url=setLocalized(c.image_url,'_',$fp('image-url').value);
+            if(changedKey==='icon-url'){const icon=c.icon&&typeof c.icon==='object'?c.icon:(c.icon={});icon.icon_url=setLocalized(icon.icon_url,'_',$fp('icon-url').value)}
+            if(changedKey==='priority'||changedKey==='slot'){if($fp(changedKey).value!=='')c[changedKey]=Number($fp(changedKey).value)}
+            raw.value=JSON.stringify(item,null,2);updatePreview();
+        }
+
+        async function uploadImage(input, target) {
+            const file=input.files?.[0];if(!file)return;
+            if(file.size>5*1024*1024){Admin.banner('图片不能超过 5 MB','err');input.value='';return}
+            const body=new FormData();body.append('image',file);
+            try{const response=await fetch('/admin/api/content/frontpage/upload-image',{method:'POST',body});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.message||'上传失败');$fp(target).value=result.url;writeSimpleFields(target);Admin.banner('图片已上传并填入地址，点击保存条目后内容才会发布','ok')}
+            catch(error){Admin.banner(error.message||'上传失败','err')}
+            finally{input.value=''}
+        }
 
         function updatePreview() {
             if (!isFrontpage()) { previewCard.style.display = 'none'; return; }
@@ -159,12 +277,19 @@
             const data = await Admin.api('/content/' + kind());
             document.getElementById('content-path').textContent = 'config/' + kind() + '.json';
             const entries = (data && data.entries) || [];
+            calendarEntries=entries;renderSchedule();
+            document.getElementById('frontpage-filters').hidden=!isFrontpage();
+            const statusFilter=document.getElementById('status-filter').value,typeFilter=document.getElementById('type-filter').value,groupFilter=document.getElementById('group-filter').value;
+            const visible=isFrontpage()?entries.filter(e=>(!statusFilter||e.status===statusFilter)&&(!typeFilter||String(e.type)===typeFilter)&&(!groupFilter||(groupFilter==='targeted')===e.isTargeted)):entries;
             document.getElementById('entry-table').innerHTML = '<table class="md-table"><thead><tr>' +
-                '<th>ID</th><th>名称</th><th>开始</th><th>结束</th><th>操作</th></tr></thead><tbody>' +
-                (entries.length === 0 ? '<tr><td colspan="5" class="empty">还没有条目</td></tr>' : entries.map(function (e) {
+                '<th>ID</th><th>名称</th><th>类型</th><th>优先级 / 槽位</th><th>投放状态</th><th>分组</th><th>开始</th><th>结束</th><th>操作</th></tr></thead><tbody>' +
+                (visible.length === 0 ? '<tr><td colspan="9" class="empty">没有匹配的条目</td></tr>' : visible.map(function (e) {
                     return '<tr><td class="mono">' + e.id + '</td><td>' + Admin.esc(e.name) + '</td>' +
+                        '<td>'+(isFrontpage()?typeText(e.type):'—')+'</td><td>'+(isFrontpage()?'P'+(e.priority??'—')+' / S'+(e.slot??'—'):'—')+'</td>'+
+                        '<td>'+ (isFrontpage()?'<span class="chip '+(e.status==='active'?'chip--ok':e.status==='invalid_date'?'chip--err':'chip--off')+'">'+statusText(e.status)+'</span>':'—') +'</td><td>'+(isFrontpage()?(e.isTargeted?'定向':'普通'):'—')+'</td>'+
                         '<td class="mono">' + Admin.esc(e.startDate) + '</td><td class="mono">' + Admin.esc(e.endDate) + '</td>' +
                         '<td><div class="btn-row"><button class="btn btn--small btn--outline" data-edit="' + e.id + '">编辑</button>' +
+                        (isFrontpage()?'<button class="btn btn--small btn--outline" data-publish="'+e.id+'" data-next="'+(!e.isPublished)+'">'+(e.isPublished?'取消发布':'发布')+'</button>':'')+
                         '<button class="btn btn--small btn--danger" data-del="' + e.id + '">删除</button></div></td></tr>';
                 }).join('')) + '</tbody></table>';
         }
@@ -175,24 +300,35 @@
                 const entry = await Admin.api('/content/' + kind() + '/' + id);
                 if (!entry) { Admin.banner('条目不存在', 'err'); return; }
                 document.getElementById('name').value = entry.name || '';
-                document.getElementById('startDate').value = entry.startDate || '';
-                document.getElementById('endDate').value = entry.endDate || '';
-                raw.value = entry.raw || '{}';
+                document.getElementById('startDate').value = dateInput(entry.startDate);
+                document.getElementById('endDate').value = dateInput(entry.endDate);
+                try { const item=JSON.parse(entry.raw||'{}'); document.getElementById('isPublished').checked=item.isPublished??item.is_published??true; document.getElementById('isTargeted').checked=item.isTargeted??item.is_targeted??false; } catch (_) {}
+                try { raw.value = JSON.stringify(JSON.parse(entry.raw || '{}'), null, 2); } catch (_) { raw.value = entry.raw || '{}'; }
                 document.getElementById('editor-title').textContent = '编辑条目 #' + id;
                 document.getElementById('entry-id').textContent = '条目 #' + id;
             } else {
                 document.getElementById('name').value = '';
                 document.getElementById('startDate').value = '';
                 document.getElementById('endDate').value = '';
+                document.getElementById('isPublished').checked = true;
+                document.getElementById('isTargeted').checked = false;
                 raw.value = isFrontpage()
-                    ? JSON.stringify({ content: { type: 0, heading: { text: { _: '' }, font_size: { _: 56 } }, sub_heading: { text: { _: '' }, font_size: { _: 30 } }, image_url: { _: '' }, link: { _: '' } }, is_published: true }, null, 2)
+                    ? JSON.stringify({ content: { type: 0, heading: { text: '', font_size: 56 }, sub_heading: { text: '', font_size: 30 }, banner_text: {text:'',font_size:56}, icon:{icon_url:''}, image_url: '', link: '', priority: 1 } }, null, 2)
                     : (kind() === 'skirmish'
-                        ? JSON.stringify({ rules: { localization: { EN: { rules_list: '', description: '' }, 'ZH-HANS': { rules_list: '', description: '' } }, blacklist: [], reward: { type: 'gold', amount: 100 }, turn_length: 90 } }, null, 2)
+                        ? JSON.stringify({ rules: { localization: { EN: { rules_list: [], description: '' }, 'ZH-HANS': { rules_list: [], description: '' } }, blacklist: [], reward: { type: 'gold', amount: 100 }, turn_length: 90 } }, null, 2)
                         : JSON.stringify({ entry_prices: { gold: 0, diamonds: 0, ticket: 0, points: 0 }, deck_rules: { allow_reserved: false, allow_more_ally_cards: false, allow_unowned: false }, turn_timers: { turn_length: 90, length_after_timeout: 30 }, rewards: [], texts: {}, active_period: { days: [], hour_from: 0, hour_to: 24 } }, null, 2));
                 document.getElementById('editor-title').textContent = '新建条目';
                 document.getElementById('entry-id').textContent = '（新建）';
             }
             document.getElementById('raw-hint').textContent = isFrontpage() ? 'content 之下为条目内容' : 'rules 之下为该类型的规则';
+            document.getElementById('publication-fields').hidden = !isFrontpage();
+            document.getElementById('frontpage-editor').hidden = !isFrontpage();
+            document.getElementById('skirmish-editor').hidden = kind() !== 'skirmish';
+            document.getElementById('json-details').open = kind() === 'knockout';
+            $fp('language').value = '_';
+            readSimpleFields();
+            document.getElementById('sk-language').value = 'EN';
+            if(kind()==='skirmish')SkirmishEditor.fill();
             form.style.display = '';
             updatePreview();
             form.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -204,9 +340,11 @@
                 method: 'POST',
                 body: {
                     name: document.getElementById('name').value,
-                    startDate: document.getElementById('startDate').value,
-                    endDate: document.getElementById('endDate').value,
-                    raw: raw.value
+                    startDate: dateOutput(document.getElementById('startDate').value),
+                    endDate: dateOutput(document.getElementById('endDate').value),
+                    raw: raw.value,
+                    isPublished: document.getElementById('isPublished').checked,
+                    isTargeted: document.getElementById('isTargeted').checked
                 }
             });
             Admin.banner((r && r.message) || '完成', r && r.ok ? 'ok' : 'err');
@@ -216,6 +354,8 @@
         document.getElementById('format').addEventListener('click', function () {
             try {
                 raw.value = JSON.stringify(JSON.parse(raw.value), null, 2);
+                if(kind()==='skirmish')SkirmishEditor.fill();
+                if(isFrontpage())readSimpleFields();
                 updatePreview();
                 Admin.banner('已格式化（尚未保存）', 'ok');
             } catch (e) { Admin.banner('JSON 格式错误：' + e.message, 'err'); }
@@ -233,7 +373,18 @@
         document.getElementById('cancel').addEventListener('click', function () { form.style.display = 'none'; });
         document.getElementById('new-entry').addEventListener('click', function () { openEntry(0); });
         document.getElementById('refresh').addEventListener('click', loadList);
-        raw.addEventListener('input', updatePreview);
+        for(const id of ['status-filter','type-filter','group-filter'])document.getElementById(id).onchange=loadList;
+        document.getElementById('prev-month').onclick=()=>{calendarMonth=new Date(Date.UTC(calendarMonth.getUTCFullYear(),calendarMonth.getUTCMonth()-1,1));renderSchedule()};
+        document.getElementById('next-month').onclick=()=>{calendarMonth=new Date(Date.UTC(calendarMonth.getUTCFullYear(),calendarMonth.getUTCMonth()+1,1));renderSchedule()};
+        document.getElementById('today-month').onclick=()=>{calendarMonth=new Date(Date.UTC(new Date().getUTCFullYear(),new Date().getUTCMonth(),1));renderSchedule()};
+        document.getElementById('export-content').onclick=async()=>{const response=await fetch('/admin/api/content/'+kind()+'/export');if(!response.ok){Admin.banner('导出失败：HTTP '+response.status,'err');return}const blob=await response.blob(),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=kind()+'-'+new Date().toISOString().slice(0,10)+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000)};
+        document.getElementById('import-content').onclick=()=>document.getElementById('import-file').click();
+        document.getElementById('import-file').onchange=async event=>{const file=event.target.files[0];if(!file)return;if(file.size>1048576){Admin.banner('文件超过 1 MB','err');return}if(!confirm('导入将替换 '+kind()+' 的全部条目。服务器会备份原文件，确定继续？'))return;const result=await Admin.api('/content/'+kind()+'/import',{method:'POST',body:{raw:await file.text()}});Admin.banner(result.message||'导入失败',result.ok?'ok':'err');event.target.value='';if(result.ok){form.style.display='none';await loadList()}};
+        for(const key of fpFields)$fp(key).addEventListener('input',()=>writeSimpleFields(key));
+        $fp('language').addEventListener('change',()=>{readSimpleFields();if($fp('language').value!=='_'){document.getElementById('preview-language').value=$fp('language').value;FpPreview.setLanguage($fp('language').value)}updatePreview()});
+        $fp('image-file').addEventListener('change',()=>uploadImage($fp('image-file'),'image-url'));
+        $fp('icon-file').addEventListener('change',()=>uploadImage($fp('icon-file'),'icon-url'));
+        raw.addEventListener('input',()=>{readSimpleFields();if(kind()==='skirmish')SkirmishEditor.fill();updatePreview()});
         document.getElementById('preview-language').addEventListener('change', function (event) {
             FpPreview.setLanguage(event.target.value);
             updatePreview();
@@ -247,6 +398,8 @@
         document.addEventListener('click', async function (event) {
             const edit = event.target.closest('[data-edit]');
             if (edit) { event.preventDefault(); await openEntry(parseInt(edit.getAttribute('data-edit'), 10)); return; }
+            const publish=event.target.closest('[data-publish]');
+            if(publish){const id=Number(publish.dataset.publish),published=publish.dataset.next==='true';const result=await Admin.api('/content/frontpage/'+id+'/published',{method:'PUT',body:{published}});Admin.banner(result.message||'发布状态更新失败',result.ok?'ok':'err');if(result.ok)await loadList();return}
             const del = event.target.closest('[data-del]');
             if (del) {
                 event.preventDefault();

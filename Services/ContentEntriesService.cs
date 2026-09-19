@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Globalization;
 
 namespace fyserver.Services;
 
@@ -35,6 +36,12 @@ public class ContentEntriesService
         public string Name { get; set; } = "";
         public string StartDate { get; set; } = "";
         public string EndDate { get; set; } = "";
+        public bool IsPublished { get; set; } = true;
+        public bool IsTargeted { get; set; }
+        public int? Type { get; set; }
+        public int? Priority { get; set; }
+        public int? Slot { get; set; }
+        public string Status { get; set; } = "";
         /// <summary>完整条目 JSON（含后台未建模的字段），编辑页直接回填。</summary>
         public string Raw { get; set; } = "{}";
         /// <summary>提交上来的一级字段（键为 snake_case 字段名）。</summary>
@@ -47,10 +54,7 @@ public class ContentEntriesService
     {
         var root = ReadRoot(path);
         var list = new List<Entry>();
-        if (root["entries"] is not JsonArray entries)
-            return list;
-
-        foreach (var node in entries)
+        foreach (var node in EntryNodes(root, path))
         {
             if (node is JsonObject obj)
                 list.Add(ToEntry(obj));
@@ -69,30 +73,32 @@ public class ContentEntriesService
             return (false, "名称不能为空");
 
         var root = ReadRoot(path);
-        var entries = EntryArray(root);
-
         var isFrontpage = path == FrontpagePath;
-        var idKey = isFrontpage ? "element_id" : "id";
+        var entries = isFrontpage ? EnsureArray(root, "elements") : EntryArray(root);
+        var targeted = isFrontpage ? EnsureArray(root, "targeted") : null;
+        var allEntries = targeted == null ? entries.ToList() : entries.Concat(targeted).ToList();
+        var idKey = isFrontpage ? "elementId" : "id";
         var payloadKey = isFrontpage ? "content" : "rules";
+
+        if (!TryDate(input.StartDate, out var start) || !TryDate(input.EndDate, out var end) ||
+            (!string.IsNullOrWhiteSpace(input.StartDate) && !string.IsNullOrWhiteSpace(input.EndDate) && start > end))
+            return (false, "开始和结束时间必须是有效日期，且开始不能晚于结束");
 
         JsonObject target;
         if (id > 0)
         {
-            var existing = entries.FirstOrDefault(n =>
-                (int?)n?[idKey] == id || (int?)n?["id"] == id || (int?)n?["elementId"] == id) as JsonObject;
+            var existing = allEntries.FirstOrDefault(n => EntryId(n) == id) as JsonObject;
             if (existing == null)
                 return (false, $"条目 {id} 不存在");
             target = existing;
         }
         else
         {
-            target = new JsonObject { [idKey] = NextId(entries) };
+            target = new JsonObject { [idKey] = NextId(allEntries) };
             entries.Add(target);
         }
 
-        target["name"] = input.Name.Trim();
-        target["start_date"] = string.IsNullOrWhiteSpace(input.StartDate) ? "0001-01-01 00:00:00" : input.StartDate.Trim();
-        target["end_date"] = string.IsNullOrWhiteSpace(input.EndDate) ? "9999-12-31 23:59:00" : input.EndDate.Trim();
+        var assignedId = EntryId(target);
 
         // 编辑页未建模的字段（rules / content 的深层内容）按原文回写，避免丢字段
         if (!string.IsNullOrWhiteSpace(input.Raw))
@@ -110,23 +116,55 @@ public class ContentEntriesService
             if (payload == null)
                 return (false, "JSON 根节点必须是对象");
 
+            // 首页与乱斗编辑器都提交完整条目；以 JSON 为准，允许高级编辑器删除字段。
+            // 淘汰赛仍采用合并策略，避免旧格式表单意外丢字段。
+            if (isFrontpage || path == SkirmishPath) target.Clear();
+
             // id / 名称 / 日期由表单管理，其余键原样带回
             foreach (var kv in payload.ToList())
             {
-                if (kv.Key is "id" or "element_id" or "name" or "start_date" or "end_date")
+                if (kv.Key is "id" or "element_id" or "elementId" or "name" or "start_date" or "end_date" or "startDate" or "endDate")
                     continue;
 
                 if (kv.Key == payloadKey && kv.Value is JsonObject nested)
                 {
-                    var current = target[payloadKey] as JsonObject ?? new JsonObject();
+                    var current = target[payloadKey] as JsonObject;
+                    if (current == null)
+                    {
+                        current = new JsonObject();
+                        target[payloadKey] = current;
+                    }
                     foreach (var inner in nested)
                         current[inner.Key] = inner.Value is { } innerValue ? innerValue.DeepClone() : null;
-                    target[payloadKey] = current;
                 }
                 else
                 {
                     target[kv.Key] = kv.Value is { } value ? value.DeepClone() : null;
                 }
+            }
+        }
+
+        target["name"] = input.Name.Trim();
+        if (!isFrontpage) target["id"] = assignedId;
+        target[isFrontpage ? "startDate" : "start_date"] = string.IsNullOrWhiteSpace(input.StartDate) ? "0001-01-01T00:00:00Z" : input.StartDate.Trim().Replace(' ', 'T');
+        target[isFrontpage ? "endDate" : "end_date"] = string.IsNullOrWhiteSpace(input.EndDate) ? "9999-12-31T23:59:00Z" : input.EndDate.Trim().Replace(' ', 'T');
+
+        if (isFrontpage && targeted != null)
+        {
+            target.Remove("element_id");
+            target.Remove("start_date");
+            target.Remove("end_date");
+            target["elementId"] = assignedId;
+            target["isPublished"] = (bool?)target["isPublished"] ?? (bool?)target["is_published"] ?? true;
+            target["isTargeted"] = (bool?)target["isTargeted"] ?? (bool?)target["is_targeted"] ?? false;
+            target.Remove("is_published");
+            target.Remove("is_targeted");
+            var destination = (bool?)target["isTargeted"] == true ? targeted : entries;
+            if (!destination.Contains(target))
+            {
+                entries.Remove(target);
+                targeted.Remove(target);
+                destination.Add(target);
             }
         }
 
@@ -137,13 +175,26 @@ public class ContentEntriesService
     public (bool ok, string message) Delete(string path, int id)
     {
         var root = ReadRoot(path);
-        var entries = EntryArray(root);
-        var node = entries.FirstOrDefault(n => (int?)n?["id"] == id);
+        var arrays = path == FrontpagePath
+            ? new[] { EnsureArray(root, "elements"), EnsureArray(root, "targeted") }
+            : new[] { EntryArray(root) };
+        var entries = arrays.FirstOrDefault(array => array.Any(node => EntryId(node) == id));
+        var node = entries?.FirstOrDefault(n => EntryId(n) == id);
         if (node == null)
             return (false, $"条目 {id} 不存在");
 
-        entries.Remove(node);
+        entries!.Remove(node);
         return Write(path, root, $"已删除条目 {id}");
+    }
+
+    public (bool ok, string message) SetFrontpagePublished(int id, bool published)
+    {
+        var root = ReadRoot(FrontpagePath);
+        var item = EntryNodes(root, FrontpagePath).FirstOrDefault(node => EntryId(node) == id) as JsonObject;
+        if (item == null) return (false, $"条目 {id} 不存在");
+        item["isPublished"] = published;
+        item.Remove("is_published");
+        return Write(FrontpagePath, root, published ? $"已发布条目 {id}" : $"已取消发布条目 {id}");
     }
 
     /// <summary>读取文件原始文本（编辑页的 JSON 视图）。</summary>
@@ -168,14 +219,79 @@ public class ContentEntriesService
         if (node is not JsonObject root)
             return (false, "JSON 根节点必须是对象");
 
+        if (path == FrontpagePath)
+        {
+            NormalizeFrontpageRoot(root);
+            if (root["elements"] is not JsonArray || root["targeted"] is not JsonArray)
+                return (false, "首页 JSON 必须包含 elements 和 targeted 数组（也接受镜像的 rows 数组）");
+        }
+        else if (root["entries"] is not JsonArray)
+            return (false, "内容 JSON 必须包含 entries 数组");
+
+        var ids = new HashSet<int>();
+        foreach (var item in EntryNodes(root, path))
+        {
+            if (item is not JsonObject entry || EntryId(entry) <= 0 || !ids.Add(EntryId(entry)))
+                return (false, "条目 ID 缺失、重复或不是正整数");
+            var start = (string?)entry["startDate"] ?? (string?)entry["start_date"] ?? "";
+            var end = (string?)entry["endDate"] ?? (string?)entry["end_date"] ?? "";
+            if (!TryDate(start, out var startAt) || !TryDate(end, out var endAt) ||
+                (!string.IsNullOrWhiteSpace(start) && !string.IsNullOrWhiteSpace(end) && startAt > endAt))
+                return (false, $"条目 {EntryId(entry)} 的发布时间无效");
+        }
         return Write(path, root, "已保存（原文件已备份为 .bak）");
     }
 
     // ---------------------------------------------------------------- 内部
 
-    private static IEnumerable<JsonNode?> EntryNodes(JsonObject root)
+    private static IEnumerable<JsonNode?> EntryNodes(JsonObject root, string path)
     {
+        if (path == FrontpagePath)
+            return EnsureArray(root, "elements").Concat(EnsureArray(root, "targeted"));
         return root["entries"] is JsonArray entries ? entries : Enumerable.Empty<JsonNode?>();
+    }
+
+    private static JsonArray EnsureArray(JsonObject root, string key)
+    {
+        if (root[key] is JsonArray array) return array;
+        array = new JsonArray();
+        root[key] = array;
+        return array;
+    }
+
+    private static int EntryId(JsonNode? node) => (int?)node?["elementId"] ?? (int?)node?["element_id"] ?? (int?)node?["id"] ?? 0;
+
+    private static void NormalizeFrontpageRoot(JsonObject root)
+    {
+        if (root["rows"] is JsonArray rows && root["entries"] is not JsonArray)
+        {
+            root["entries"] = rows.DeepClone();
+            root.Remove("rows");
+            root.Remove("total");
+            root.Remove("totalNotFiltered");
+        }
+        if (root["entries"] is not JsonArray legacy) return;
+        var global = EnsureArray(root, "elements");
+        var targeted = EnsureArray(root, "targeted");
+        foreach (var node in legacy)
+        {
+            if (node is not JsonObject item) continue;
+            var copy = (JsonObject)item.DeepClone();
+            copy["elementId"] = EntryId(copy);
+            copy.Remove("element_id");
+            copy.Remove("id");
+            copy["startDate"] = (string?)copy["startDate"] ?? (string?)copy["start_date"] ?? "0001-01-01T00:00:00Z";
+            copy["endDate"] = (string?)copy["endDate"] ?? (string?)copy["end_date"] ?? "9999-12-31T23:59:00Z";
+            copy.Remove("start_date");
+            copy.Remove("end_date");
+            var isTargeted = (bool?)copy["isTargeted"] ?? (bool?)copy["is_targeted"] ?? false;
+            copy["isTargeted"] = isTargeted;
+            copy["isPublished"] = (bool?)copy["isPublished"] ?? (bool?)copy["is_published"] ?? true;
+            copy.Remove("is_targeted");
+            copy.Remove("is_published");
+            (isTargeted ? targeted : global).Add(copy);
+        }
+        root.Remove("entries");
     }
 
     /// <summary>
@@ -205,10 +321,10 @@ public class ContentEntriesService
 
     private static Entry ToEntry(JsonObject obj)
     {
-        var id = (int?)obj["id"] ?? (int?)obj["element_id"] ?? (int?)obj["elementId"] ?? 0;
+        var id = EntryId(obj);
 
         // frontpage 条目没有 name：优先取本地化标题，其次按类型给个可读名字
-        var name = (string?)obj["name"];
+        var name = Localised(obj["name"]);
         if (string.IsNullOrWhiteSpace(name))
         {
             var heading = obj["content"]?["heading"]?["text"];
@@ -221,6 +337,12 @@ public class ContentEntriesService
             Name = name ?? $"#{id}",
             StartDate = Normalize((string?)obj["start_date"] ?? (string?)obj["startDate"] ?? ""),
             EndDate = Normalize((string?)obj["end_date"] ?? (string?)obj["endDate"] ?? ""),
+            IsPublished = (bool?)obj["isPublished"] ?? (bool?)obj["is_published"] ?? true,
+            IsTargeted = (bool?)obj["isTargeted"] ?? (bool?)obj["is_targeted"] ?? false,
+            Type = (int?)obj["content"]?["type"],
+            Priority = (int?)obj["content"]?["priority"],
+            Slot = (int?)obj["content"]?["slot"],
+            Status = PublicationStatus(obj, DateTimeOffset.UtcNow),
             Raw = obj.ToJsonString(Indented),
             Fields = Flatten(obj)
         };
@@ -273,12 +395,12 @@ public class ContentEntriesService
         return result;
     }
 
-    private static int NextId(JsonArray entries)
+    private static int NextId(IEnumerable<JsonNode?> entries)
     {
         var max = 0;
         foreach (var node in entries)
         {
-            var id = (int?)node?["id"] ?? (int?)node?["element_id"] ?? (int?)node?["elementId"] ?? 0;
+            var id = EntryId(node);
             if (id > max)
                 max = id;
         }
@@ -295,9 +417,7 @@ public class ContentEntriesService
             var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject
                        ?? new JsonObject { ["entries"] = new JsonArray() };
 
-            // 客户端既有 frontpage 格式（顶层 elements/targeted）→ 统一成 entries
-            if (root["entries"] is not JsonArray)
-                EntryArray(root);
+            if (path == FrontpagePath) NormalizeFrontpageRoot(root);
 
             return root;
         }
@@ -315,10 +435,10 @@ public class ContentEntriesService
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
 
-            if (File.Exists(path))
-                File.Copy(path, path + ".bak", overwrite: true);
-
-            File.WriteAllText(path, root.ToJsonString(Indented));
+            var temp = path + ".tmp";
+            File.WriteAllText(temp, root.ToJsonString(Indented));
+            if (File.Exists(path)) File.Copy(path, path + ".bak", overwrite: true);
+            File.Move(temp, path, true);
             return (true, $"{message}（{path}，原文件已备份为 .bak）");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -335,5 +455,52 @@ public class ContentEntriesService
         if (string.IsNullOrWhiteSpace(value))
             return "";
         return value.Replace('T', ' ').Trim();
+    }
+
+    private static bool TryDate(string value, out DateTimeOffset date)
+    {
+        if (string.IsNullOrWhiteSpace(value)) { date = default; return true; }
+        return DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out date);
+    }
+
+    private static string PublicationStatus(JsonObject item, DateTimeOffset now)
+    {
+        if ((bool?)item["isPublished"] == false || (bool?)item["is_published"] == false) return "unpublished";
+        var startText = (string?)item["startDate"] ?? (string?)item["start_date"] ?? "";
+        var endText = (string?)item["endDate"] ?? (string?)item["end_date"] ?? "";
+        if (!TryDate(startText, out var start) || !TryDate(endText, out var end)) return "invalid_date";
+        if (!string.IsNullOrWhiteSpace(startText) && now < start) return "scheduled";
+        if (!string.IsNullOrWhiteSpace(endText) && now > end) return "expired";
+        return "active";
+    }
+
+    /// <summary>按发布时间生成客户端格式，不修改存储文件。定向规则未实现前绝不向所有玩家广播定向条目。</summary>
+    public string ReadPublishedFrontpage()
+    {
+        var root = ReadRoot(FrontpagePath);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var key in new[] { "elements", "targeted" })
+        {
+            var source = EnsureArray(root, key);
+            var active = new JsonArray();
+            if (key == "targeted")
+            {
+                root[key] = active;
+                continue;
+            }
+            foreach (var node in source)
+            {
+                if (node is JsonObject item && PublicationStatus(item, now) == "active")
+                {
+                    var copy = (JsonObject)item.DeepClone();
+                    copy.Remove("name");
+                    active.Add(copy);
+                }
+            }
+            root[key] = active;
+        }
+        root["changed"] = true;
+        return root.ToJsonString();
     }
 }

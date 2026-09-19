@@ -12,4 +12,7 @@ namespace fyserver.Serialization;
 [JsonSerializable(typeof(EquippedItem))]
 [JsonSerializable(typeof(Dictionary<int, Deck>))]
 [JsonSerializable(typeof(List<EquippedItem>))]
+[JsonSerializable(typeof(PlayerPack))]
+[JsonSerializable(typeof(List<PlayerPack>))]
+[JsonSerializable(typeof(Dictionary<int, int>))]
 public partial class StoreJsonContext : JsonSerializerContext;

@@ -84,7 +84,6 @@ public static class DeckEndpoints
                         deck.ModifyDate = DateTime.Now;
                         break;
                     case "make_favorite":
-                        user.Name = deck.Name;
                         deck.Favorite = true;
                         deck.ModifyDate = DateTime.Now;
                         break;

@@ -86,7 +86,7 @@ public static class WebSocketEndpoint
             await hub.RegisterClientAsync(userId, webSocket);
             // 注册后重新读取状态，避免并发封禁发生在首次查询与注册之间。
             user = await users.GetByIdAsync(userId);
-            if (user?.Banned == true)
+            if (user?.IsBanActive(DateTime.UtcNow) == true)
             {
                 await hub.DisconnectAsync(userId, "该账户已被封禁");
             }

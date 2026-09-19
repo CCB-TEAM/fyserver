@@ -1,22 +1,435 @@
 {
-  "nui_mobile": 1,
   "scalability_override": {
-    "Android_Low": { "console_commands": [ "r.Screenpercentage 100" ] },
-    "Android_Mid": { "console_commands": [ "r.Screenpercentage 100" ] },
-    "Android_High": { "console_commands": [ "r.Screenpercentage 100" ] }
+    "Android_Low": {
+      "console_commands": [
+        "r.Screenpercentage 100"
+      ]
+    },
+    "Android_Mid": {
+      "console_commands": [
+        "r.Screenpercentage 100"
+      ]
+    },
+    "Android_High": {
+      "console_commands": [
+        "r.Screenpercentage 100"
+      ]
+    }
   },
-  "appscale_desktop_default": 1.0,
+  "account_linking_show_in_settings": 1,
+  "account_linking_url": "",
+  "achievements": 1,
+  "android_apk_noiap_link_enabled": 1,
+  "anzac": 1,
+  "apk_1939_provider_url": "https://kards-hk-information.kardsplayer.com/",
+  "apk_4399_noiap_provider_url": "https://kards-hk-cftn.kardsplayer.com/",
+  "apk_4399_provider_url": "https://kards-hk-cftn.kardsplayer.com/",
+  "apk_haoyou_noiap_provider_url": "https://kards-hk-information.kardsplayer.com/",
+  "apk_haoyou_provider_url": "https://kards-hk-information.kardsplayer.com/",
+  "apk_jiuyou_noiap_provider_url": "https://kards-hk-cjy.kardsplayer.com/",
+  "apk_jiuyou_provider_url": "https://kards-hk-cjy.kardsplayer.com/",
+  "appscale_desktop_default": 1,
   "appscale_desktop_max": 1.4,
+  "appscale_desktop_min": 0.8,
   "appscale_mobile_default": 1.4,
   "appscale_mobile_max": 1.4,
-  "appscale_mobile_min": 1.0,
-  "appscale_tablet_min": 1.0,
+  "appscale_mobile_min": 1,
+  "appscale_tablet_default": 1.1,
+  "appscale_tablet_max": 1.1,
+  "appscale_tablet_min": 1,
   "battle_wait_time": 60,
-  "finland": 0,
-  "achievements": 0,
-  "avatars": 0,
-  "broken_deck_check": 0,
-  "key_encryption": 0,
-  "websocketurl": "{WsAddress}","homefront_date":"2025.11.27-09.00.00",
-"oceania_storm_date":"2026.06.11-08.00.00",
-                "anzac":       1}
+  "beta_expiry_date": "2024-10-01 00:00:00",
+  "broken_deck_check": 1,
+  "brothers_in_arms_date": "2023.06.18-09.30.00",
+  "brothers_in_arms_is_here_gift_urls": {
+    "de-de": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_de.jpg",
+    "en-en": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_en.jpg",
+    "es-es": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_es.jpg",
+    "fr-fr": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_fr.jpg",
+    "it-it": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_it.jpg",
+    "ko-kr": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_kr.jpg",
+    "pl-pl": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_pl.jpg",
+    "pt-br": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_pt.jpg",
+    "ru-ru": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_ru.jpg",
+    "zh-hans": "https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/es_sch.jpg",
+    "zh-hant": "https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/es_tch.jpg"
+  },
+  "buddy_program_invite_link": "https://kards.onelink.me/snSY/90fbwrt6",
+  "cards_blacklist": [],
+  "christmas": 0,
+  "content_restructure_store": 1,
+  "covert_ops_date": "2024.05.11-11.00.00",
+  "CovertOps_release_date": "2024.05.11-11.00.00",
+  "crate_hour": 10,
+  "crate_weekday": 2,
+  "current_extended_8_day_offer": {
+    "offer_ids": "7;7"
+  },
+  "custom_wrap_enabled": 1,
+  "diamonds": 1,
+  "disable_custom_wrapping": 1,
+  "disable_review_window": 0,
+  "disable_right_click_in_battle": 1,
+  "disable_simulation": 1,
+  "do_action_mingling": 1,
+  "double_xp_dates": [
+    {
+      "end": "2022-04-16T12:02:01",
+      "start": "2022-04-14T23:59:01"
+    }
+  ],
+  "draft_card_test": 1,
+  "enable_bob_when_losing": 0,
+  "enable_bob_when_waiting": 0,
+  "enable_chat": 1,
+  "extended_8_day_rewards": [
+    {
+      "rewards": [
+        {
+          "qty": 2,
+          "officer": true,
+          "expansion": "core",
+          "item_name": "pack"
+        },
+        {
+          "qty": 1,
+          "days": 1,
+          "item_name": "medkit"
+        },
+        {
+          "qty": 2,
+          "card_name": "card_wildcard_special",
+          "item_name": "card"
+        },
+        {
+          "qty": 1,
+          "gold": true,
+          "rarity": "Rare",
+          "item_name": "random_card"
+        },
+        {
+          "qty": 1,
+          "item_name": "avatar",
+          "avatar_name": "avatar_commander"
+        },
+        {
+          "qty": 3,
+          "officer": false,
+          "expansion": "core",
+          "item_name": "pack"
+        },
+        {
+          "item_name": "cardback_option",
+          "cardback_usa": "cardback_blue_and_grey",
+          "cardback_germany": "cardback_11_infantry"
+        },
+        {
+          "qty": 1,
+          "card_usa": "card_unit_101st_airborne",
+          "item_name": "day8",
+          "card_germany": "card_event_bismarck"
+        }
+      ],
+      "offer_id": 7
+    }
+  ],
+  "feature_compact_action_values_only_enabled": 1,
+  "feature_copy_battleready_decks_enabled": 1,
+  "feature_marketing_checkbox": 1,
+  "feature_socketerror_popup_enabled": 1,
+  "feature_stop_reading_old_action_values_enabled": 0,
+  "feature_vfx_preloading_enabled": 0,
+  "feature_virtual_keyboard": 1,
+  "finland": 1,
+  "first_win_of_the_day_bonuses": [
+    {
+      "end": "2023-01-02T00:00:00",
+      "items": [
+        "cardback_holidays2022"
+      ],
+      "start": "2022-12-22T00:00:00",
+      "reason": "",
+      "one-time": false
+    },
+    {
+      "end": "2022-12-24T00:00:00",
+      "gold": 50,
+      "start": "2022-12-23T00:00:00",
+      "reason": "",
+      "one-time": true
+    },
+    {
+      "end": "2022-12-25T00:00:00",
+      "packs": [
+        {
+          "set": "Basic",
+          "count": 1,
+          "card_count_per_pack": 5
+        }
+      ],
+      "start": "2022-12-24T00:00:00",
+      "reason": "",
+      "one-time": true
+    },
+    {
+      "end": "2022-12-26T00:00:00",
+      "start": "2022-12-25T00:00:00",
+      "reason": "",
+      "one-time": true,
+      "random_cards": [
+        {
+          "rarity": "Unique"
+        }
+      ]
+    },
+    {
+      "end": "2022-12-27T00:00:00",
+      "cards": [
+        "card_wildcard_special"
+      ],
+      "start": "2022-12-26T00:00:00",
+      "reason": "",
+      "one-time": true
+    },
+    {
+      "end": "2022-12-28T00:00:00",
+      "gold": 50,
+      "start": "2022-12-27T00:00:00",
+      "reason": "",
+      "one-time": true
+    },
+    {
+      "end": "2022-12-29T00:00:00",
+      "start": "2022-12-28T00:00:00",
+      "drafts": 1,
+      "reason": "",
+      "one-time": true
+    },
+    {
+      "end": "2022-12-30T00:00:00",
+      "gold": 50,
+      "start": "2022-12-29T00:00:00",
+      "reason": "",
+      "one-time": true
+    },
+    {
+      "end": "2022-12-31T00:00:00",
+      "cards": [
+        "card_wildcard_limited"
+      ],
+      "start": "2022-12-30T00:00:00",
+      "reason": "",
+      "one-time": true
+    },
+    {
+      "end": "2023-01-01T00:00:00",
+      "gold": 50,
+      "start": "2022-12-31T00:00:00",
+      "reason": "",
+      "one-time": true
+    },
+    {
+      "end": "2023-01-02T00:00:00",
+      "packs": [
+        {
+          "set": "Basic",
+          "count": 1,
+          "card_count_per_pack": 5
+        }
+      ],
+      "start": "2023-01-01T00:00:00",
+      "reason": "",
+      "one-time": true
+    }
+  ],
+  "forgot_password_url": "https://www.kards.com/auth/recovery?lang={lang}",
+  "get_recent_opponents": 1,
+  "give_guest_name": 1,
+  "homefront_date": "2025.11.27-09.00.00",
+  "idel_disconnect_minutes": 51,
+  "invite_friends_button": 1,
+  "is_create_callsign_after_tutorial": 1,
+  "key_encryption": 147148,
+  "korean_stove_only": 0,
+  "maintenance_mode": 0,
+  "maintenance_mode_check_on_enter_foreground": 1,
+  "matchmaking_client_version_ranges": [],
+  "match_stat_gatherer_batch_size": 50,
+  "match_stat_gatherer_sleep_time": 5000,
+  "mobile_local_notifications": 1,
+  "monitor_battle": 1,
+  "more_filters": 1,
+  "naval_warfare_date": "2025.04.15-09.00.00",
+  "new_effect_bar_pc": 1,
+  "new_effect_icons": 1,
+  "new_medkits": 1,
+  "new_player_ip_whitelist": [
+    "213.181.100.253",
+    "82.181.11.114",
+    "146.120.163.236",
+    "146.120.165.104",
+    "188.163.97.229",
+    "91.195.184.241",
+    "193.186.4.48",
+    "195.49.149.45",
+    "195.49.149.41",
+    "89.17.132.6",
+    "86.115.51.75",
+    "82.181.71.234",
+    "84.253.230.57",
+    "93.106.13.105",
+    "80.220.84.239",
+    "82.181.169.239",
+    "146.120.165.148",
+    "180.171.116.194",
+    "1.15.243.122",
+    "113.89.9.225",
+    "91.241.177.52",
+    "91.241.177.95"
+  ],
+  "new_premade_decks": 1,
+  "new_rewards": 1,
+  "new_xpbar": 1,
+  "nui_desktop": 0,
+  "nui_mobile": 1,
+  "oceania_storm_date": "2025.05.05-09.00.00",
+  "reconnect": 1,
+  "reduce_reward_animation_fps": 1,
+  "reserve_changes": [
+    {
+      "due_date": "2024-09-11T12:00:00",
+      "coming_back": [
+        "card_event_breakthrough",
+        "card_event_hel",
+        "card_event_men_of_steel",
+        "card_event_outmaneuver",
+        "card_event_overwhelming_force",
+        "card_event_sabotage",
+        "card_event_suppression_fire",
+        "card_event_tactical_withdrawal",
+        "card_unit_144th_infantry_regiment",
+        "card_unit_a_24_banshee",
+        "card_unit_b_26_marauder",
+        "card_unit_cromwell_mk_iv",
+        "card_unit_kv_ii",
+        "card_unit_pak_40",
+        "card_unit_royal_west_kents",
+        "card_unit_shibata_regiment_bal",
+        "card_unit_sm_79",
+        "card_unit_su_85"
+      ],
+      "to_be_reserved": []
+    }
+  ],
+  "reserved_system_compensation_urls": {
+    "de-de": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_de.jpg",
+    "en-en": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_en.jpg",
+    "es-es": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_es.jpg",
+    "fr-fr": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_fr.jpg",
+    "it-it": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_it.jpg",
+    "ko-kr": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_kr.jpg",
+    "pl-pl": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_pl.jpg",
+    "pt-br": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_pt.jpg",
+    "ru-ru": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/re_ru.jpg",
+    "zh-hans": "https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/re_sch.jpg",
+    "zh-hant": "https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/re_tch.jpg"
+  },
+  "response_zero_max_retries": 10,
+  "returning_player_rewards": [
+    {
+      "qty": 100,
+      "item_name": "gold"
+    },
+    {
+      "qty": 1,
+      "officer": false,
+      "expansion": "Core",
+      "item_name": "pack"
+    },
+    {
+      "qty": 1,
+      "gold": true,
+      "rarity": "Limited",
+      "item_name": "random_card"
+    },
+    {
+      "qty": 1,
+      "item_name": "draft_ticket"
+    },
+    {
+      "qty": 2,
+      "card_name": "card_wildcard_limited",
+      "item_name": "card"
+    },
+    {
+      "qty": 1,
+      "days": 3,
+      "item_name": "medkit"
+    },
+    {
+      "qty": 1,
+      "card_name": "card_wildcard_special",
+      "item_name": "card"
+    },
+    {
+      "qty": 1,
+      "officer": true,
+      "expansion": "core",
+      "item_name": "pack"
+    }
+  ],
+  "review_lost": 1,
+  "review_url_de": "https://forms.gle/D3hhAk8Tuu5mHF2M6",
+  "review_url_en": "https://forms.gle/75nzdjwret1kXA2S6",
+  "review_url_fr": "https://forms.gle/FdemapkcpRPn6oBCA",
+  "review_url_pl": "https://forms.gle/qWoQw4MM9wrAwRkS9",
+  "review_url_pt": "https://forms.gle/jL7qc5hfA7yV3n2u8",
+  "review_url_ru": "https://forms.gle/o5kbvZwZ5yfkN4v19",
+  "review_url_zh": "https://wj.qq.com/s2/10069780/f345",
+  "review_wins": 6,
+  "salvage_enabled": 1,
+  "shop_2023": 1,
+  "show_rewards_after_purchase": 1,
+  "skip_sending_subactions": 1,
+  "skip_unlocking": 1,
+  "subactions_control1": 1,
+  "subactions_control2": 1,
+  "subactions_control3": 1,
+  "tournament_id": 7,
+  "tow_show": 1,
+  "use_oc_redis_set": 1,
+  "use_tutorial_handpointer": 1,
+  "validate_turn_switches": 0,
+  "versions": [
+    "Kards 1.53",
+    "Kards 1.54",
+    "Kards 1.55",
+    "Kards 1.56",
+    "Kards 1.57",
+    "Kards 1.58"
+  ],
+  "vertical_shop": 1,
+  "wc_button": 0,
+  "wc_cutoff": 57,
+  "discount_products": "",
+  "front_page_data": {},
+  "most_popular_products": "",
+  "wc_qualifiers_1": "",
+  "wc_steam_url": "",
+  "winter_war_date": "2023.10.25-09.00.00",
+  "winter_war_is_here_gift_urls": {
+    "de-de": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_de.jpg",
+    "en-en": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_en.jpg",
+    "es-es": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_es.jpg",
+    "fr-fr": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_fr.jpg",
+    "it-it": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_it.jpg",
+    "ko-kr": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_kr.jpg",
+    "pl-pl": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_pl.jpg",
+    "pt-br": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_pt.jpg",
+    "ru-ru": "https://s3.eu-west-1.amazonaws.com/files.1939api.com/client/2023/es_ru.jpg",
+    "zh-hans": "https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/es_sch.jpg",
+    "zh-hant": "https://s3.ap-east-1.amazonaws.com/files2.1939api.com/client/2023/es_tch.jpg"
+  },
+  "xxxnew_unlocking_modulus": "758360:10;761555:3;763330:2;769830:1",
+  "websocketurl": "{WsAddress}"
+}

@@ -9,7 +9,7 @@ public static class UserEndpoints
     public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         // 2. 配置和基本信息
-        app.MapPost("/session", async (Session session, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets) =>
+        app.MapPost("/session", async (Session session, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig) =>
         {
             string addressHttp = options.GetAddressHttpR();
             User? user;
@@ -39,12 +39,19 @@ public static class UserEndpoints
                 }
             }
 
+            if (user.Banned && !user.IsBanActive(DateTime.UtcNow))
+            {
+                user.Banned = false;
+                user.BanExpiresAt = null;
+                user.BanReason = "";
+                await users.SaveUserAsync(user);
+            }
             if (user.Banned)
             {
                 await webSockets.DisconnectAsync(user.Id, "该账户已被封禁");
                 return Results.Json(
                     new BannedResponse(
-                        new Error("user_error", "banned"),
+                        new Error("user_error", user.BanDescription),
                         "Forbidden",
                         403
                     ),
@@ -52,6 +59,13 @@ public static class UserEndpoints
                     statusCode: 403
                 );
             }
+
+            user = await users.WithUserLockAsync(user.Id, async current =>
+            {
+                current.LastLoginAt = DateTime.UtcNow;
+                await users.SaveUserAsync(current);
+                return current;
+            }) ?? user;
 
             var response = new SessionResponse(
                 AchievementsUrl: $"{addressHttp}/players/{user.Id}/achievements",
@@ -90,10 +104,10 @@ public static class UserEndpoints
                     )).ToList()
                 },
                 DecksUrl: $"{addressHttp}/players/{user.Id}/decks",
-                Diamonds: 99999,
+                Diamonds: user.Diamonds,
                 DoubleXpEndDate: "2025-07-03T12:13:36.889692Z",
                 DraftAdmissions: 1,
-                Dust: 1000,
+                Dust: user.Dust,
                 Email: null,
                 EmailRewardReceived: false,
                 EmailVerified: false,
@@ -101,7 +115,7 @@ public static class UserEndpoints
                 GermanyLevel: 500,
                 GermanyLevelClaimed: 500,
                 GermanyXp: 0,
-                Gold: 999999,
+                Gold: user.Gold,
                 HasBeenOfficer: true,
                 HeartbeatUrl: $"{addressHttp}/players/{user.Id}/heartbeat",
                 IsOfficer: true,
@@ -136,11 +150,11 @@ public static class UserEndpoints
                 PacksUrl: $"{addressHttp}/players/{user.Id}/packs",
                 PlayerId: user.Id,
                 PlayerName: user.Name,
-                PlayerTag: user.Tag.ToString(),
+                PlayerTag: user.Tag.ToString("D4"),
                 Rewards: new List<object>(),
                 SeasonEnd: "2025-08-01T00:00:00Z",
                 SeasonWins: 9999,
-                ServerOptions: File.Exists("./config/serverOptions.json") ? File.ReadAllText("./config/serverOptions.json").Replace("{WsAddress}", options.GetAddressWsR()) : "",
+                ServerOptions: clientServerConfig.ReadForSession(options.GetAddressWsR()),
                 ServerTime: DateTime.UtcNow.ToString("yyyy.MM.dd-HH.mm.ss"),
                 SovietLevel: 500,
                 SovietLevelClaimed: 500,

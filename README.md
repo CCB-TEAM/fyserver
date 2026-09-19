@@ -27,25 +27,26 @@ A simple game server written in C# using .NET 10.0.
 - [x] FP
 - [x] 自定义Setting
 - [x] 商店
+- [x] 商店购买（金币/钻石、购买次数与卡包入库）
 - [x] 调度
 - [x] 全牌
 - [x] 部分物件（无头像，桌饰）
+- [x] 静态管理后台（多账号、权限、审计与配置管理）
 # 暂未实现功能：
 - [ ] 排行榜
 - [ ] 成就系统
 - [ ] 好友系统
 - [ ] 军需箱
-- [ ] 清理对局
+- [x] 清理对局（管理后台）
 - [ ] 更多物件
 - [ ] 兑换码
 - [ ] 乱斗模式 （comming soon）
-- [ ] 佩戴
+- [x] 佩戴
 - [ ] 抽卡
 - [ ] 世锦赛
 - [ ] jjc
-- [ ] 商店购买
 - [ ] 特色玩法
-- [ ] 人机
+- [x] 人机（基础单人匹配）
 - [ ] 战区
 - [ ] 更多功能
 - [ ] 更多物件 （comming soon）
@@ -64,12 +65,12 @@ A simple game server written in C# using .NET 10.0.
 # 快速开始
 
 ```bash
-dotnet build FYServer.sln
+dotnet build FYServer.slnx
 dotnet run --project fyserver.csproj
 ```
 
 - HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成。
-- 后台位于同一 HTTP 端口的 `/admin-ui/`。首次启动需在服务器本机创建管理员账户，之后本机和远程访问都必须登录；`adminApiKey` 仅作为脚本调用 `/admin/api/*` 的兼容认证方式。
+- 后台位于同一 HTTP 端口的 `/admin-ui/`。首次启动需在服务器本机创建 Owner 账户，之后本机和远程访问都必须登录；后台接口不再接受 `adminApiKey` 作为账号权限的替代凭据。
 - 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
 - 后台/无控制台环境下自动进入非交互模式，保持进程存活
 
@@ -79,7 +80,7 @@ dotnet run --project fyserver.csproj
 dotnet publish fyserver.csproj -c Release -r win-x64 --self-contained true
 ```
 
-产物位于 `bin/Release/net10.0/win-x64/publish/`：`fyserver.exe`（约 20MB 原生可执行文件）+ `setting.json` + `config/` + `library/` + `wwwroot/`（静态后台页面），拷到目标机直接运行即可，无需安装 .NET 运行时。
+产物位于 `bin/Release/net10.0/win-x64/publish/`：`fyserver.exe`（约 24 MB 原生可执行文件）+ `setting.json` + `config/` + `library/` + `wwwroot/`（静态后台页面），拷到目标机直接运行即可，无需安装 .NET 运行时。原生 PDB 仅用于调试，不是运行必需文件。
 
 **后台与 AOT 不冲突**：后台是纯静态 HTML/JS（`wwwroot/admin-ui`）+ JSON 接口（`/admin/api`），不含 Razor/MVC 运行时反射，因此 AOT 产物同样带完整后台。
 
@@ -92,10 +93,9 @@ fyserver/
 ├── Endpoints/                  # minimal API 分组（User/Player/Deck/Lobby/Match/AdminApi…）
 ├── Services/                   # 服务层（UserStore/FasterKv/MatchManager/WebSocketHub/Codec/Auth…）
 ├── Models/                     # DTO 与实体
-├── wwwroot/admin-ui/           # 静态后台页面（/admin-ui，纯 HTML/JS，Material 主题）
 ├── Middleware/                 # 路径归一化、Content-Type 清理
-├── wwwroot/admin-assets/       # 后台静态资源（自包含 CSS/JS，无 CDN 依赖）
-└── Serialization/              # System.Text.Json 源生成上下文
+├── Serialization/              # System.Text.Json 源生成上下文
+└── wwwroot/admin-ui/           # 静态后台页面与资源（纯 HTML/JS，无 CDN 依赖）
 ```
 
 # 已实现的 HTTP API
@@ -117,8 +117,12 @@ fyserver/
 |---|---|---|
 | `GET` | `/store/` | 获取商店数据（旧客户端兼容） |
 | `GET` | `/store/v2/` | 获取商店数据 |
-| `POST` | `/store/txn` | 商店交易占位接口（旧客户端兼容） |
-| `POST` | `/store/v2/txn` | 商店交易占位接口 |
+| `POST` | `/store/txn` | 使用金币或钻石购买商店商品（旧客户端兼容） |
+| `POST` | `/store/v2/txn` | 使用金币或钻石购买商店商品 |
+| `GET` | `/players/{id}/resources` | 获取玩家金币、钻石和尘 |
+| `GET` | `/players/{id}/packs` | 获取玩家卡包 |
+| `PUT` | `/players/{id}` | 修改玩家公开昵称 |
+| `POST` | `/players/{id}/friends` | 兼容旧客户端的首次命名请求 |
 | `GET` | `/entitlements/{id}` | 获取玩家权益 |
 | `GET` | `/{a}/players/{player_id}/friends` | 获取好友与历史对手 |
 | `PUT` / `DELETE` | `/players/{id}/heartbeat` | 玩家心跳 |
@@ -157,7 +161,7 @@ fyserver/
 
 ## 管理接口
 
-> 管理接口已内置保护：`adminApiKey` 留空时仅允许 `127.0.0.1`/loopback 访问；配置 `adminApiKey` 后必须携带 `X-Admin-Key` 请求头或登录后的会话 Cookie。仍建议不要将管理接口直接暴露到公网。
+> 管理接口已内置账号权限保护：首次设置仅允许从本机完成，之后所有 `/admin/api/*` 写操作都需要对应后台账号权限和登录 Cookie；`X-Admin-Key` 不再绕过权限。仍建议不要将管理接口直接暴露到公网。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -165,9 +169,26 @@ fyserver/
 | `POST` | `/admin/api/setup` | 首次启动时在服务器本机创建管理员账户 |
 | `POST` | `/admin/api/login` | 用管理员用户名、密码换取会话 Cookie |
 | `POST` | `/admin/api/logout` | 退出登录（清除会话 Cookie） |
+| `GET` | `/admin/api/accounts` | 后台账号列表及在线状态 |
+| `GET` | `/admin/api/accounts/{id}` | 后台账号详情 |
+| `GET` | `/admin/api/accounts/{id}/actions` | 后台账号操作历史 |
+| `GET` | `/admin/api/accounts/{id}/logins` | 后台账号登录与 IP 历史 |
+| `POST` | `/admin/api/accounts` | 创建后台账号并分配权限 |
+| `PUT` / `DELETE` | `/admin/api/accounts/{id}` | 更新或删除后台账号 |
+| `POST` | `/admin/api/accounts/{id}/reset-password` | 重置后台账号密码 |
+| `GET` | `/admin/api/audit-logs` | 读取最近的后台操作审计 |
+| `GET` | `/admin/api/server-config` | 读取客户端 `/session` 的 `server_options` 模板 |
+| `PUT` | `/admin/api/server-config` | 校验并保存模板，自动备份 `.bak`，下次客户端登录生效 |
+| `PUT` | `/admin/api/server-config/item` | 新增或更新单项配置及自定义注释 |
+| `DELETE` | `/admin/api/server-config/item/{key}` | 删除单项配置（`websocketurl` 除外） |
+| `PUT` | `/admin/api/server-config/item/{key}/enabled` | 设置单项发送开关；关闭不删除配置值 |
+| `GET` | `/admin/api/system-settings` | 读取监听及对外地址的当前运行值和已保存值 |
+| `PUT` | `/admin/api/system-settings` | 校验并保存网络地址至 `setting.json`，备份 `.bak`，重启后生效 |
 | `GET` | `/admin/api/stats` | 概览：用户/在线/对局/队列统计与运行信息 |
 | `GET` | `/admin/api/users` | 用户列表（支持 `?q=` 搜索） |
 | `GET` | `/admin/api/users/{id}` | 用户详情（含卡组与进行中对局） |
+| `PUT` | `/admin/api/users/{id}/profile` | 修改用户公开资料 |
+| `PUT` | `/admin/api/users/{id}/wallet` | 修改用户金币、钻石和尘 |
 | `POST` | `/admin/api/users/{id}/ban` | 封禁用户并断开其 WebSocket |
 | `POST` | `/admin/api/users/{id}/unban` | 解除封禁 |
 | `POST` | `/admin/api/users/{id}/kick?reason=...` | 踢出在线用户（不封禁） |
@@ -181,13 +202,16 @@ fyserver/
 | `POST` | `/admin/api/content/{kind}` | 新增条目（body: `name` / `startDate` / `endDate` / `raw`） |
 | `POST` | `/admin/api/content/{kind}/{id}` | 更新条目 |
 | `DELETE` | `/admin/api/content/{kind}/{id}` | 删除条目 |
+| `GET` | `/admin/api/content/{kind}/export` | 导出原始配置 JSON |
+| `POST` | `/admin/api/content/{kind}/import` | 导入并校验完整 JSON，备份旧文件 |
+| `PUT` | `/admin/api/content/frontpage/{id}/published` | 快捷发布或下线首页内容 |
 # 后台管理
 
-纯静态页面（`wwwroot/admin-ui/`）+ JSON 接口（`/admin/api/*`），自包含 Material 主题（`wwwroot/admin-ui/assets/admin.css`，无外部 CDN 依赖），**不依赖 Razor/MVC**，因此 AOT 与裁剪发布都能带后台。
+纯静态页面（`wwwroot/admin-ui/`）+ JSON 接口（`/admin/api/*`），自包含 Material 主题（`wwwroot/admin-ui/assets/admin-v4.css`，无外部 CDN 依赖），**不依赖 Razor/MVC**，因此 AOT 与裁剪发布都能带后台。
 
 入口：直接访问 `/admin-ui/` 即可（会 302 到 `index.html`；`/admin-ui/login` 同理）。注：旧的 Razor 后台地址 `/admin/*` 已随 Razor 移除而失效（404）。
 
-鉴权：第一次启动时，控制台会打印初始化地址；必须从服务器本机在 `/admin-ui/login.html` 创建管理员用户名和密码。密码以 PBKDF2-SHA256 派生哈希保存于 `data/admin-auth.json`，不会保存明文。初始化后本机与远程均须登录，会话使用 HttpOnly、SameSite=Strict 的 7 天签名 Cookie。`setting.json` 的 `adminApiKey` 仍可通过 `X-Admin-Key` 用于自动化脚本，但不用于浏览器登录。
+鉴权：第一次启动时，控制台会打印初始化地址；必须从服务器本机在 `/admin-ui/login.html` 创建 Owner 账户。旧版单管理员账户会自动迁移为 Owner，并保留 `.bak` 备份。密码以 PBKDF2-SHA256 派生哈希保存于 `data/admin-auth.json`，不会保存明文。初始化后本机与远程均须登录；会话使用 HttpOnly、SameSite=Strict 的 7 天签名 Cookie。Owner 可在“后台用户”中创建账号及配置玩家、内容、对局、服务器配置、系统设置和权限管理权限。新账号默认只读；后台写操作记录到 `data/admin-audit.jsonl`，登录成功和失败记录到 `data/admin-logins.jsonl`。后台用户列表按最近两分钟有效会话活动显示在线状态；账号详情、操作历史、登录与 IP 历史分别位于独立页面。`setting.json` 的 `adminApiKey` 仅为旧配置字段，后台接口不再使用它。
 
 | 页面 | 说明 |
 |---|---|
@@ -195,11 +219,20 @@ fyserver/
 | `/admin-ui/users.html` | 用户管理：搜索（ID / 用户名 / 昵称）、封禁 / 解封 / 踢下线 / 删除、用户详情与卡组 |
 | `/admin-ui/matches.html` | 对局与匹配：进行中的真人对局、各队列等待玩家、移除对局 / 清空队列 |
 | `/admin-ui/content.html` | 内容配置：首页公告（**带游戏内 SVG 实时预览**）、乱斗、淘汰赛，JSON 编辑 + 校验 + `.bak` 备份 |
+| `/admin-ui/server-config.html` | 管理客户端 `server_options`，支持镜像注释、配置项筛选、左侧编辑/删除、新增和逐项启用/关闭（关闭不删除值） |
+| `/admin-ui/server-config-edit.html` | 独立的服务器配置新增 / 编辑页，按 `string`、`int`、`double`、`json` 校验并保存；镜像项和自定义项都可编辑注释 |
+| `/admin-ui/system-settings.html` | 系统设置：监听 IP / 端口、客户端对外 IP / 域名及端口；显示待重启差异 |
+| `/admin-ui/accounts.html` | 后台账号管理：创建账号、在线状态和权限概览 |
+| `/admin-ui/account-detail.html` | 后台账号详情、权限、启停及密码管理 |
+| `/admin-ui/account-actions.html` | 指定后台账号的操作审计历史 |
+| `/admin-ui/account-logins.html` | 指定后台账号的登录与 IP 历史 |
 | `/admin-ui/login`（等价 `/admin-ui/login.html`） | 首次创建管理员 / 管理员账户登录 |
 
-内容配置落盘：`config/frontpage.json`、`config/skirmish.json`、`config/knockout.json`，结构统一为
-`{"entries":[{id,name,start_date,end_date,…}]}`；frontpage 兼容客户端既有的 `elements`/`targeted` 与 camelCase `elementId`，
-编辑页未建模的字段原样保留。预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564）。
+服务器配置值保存在 `config/serverOptions.json`，发送开关保存在 `config/serverOptions.flags.json`，自定义注释保存在 `config/serverOptions.comments.json`。镜像原始说明由 `config/serverOptions.schema.json` 提供；自定义注释只影响后台展示，不会进入游戏客户端的 `server_options`。镜像页面截断的六项默认值以禁用的占位值保留，填入完整值后才能启用。
+
+宿主网络设置独立保存在 `setting.json`：`listenIp`/`portHttp` 控制实际监听，`ip`/`publicPortHttp` 控制返回给客户端的 HTTP 与 WebSocket 地址。旧配置缺少新字段时，仍默认监听 `0.0.0.0`，对外端口沿用 `portHttp`。后台保存不会中断当前连接，重启后生效；对外地址不同于监听地址时，需要自行配置端口映射、防火墙或反向代理。
+
+内容配置落盘：`config/frontpage.json` 保持客户端原生的 `elements`/`targeted` 和 camelCase 字段；`config/skirmish.json`、`config/knockout.json` 使用 `entries` 数组。后台支持导入/导出、日历、状态筛选、定时发布和快捷发布开关；frontpage 的常用字段可通过表单编辑，图片可填写图床 URL 或上传 PNG/JPEG/WebP/GIF（每张最多 5 MB，存于 `wwwroot/admin-ui/uploads/`）。乱斗表单参考镜像后台，支持多语言说明、奖励、基础规则、黑名单、随机牌组、卡牌数量限制与主要回合/部署效果。完整 JSON 编辑仍保留，未被表单修改的字段原样保留，保存前备份 `.bak`。`/fp/` 仅下发生效且已发布的普通条目。镜像的定向规则引擎尚未接入，因此定向条目虽可编辑保存，但不会下发给玩家。首页预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564）。
 
 后台操作复用与游戏 API 相同的服务层（`AdminUserService`）：封禁、踢出、删除都会向目标玩家的 WebSocket 发送 `channel: "disconnect"` 后关闭连接。
 # WebSocket

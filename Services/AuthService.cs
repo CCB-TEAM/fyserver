@@ -49,6 +49,14 @@ public class AuthService
             return null;
 
         var user = await _users.GetByUserNameAsync(userName);
+        if (user?.Banned == true)
+        {
+            if (user.IsBanActive(DateTime.UtcNow)) return null;
+            user.Banned = false;
+            user.BanReason = "";
+            user.BanExpiresAt = null;
+            await _users.SaveUserAsync(user);
+        }
         if (user != null)
             Console.WriteLine($"Authorization header found: {userName} (id={user.Id})");
 

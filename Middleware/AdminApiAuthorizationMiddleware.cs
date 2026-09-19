@@ -2,49 +2,78 @@ using fyserver.Services;
 
 namespace fyserver.Middleware;
 
-/// <summary>
-/// 保护静态后台的数据接口 /admin/api/*。
-///
-/// 与 Razor 后台的 AdminAuthorizationMiddleware 分开的原因：
-///   - 静态页本身（/admin-ui/*.html、/admin-ui/assets/*）必须匿名可访问，否则连登录页都打不开；
-///   - 这里只挡 /admin/api/*：本机放行；远程需 X-Admin-Key 或 /admin/api/login 下发的会话 Cookie；
-///     未配置 adminApiKey 时不接受任何远程调用。
-/// 这样两套后台（Razor 版 /admin、静态版 /admin-ui）可以并存且互不干扰。
-/// </summary>
+/// <summary>后台会话鉴权与按类别授权；权限始终在服务端校验，前端隐藏按钮仅用于体验。</summary>
 public sealed class AdminApiAuthorizationMiddleware
 {
     private readonly RequestDelegate _next;
-
     public AdminApiAuthorizationMiddleware(RequestDelegate next) => _next = next;
 
-    public async Task InvokeAsync(HttpContext context, ServerOptions options, AdminAccountService account)
+    public async Task InvokeAsync(HttpContext context, AdminAccountService accounts, AdminAuditLogService audit)
     {
+        var path = context.Request.Path.Value ?? "";
         if (!context.Request.Path.StartsWithSegments("/admin/api", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
         }
-
-        // 登录、会话状态和首次初始化必须匿名可达。
-        if (context.Request.Path.Equals("/admin/api/login", StringComparison.OrdinalIgnoreCase) ||
-            context.Request.Path.Equals("/admin/api/session", StringComparison.OrdinalIgnoreCase) ||
-            context.Request.Path.Equals("/admin/api/setup", StringComparison.OrdinalIgnoreCase))
+        if (path.Equals("/admin/api/login", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/admin/api/session", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/admin/api/setup", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
         }
 
-        var authorized = account.ValidateSession(context.Request.Cookies[AdminAccountService.CookieName]) ||
-                         AdminAuth.CheckKey(context.Request.Headers["X-Admin-Key"].FirstOrDefault(), options);
-
-        if (!authorized)
+        var actor = accounts.GetSessionAccount(context.Request.Cookies[AdminAccountService.CookieName]);
+        if (actor == null)
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.ContentType = "application/json; charset=utf-8";
-            await context.Response.WriteAsync("{\"ok\":false,\"message\":\"需要授权：请先登录或携带 X-Admin-Key\"}");
+            await Reject(context, 401, "请先登录后台账号");
+            return;
+        }
+        context.Items["adminActor"] = actor;
+
+        var local = path["/admin/api".Length..];
+        var permission = RequiredPermission(local);
+        var mutating = !HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method);
+        if (local.Equals("/logout", StringComparison.OrdinalIgnoreCase)) mutating = false;
+        if (permission != null && (mutating || permission == "permissions") && !accounts.HasPermission(actor, permission))
+        {
+            await Reject(context, 403, "没有执行此操作所需的权限");
+            audit.Record(actor.Username, context.Request.Method, path, 403, context.Connection.RemoteIpAddress?.ToString());
+            return;
+        }
+        if (mutating && permission == null && !actor.IsOwner)
+        {
+            await Reject(context, 403, "此操作仅 Owner 可执行");
+            audit.Record(actor.Username, context.Request.Method, path, 403, context.Connection.RemoteIpAddress?.ToString());
             return;
         }
 
-        await _next(context);
+        try { await _next(context); }
+        catch
+        {
+            if (mutating) audit.Record(actor.Username, context.Request.Method, path, 500, context.Connection.RemoteIpAddress?.ToString());
+            throw;
+        }
+        if (mutating || local.Equals("/logout", StringComparison.OrdinalIgnoreCase))
+            audit.Record(actor.Username, context.Request.Method, path, context.Response.StatusCode, context.Connection.RemoteIpAddress?.ToString());
+    }
+
+    private static string? RequiredPermission(string local)
+    {
+        if (local.StartsWith("/users", StringComparison.OrdinalIgnoreCase)) return "players";
+        if (local.StartsWith("/content", StringComparison.OrdinalIgnoreCase) || local.StartsWith("/store", StringComparison.OrdinalIgnoreCase)) return "content";
+        if (local.StartsWith("/matches", StringComparison.OrdinalIgnoreCase) || local.StartsWith("/queues", StringComparison.OrdinalIgnoreCase)) return "matches";
+        if (local.StartsWith("/server-config", StringComparison.OrdinalIgnoreCase)) return "serverConfig";
+        if (local.StartsWith("/system-settings", StringComparison.OrdinalIgnoreCase)) return "systemSettings";
+        if (local.StartsWith("/accounts", StringComparison.OrdinalIgnoreCase) || local.StartsWith("/audit-logs", StringComparison.OrdinalIgnoreCase)) return "permissions";
+        return null;
+    }
+
+    private static async Task Reject(HttpContext context, int status, string message)
+    {
+        context.Response.StatusCode = status;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        await context.Response.WriteAsync(new System.Text.Json.Nodes.JsonObject { ["ok"] = false, ["message"] = message }.ToJsonString());
     }
 }

@@ -27,7 +27,7 @@ public class AuthService
     public async Task<User?> GetUserFromAuthAsync(HttpContext context)
     {
         var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
-        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith(SchemePrefix, StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith(SchemePrefix, StringComparison.OrdinalIgnoreCase))
             return null;
 
         var encoded = authHeader[SchemePrefix.Length..].Trim();

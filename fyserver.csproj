@@ -41,6 +41,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.FASTER.Core" Version="2.6.5" />
+    <PackageReference Include="MySqlConnector" Version="2.6.2" />
+    <PackageReference Include="Npgsql" Version="10.0.0" />
   </ItemGroup>
 
   <ItemGroup>

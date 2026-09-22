@@ -1,44 +1,65 @@
+using System.Collections.Concurrent;
 using fyserver.Models;
 
 namespace fyserver.Services;
 
-/// <summary>
-/// 用户存储服务（FASTER KV，双索引：user:username:* 与 user:id:*）。
-/// 生命周期由 DI 容器统一管理（共享单例，见 Program.cs）。
-/// </summary>
-public class UserStoreService
+/// <summary>可切换的玩家存储门面：本地 FASTER、MySQL 或 PostgreSQL。</summary>
+public sealed class UserStoreService
 {
-    private readonly FasterKvService _db;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> _userLocks = new();
-    // 保护"检查存在 -> 分配 ID -> 保存"的原子性
+    private readonly Func<FasterKvService> _localDatabaseFactory;
+    private readonly UserDatabaseConfigurationService _configuration;
+    private readonly ConcurrentDictionary<int, SemaphoreSlim> _userLocks = new();
     private readonly SemaphoreSlim _createLock = new(1, 1);
+    private readonly SemaphoreSlim _backendLock = new(1, 1);
+    private IUserStoreBackend? _backend;
 
-    public UserStoreService(FasterKvService dbService)
+    public bool IsReady => _backend != null;
+    public string? Provider => _backend?.Provider;
+    public string? LastInitializationError { get; private set; }
+
+    public UserStoreService(Func<FasterKvService> localDatabaseFactory, UserDatabaseConfigurationService configuration)
     {
-        _db = dbService;
+        _localDatabaseFactory = localDatabaseFactory;
+        _configuration = configuration;
     }
 
-    public void RecordFull() => _db.Checkpoint();
-
-    public void RecordIncremental() => _db.Checkpoint(FASTER.core.CheckpointType.FoldOver);
-
-    public Task<User?> GetByUserNameAsync(string userName)
+    public async Task TryInitializeConfiguredAsync(CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(userName))
-            return Task.FromResult<User?>(null);
-        var a = _db.Get<User>($"user:username:{userName}");
-        return Task.FromResult<User?>(a);
+        try
+        {
+            var settings = _configuration.Load();
+            if (settings == null) return;
+            await ActivateAsync(settings, save: false, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            LastInitializationError = SafeError(ex);
+            Console.WriteLine($"用户数据库初始化失败：{LastInitializationError}");
+        }
     }
 
-    public Task<User?> GetByIdAsync(int userId)
+    public async Task<(bool Ok, string Message)> ConfigureAsync(UserDatabaseSettings settings, CancellationToken cancellationToken = default)
     {
-        if (userId <= 0)
-            return Task.FromResult<User?>(null);
-        var u = _db.Get<User>($"user:id:{userId}");
-        return Task.FromResult<User?>(u);
+        try
+        {
+            await ActivateAsync(settings, save: true, cancellationToken);
+            return (true, $"{ProviderName(settings.Provider)} 已连接并完成数据表初始化");
+        }
+        catch (Exception ex)
+        {
+            LastInitializationError = SafeError(ex);
+            return (false, "数据库连接或初始化失败：" + LastInitializationError);
+        }
     }
 
-    /// <summary>对同一玩家的余额、改名及购买操作串行化，避免重复扣款或丢失更新。</summary>
+    public void RecordFull() => RequireBackend().CheckpointAsync().GetAwaiter().GetResult();
+    public void RecordIncremental() => RequireBackend().CheckpointAsync().GetAwaiter().GetResult();
+
+    public Task<User?> GetByUserNameAsync(string userName) => string.IsNullOrWhiteSpace(userName)
+        ? Task.FromResult<User?>(null) : RequireBackend().GetByUserNameAsync(userName);
+    public Task<User?> GetByIdAsync(int userId) => userId <= 0
+        ? Task.FromResult<User?>(null) : RequireBackend().GetByIdAsync(userId);
+
     public async Task<TResult?> WithUserLockAsync<TResult>(int userId, Func<User, Task<TResult>> action) where TResult : class
     {
         var gate = _userLocks.GetOrAdd(userId, _ => new SemaphoreSlim(1, 1));
@@ -51,83 +72,61 @@ public class UserStoreService
         finally { gate.Release(); }
     }
 
-    // 核心保存逻辑
-    public Task SaveUserAsync(User user)
+    public async Task SaveUserAsync(User user)
     {
-        if (string.IsNullOrEmpty(user.UserName) || user.Id == 0)
-            throw new ArgumentException("Invalid user data: Missing UserName or ID");
-
-        // 更新修改时间
+        if (string.IsNullOrEmpty(user.UserName) || user.Id == 0) throw new ArgumentException("Invalid user data: Missing UserName or ID");
         user.UpdatedAt = DateTime.UtcNow;
-
-        // 双重索引（冗余存储），Batch 操作保证原子性
-        var puts = new Dictionary<string, User>
-        {
-            [$"user:username:{user.UserName}"] = user,
-            [$"user:id:{user.Id}"] = user
-        };
-
-        _db.Batch(puts);
-        return Task.CompletedTask;
+        await RequireBackend().SaveAsync(user);
     }
 
-    // 创建用户：处理 ID 生成和冲突
     public async Task<User> CreateUserAsync(string userName)
     {
-        // 串行化"检查存在 -> 分配 ID -> 保存"，避免并发重复创建
         await _createLock.WaitAsync();
         try
         {
-            // 1. 检查用户名是否存在
-            var existingUser = await GetByUserNameAsync(userName);
-            if (existingUser != null)
-            {
-                // 幂等设计：重复调用时返回已存在的用户
-                return existingUser;
-            }
-
+            var existing = await GetByUserNameAsync(userName);
+            if (existing != null) return existing;
             var user = new User(userName);
-            // 2. 生成唯一 ID（带冲突重试）
-            int newId;
-            do
-            {
-                newId = Random.Shared.Next(100000, 1000000);
-            } while (await GetByIdAsync(newId) != null);
-            user.Id = newId;
-
-            // 3. 保存
+            do { user.Id = Random.Shared.Next(100000, 1000000); }
+            while (await GetByIdAsync(user.Id) != null);
             await SaveUserAsync(user);
             return user;
         }
-        finally
-        {
-            _createLock.Release();
-        }
+        finally { _createLock.Release(); }
     }
 
     public async Task DeleteUserAsync(int userId)
     {
         var user = await GetByIdAsync(userId);
-        if (user == null) return;
+        if (user != null) await RequireBackend().DeleteAsync(user);
+    }
 
-        var deletes = new List<string>
+    public Task<List<User>> GetAllUsersAsync() => RequireBackend().GetAllAsync();
+    public void ClearAll() => RequireBackend().ClearAsync().GetAwaiter().GetResult();
+
+    private async Task ActivateAsync(UserDatabaseSettings settings, bool save, CancellationToken cancellationToken)
+    {
+        await _backendLock.WaitAsync(cancellationToken);
+        try
         {
-            $"user:username:{user.UserName}",
-            $"user:id:{userId}"
-        };
-
-        _db.Batch<User>(null, deletes);
+            IUserStoreBackend candidate = settings.Provider == "local"
+                ? new LocalUserStoreBackend(_localDatabaseFactory())
+                : new RelationalUserStoreBackend(settings);
+            await candidate.InitializeAsync(cancellationToken);
+            if (save) _configuration.Save(settings);
+            var previous = _backend;
+            _backend = candidate;
+            LastInitializationError = null;
+            if (previous != null && !ReferenceEquals(previous, candidate)) await previous.DisposeAsync();
+        }
+        finally { _backendLock.Release(); }
     }
 
-    public Task<List<User>> GetAllUsersAsync()
+    private IUserStoreBackend RequireBackend() => _backend ?? throw new InvalidOperationException("用户数据库尚未完成初始化");
+    private static string ProviderName(string provider) => provider switch { "mysql" => "MySQL", "postgresql" => "PostgreSQL", _ => "本地 FASTER" };
+    private static string SafeError(Exception ex)
     {
-        // 只取一种 Key 前缀，防止数据重复
-        var list = _db.GetAllByPrefix<User>("user:id:");
-        return Task.FromResult(list);
-    }
-
-    public void ClearAll()
-    {
-        _db.Clear();
+        var message = ex.GetBaseException().Message.Replace("\r", " ").Replace("\n", " ");
+        return message.Length > 300 ? message[..300] : message;
     }
 }

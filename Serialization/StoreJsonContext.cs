@@ -15,4 +15,12 @@ namespace fyserver.Serialization;
 [JsonSerializable(typeof(PlayerPack))]
 [JsonSerializable(typeof(List<PlayerPack>))]
 [JsonSerializable(typeof(Dictionary<int, int>))]
+[JsonSerializable(typeof(UserCardCollection))]
+[JsonSerializable(typeof(UserCard))]
+[JsonSerializable(typeof(List<UserCard>))]
+[JsonSerializable(typeof(List<System.Text.Json.JsonElement>))]
+[JsonSerializable(typeof(Medkit))]
+[JsonSerializable(typeof(List<Medkit>))]
+[JsonSerializable(typeof(List<Item>))]
+[JsonSerializable(typeof(Dictionary<string, int>))]
 public partial class StoreJsonContext : JsonSerializerContext;

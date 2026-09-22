@@ -131,7 +131,7 @@ public static class UserEndpoints
                 LastLogonDate: "2025-07-05T15:21:06.168847Z",
                 LaunchMessages: new List<object>(),
                 LibraryUrl: $"{addressHttp}/players/{user.Id}/library",
-                LinkerAccount: "",
+                LinkerAccount: user.LinkerAccount,
                 Locale: "zh-hans",
                 Misc: new Dictionary<string, object>
                 {
@@ -153,13 +153,13 @@ public static class UserEndpoints
                 PlayerTag: user.Tag.ToString("D4"),
                 Rewards: new List<object>(),
                 SeasonEnd: "2025-08-01T00:00:00Z",
-                SeasonWins: 9999,
+                SeasonWins: user.Wins,
                 ServerOptions: clientServerConfig.ReadForSession(options.GetAddressWsR()),
                 ServerTime: DateTime.UtcNow.ToString("yyyy.MM.dd-HH.mm.ss"),
                 SovietLevel: 500,
                 SovietLevelClaimed: 500,
                 SovietXp: 0,
-                Stars: 120,
+                Stars: user.Stars,
                 TutorialsDone: 0,
                 TutorialsFinished: new List<string>
                 {
@@ -234,7 +234,6 @@ public static class UserEndpoints
     {
         CurrentUser? currentUser = null;
         var userName = user?.UserName ?? "1939Mother";
-        var jwt = codec.Encode(userName, 114);
         if (userName != "1939Mother" && user != null)
         {
             currentUser = new CurrentUser(
@@ -257,6 +256,7 @@ public static class UserEndpoints
         }
 
         var addressHttp = options.GetAddressHttpR();
+        var playerId = user?.Id ?? 0;
         var config1 = new Config(
             CurrentUser: currentUser,
             Endpoints: new fyserver.Models.Endpoints(
@@ -265,9 +265,12 @@ public static class UserEndpoints
                 Lobbyplayers: $"{addressHttp}/lobbyplayers",
                 Matches: $"{addressHttp}/matches",
                 Matches2: $"{addressHttp}/matches/v2/",
-                MyDraft: userName.Equals("1939Mother") ? "" : $"{addressHttp}/draft/{jwt}",
-                MyItems: userName.Equals("1939Mother") ? "" : $"{addressHttp}/items/{jwt}",
-                MyPlayer: userName.Equals("1939Mother") ? "" : $"{addressHttp}/players/{jwt}",
+                // 这些地址必须使用玩家数字 ID。此前这里拼接 codec token；token 使用
+                // Base64，可能包含 '/'，会被 HTTP 路由拆成多个路径段，导致客户端
+                // 发出的 PUT /players/.../set-name 请求直接 404。
+                MyDraft: userName.Equals("1939Mother") ? "" : $"{addressHttp}/draft/{playerId}",
+                MyItems: userName.Equals("1939Mother") ? "" : $"{addressHttp}/items/{playerId}",
+                MyPlayer: userName.Equals("1939Mother") ? "" : $"{addressHttp}/players/{playerId}",
                 Players: $"{addressHttp}/players",
                 Purchase: $"{addressHttp}/store/v2/txn",
                 Root: addressHttp,

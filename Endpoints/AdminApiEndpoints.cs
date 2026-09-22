@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Net;
 using fyserver.Models;
+using fyserver.Serialization;
 using fyserver.Services;
 
 namespace fyserver.Endpoints;
@@ -22,7 +23,8 @@ public static class AdminApiEndpoints
         var api = app.MapGroup("/admin/api");
 
         // ---------------------------------------------------------- 会话（静态页登录用）
-        api.MapGet("/session", (HttpContext context, AdminAccountService account) =>
+        api.MapGet("/session", (HttpContext context, AdminAccountService account, UserStoreService users,
+            UserDatabaseConfigurationService databaseConfiguration) =>
         {
             var loopback = ClientAddress.IsLoopback(context);
             var actor = account.GetSessionAccount(context.Request.Cookies[AdminAccountService.CookieName]);
@@ -39,7 +41,11 @@ public static class AdminApiEndpoints
                 ["username"] = actor?.Username,
                 ["isOwner"] = actor?.IsOwner ?? false,
                 ["permissions"] = permissions,
-                ["hasSession"] = actor != null
+                ["hasSession"] = actor != null,
+                ["serverReady"] = users.IsReady,
+                ["databaseConfigured"] = databaseConfiguration.IsConfigured,
+                ["databaseProvider"] = users.Provider,
+                ["databaseError"] = users.LastInitializationError
             }.ToJsonString(), "application/json");
         });
 
@@ -164,6 +170,143 @@ public static class AdminApiEndpoints
         {
             store.Reload();
             return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "商店配置已重新加载（config/store.json）" }.ToJsonString(), "application/json");
+        });
+
+        // ---------------------------------------------------------- 兑换码（参考 NestJS /admin/redeem）
+        api.MapGet("/redeem", (RedeemCodeService redeemCodes) =>
+        {
+            var list = new JsonArray(redeemCodes.List().Select(code => RedeemCodeService.ToJson(code)).ToArray());
+            return Results.Text(new JsonObject { ["codes"] = list }.ToJsonString(), "application/json");
+        });
+        // 保留 NestJS 后台列表路径的命名兼容（当前静态后台使用 /admin/api/redeem）。
+        api.MapGet("/redeem/list", (RedeemCodeService redeemCodes) =>
+        {
+            var list = new JsonArray(redeemCodes.List().Select(code => RedeemCodeService.ToJson(code)).ToArray());
+            return Results.Text(new JsonObject { ["codes"] = list }.ToJsonString(), "application/json");
+        });
+        api.MapGet("/redeem/{code}", (string code, RedeemCodeService redeemCodes) =>
+        {
+            var item = redeemCodes.Get(code);
+            return item == null ? Results.NotFound() : Results.Text(RedeemCodeService.ToJson(item).ToJsonString(), "application/json");
+        });
+        api.MapPost("/redeem", async (HttpContext context, RedeemCodeService redeemCodes) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var code = body["code"]?.GetValue<string>()?.Trim();
+            var type = body["type"]?.GetValue<string>()?.Trim();
+            if (string.IsNullOrWhiteSpace(code) || type is not ("single" or "perUser"))
+                return SystemSettingsError("code 和 type 必须有效，type 只能是 single 或 perUser");
+            if (!RedeemCodeService.TryNormalizeRewards(body["rewards"], out var rewards, out var rewardError))
+                return SystemSettingsError(rewardError);
+            string? expiresAt = null;
+            if (body["expiresAt"] is JsonValue expiry && !string.IsNullOrWhiteSpace(expiry.GetValue<string>()))
+            {
+                if (!DateTimeOffset.TryParse(expiry.GetValue<string>(), out var parsed))
+                    return SystemSettingsError("expiresAt 不是有效日期");
+                expiresAt = parsed.ToUniversalTime().ToString("O");
+            }
+            var result = redeemCodes.Create(code, type, rewards, expiresAt);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message, ["code"] = result.Code?.Code }.ToJsonString(), "application/json", statusCode: result.Ok ? 201 : 400);
+        });
+        api.MapDelete("/redeem/{code}", (string code, RedeemCodeService redeemCodes) =>
+        {
+            var result = redeemCodes.Delete(code);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
+        });
+
+        // ---------------------------------------------------------- 玩家数据库初始化
+        api.MapGet("/database", (UserDatabaseConfigurationService configuration, UserStoreService users) =>
+        {
+            var status = configuration.PublicStatus();
+            status["ready"] = users.IsReady;
+            status["activeProvider"] = users.Provider;
+            status["initializationError"] = users.LastInitializationError;
+            return Results.Text(status.ToJsonString(), "application/json");
+        });
+
+        api.MapPost("/database/configure", async (HttpContext context, UserDatabaseConfigurationService configuration,
+            UserStoreService users) =>
+        {
+            if (context.Items["adminActor"] is not AdminAccount actor || !actor.IsOwner)
+                return JsonResult(false, "只有 Owner 可以配置玩家数据库", 403);
+
+            var body = await ReadJsonBody(context);
+            var provider = (body?["provider"]?.GetValue<string>() ?? "").Trim().ToLowerInvariant();
+            if (provider is not ("local" or "mysql" or "postgresql"))
+                return JsonResult(false, "数据库类型必须是 local、mysql 或 postgresql", 400);
+
+            UserDatabaseSettings settings;
+            if (provider == "local")
+            {
+                settings = new("local", "", 0, "", "", "", false);
+            }
+            else
+            {
+                var host = (body?["host"]?.GetValue<string>() ?? "").Trim();
+                var database = (body?["database"]?.GetValue<string>() ?? "").Trim();
+                var username = (body?["username"]?.GetValue<string>() ?? "").Trim();
+                var port = body?["port"]?.GetValue<int>() ?? (provider == "mysql" ? 3306 : 5432);
+                var password = body?["password"]?.GetValue<string>() ?? "";
+                var requireSsl = body?["requireSsl"]?.GetValue<bool>() ?? true;
+                if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(database) || string.IsNullOrWhiteSpace(username))
+                    return JsonResult(false, "主机、数据库名和用户名不能为空", 400);
+                if (host.Length > 253 || database.Length > 128 || username.Length > 128 || password.Length > 1024 || port is < 1 or > 65535)
+                    return JsonResult(false, "数据库连接参数无效或过长", 400);
+                if (password.Length == 0)
+                {
+                    try
+                    {
+                        var current = configuration.Load();
+                        if (current?.Provider == provider && current.Host == host && current.Port == port &&
+                            current.Database == database && current.Username == username)
+                            password = current.Password;
+                    }
+                    catch { /* 损坏配置可由 Owner 直接覆盖修复。 */ }
+                }
+                settings = new(provider, host, port, database, username, password, requireSsl);
+            }
+
+            var result = await users.ConfigureAsync(settings, context.RequestAborted);
+            return JsonResult(result.Ok, result.Message, result.Ok ? 200 : 400);
+        });
+
+        // ---------------------------------------------------------- 商店编辑器
+        api.MapGet("/store", (StoreConfigService store) =>
+        {
+            return Results.Text(new JsonObject
+            {
+                ["ok"] = true,
+                ["path"] = "config/store.json",
+                ["config"] = StoreConfigNode(store.GetStoreConfig())
+            }.ToJsonString(), "application/json");
+        });
+        api.MapPut("/store", async (HttpContext context, StoreConfigService store) =>
+        {
+            if (context.Request.ContentLength is > 2_000_000)
+                return StoreError("商店配置超过 2 MB", 413);
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            JsonObject? configNode = body["config"] as JsonObject;
+            if (configNode == null && body["raw"] is JsonValue rawValue && rawValue.TryGetValue<string>(out var raw))
+            {
+                try { configNode = JsonNode.Parse(raw) as JsonObject; }
+                catch (JsonException ex) { return StoreError("raw JSON 格式错误：" + ex.Message); }
+            }
+            configNode ??= body;
+            try
+            {
+                var config = JsonSerializer.Deserialize(configNode.ToJsonString(), ConfigJsonContext.Default.StoreConfig);
+                var validation = ValidateStoreConfig(config);
+                if (config == null || validation != null) return StoreError(validation ?? "商店配置格式无效");
+                var result = store.Save(config);
+                return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message, ["config"] = StoreConfigNode(config) }.ToJsonString(),
+                    "application/json", statusCode: result.Ok ? 200 : 500);
+            }
+            catch (JsonException ex)
+            {
+                return StoreError("商店配置格式无效：" + ex.Message);
+            }
         });
 
         // ---------------------------------------------------------- 后台用户与审计日志
@@ -718,6 +861,46 @@ public static class AdminApiEndpoints
         Results.Text(new JsonObject { ["ok"] = false, ["message"] = "请求体不是合法的 JSON 对象" }.ToJsonString(),
             "application/json", statusCode: StatusCodes.Status400BadRequest);
 
+    private static JsonNode StoreConfigNode(StoreConfig config) =>
+        JsonSerializer.SerializeToNode(config, ConfigJsonContext.Default.StoreConfig) ?? new JsonObject();
+
+    private static IResult StoreError(string message, int status = StatusCodes.Status400BadRequest) =>
+        Results.Text(new JsonObject { ["ok"] = false, ["message"] = message }.ToJsonString(), "application/json", statusCode: status);
+
+    private static string? ValidateStoreConfig(StoreConfig? config)
+    {
+        if (config == null) return "商店配置根节点必须是对象";
+        if (string.IsNullOrWhiteSpace(config.Currency) || config.Currency.Length > 16) return "currency 必须是 1–16 个字符";
+        if (config.AlwaysFeatured == null) return "缺少 alwaysFeatured";
+        var groupIds = new HashSet<int>();
+        var offerIds = new HashSet<int>();
+        foreach (var group in config.Groups ?? [])
+        {
+            if (group.GroupId < -1 || !groupIds.Add(group.GroupId)) return $"分组 ID 无效或重复：{group.GroupId}";
+            var error = ValidateOffers(group.Offers, offerIds);
+            if (error != null) return error;
+        }
+        var featuredError = ValidateOffers(config.AlwaysFeatured.Offers, offerIds);
+        return featuredError;
+    }
+
+    private static string? ValidateOffers(IEnumerable<StoreOffer>? offers, HashSet<int> offerIds)
+    {
+        foreach (var offer in offers ?? [])
+        {
+            if (offer.OfferId <= 0 || !offerIds.Add(offer.OfferId)) return $"商品 ID 无效或重复：{offer.OfferId}";
+            if (string.IsNullOrWhiteSpace(offer.OfferName) || offer.OfferName.Length > 160) return $"商品 {offer.OfferId} 的 offerName 无效";
+            if (string.IsNullOrWhiteSpace(offer.Title) || offer.Title.Length > 300) return $"商品 {offer.OfferId} 的 title 无效";
+            if (offer.Limit is < 0 || offer.Gold is < 0 || offer.Diamonds is < 0 || offer.Real is < 0) return $"商品 {offer.OfferId} 的价格或限购不能为负数";
+            foreach (var item in (offer.Items ?? []).Concat(offer.BonusItems ?? []))
+            {
+                if (item.Qty <= 0 || item.Qty > 100000 || item.Data == null || string.IsNullOrWhiteSpace(item.Data.ItemType))
+                    return $"商品 {offer.OfferId} 包含无效奖励条目";
+            }
+        }
+        return null;
+    }
+
     /// <summary>保存内容条目：raw 里未建模的字段原样保留，与 Razor 后台行为一致。</summary>
     private static IResult Save(ContentEntriesService entries, string path, bool isFrontpage, int id, JsonObject body)
     {
@@ -821,6 +1004,10 @@ public static class AdminApiEndpoints
 
     private static IResult SystemSettingsError(string message, int status = 400) => Results.Text(
         new JsonObject { ["ok"] = false, ["message"] = message }.ToJsonString(),
+        "application/json", statusCode: status);
+
+    private static IResult JsonResult(bool ok, string message, int status) => Results.Text(
+        new JsonObject { ["ok"] = ok, ["message"] = message }.ToJsonString(),
         "application/json", statusCode: status);
 }
 

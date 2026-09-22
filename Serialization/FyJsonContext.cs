@@ -88,4 +88,10 @@ namespace fyserver.Serialization;
 [JsonSerializable(typeof(ServerConfigDto))]
 [JsonSerializable(typeof(List<MatchCard>))]
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(UserCardCollection))]
+[JsonSerializable(typeof(UserCard))]
+[JsonSerializable(typeof(List<UserCard>))]
+[JsonSerializable(typeof(Medkit))]
+[JsonSerializable(typeof(List<Medkit>))]
+[JsonSerializable(typeof(List<Item>))]
 public partial class FyJsonContext : JsonSerializerContext;

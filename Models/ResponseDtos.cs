@@ -99,6 +99,8 @@ public record StoreItemData(
     [property: JsonPropertyName("name")] string? Name = null,
     [property: JsonPropertyName("duration")] int? Duration = null,
     [property: JsonPropertyName("isGold")] bool? IsGold = null,
+    [property: JsonPropertyName("is_gold_card")] bool? IsGoldCard = null,
+    [property: JsonPropertyName("gold_card")] bool? GoldCard = null,
     [property: JsonPropertyName("month")] int? Month = null,
     [property: JsonPropertyName("year")] int? Year = null
 );
@@ -127,7 +129,8 @@ public record StoreOffer(
     [property: JsonPropertyName("slotValue")] string? SlotValue = null,
     [property: JsonPropertyName("timed")] bool? Timed = null,
     [property: JsonPropertyName("bonus")] bool? Bonus = null,
-    [property: JsonPropertyName("fulfilAfter")] string? FulfilAfter = null
+    [property: JsonPropertyName("fulfilAfter")] string? FulfilAfter = null,
+    [property: JsonPropertyName("purchased")] bool? Purchased = null
 );
 
 public record StoreGroup(

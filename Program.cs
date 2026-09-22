@@ -19,12 +19,15 @@ Directory.SetCurrentDirectory(AppContext.BaseDirectory);
 var serverOptions = new ServerOptions();
 serverOptions.ReadFromFile(); // 读 ./setting.json；不存在则生成默认配置
 
-var fasterKv = new FasterKvService();
-var users = new UserStoreService(fasterKv);
+FasterKvService? fasterKv = null;
+var userDatabaseConfiguration = new UserDatabaseConfigurationService();
+var users = new UserStoreService(() => fasterKv ??= new FasterKvService(), userDatabaseConfiguration);
+users.TryInitializeConfiguredAsync().GetAwaiter().GetResult();
 var codec = new CodecService();
 var playerLibrary = new PlayerLibraryService();
 playerLibrary.InitLibrary("./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");
 var storeConfig = new StoreConfigService();
+var redeemCodes = new RedeemCodeService();
 var webSocketHub = new WebSocketHubService();
 var auth = new AuthService(users, codec);
 var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions);
@@ -41,11 +44,12 @@ var clientServerConfig = new ClientServerConfigService();
 void RegisterSharedServices(IServiceCollection services)
 {
     services.AddSingleton(serverOptions);
-    services.AddSingleton(fasterKv);
     services.AddSingleton(users);
+    services.AddSingleton(userDatabaseConfiguration);
     services.AddSingleton(codec);
     services.AddSingleton(playerLibrary);
     services.AddSingleton(storeConfig);
+    services.AddSingleton(redeemCodes);
     services.AddSingleton(webSocketHub);
     services.AddSingleton(auth);
     services.AddSingleton(matches);
@@ -97,6 +101,7 @@ httpApp.UseExceptionHandler(exceptionHandlerApp =>
 httpApp.MapWebSocketEndpoint();
 
 httpApp.UseMiddleware<ContentTypeCleanupMiddleware>();
+httpApp.UseMiddleware<ServerInitializationMiddleware>();
 // 静态后台（/admin-ui）的数据接口鉴权：只挡 /admin/api/*，静态页自身匿名可访问
 
 // 后台数据接口鉴权（静态后台 /admin-ui）
@@ -107,6 +112,7 @@ httpApp.UseRouting();
 
 httpApp.MapUserEndpoints();
 httpApp.MapPlayerEndpoints();
+httpApp.MapRedeemEndpoints();
 httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();
 httpApp.MapMatchEndpoints();
@@ -147,7 +153,7 @@ httpApp.Lifetime.ApplicationStarted.Register(() =>
 {
     Console.WriteLine($"Application started on {serverOptions.GetAddressHttp()}");
     Console.WriteLine($"WebSocket endpoint: {serverOptions.GetAddressWsR()}");
-    Console.WriteLine("Faster 已准备");
+    Console.WriteLine(users.IsReady ? $"用户数据库已准备：{users.Provider}" : "用户数据库尚未配置，游戏接口已暂停");
     if (!adminAccount.IsInitialized)
     {
         Console.ForegroundColor = ConsoleColor.Yellow;
@@ -162,7 +168,7 @@ httpApp.Lifetime.ApplicationStarted.Register(() =>
 httpApp.Lifetime.ApplicationStopping.Register(() =>
 {
     Console.WriteLine("Application stopping. Cleaning up...");
-    fasterKv.Dispose(); // 幂等
+    fasterKv?.Dispose(); // 仅本地存储模式会创建
 });
 
 Console.ForegroundColor = ConsoleColor.Blue;

@@ -9,24 +9,36 @@ public static class LobbyEndpoints
     public static IEndpointRouteBuilder MapLobbyEndpoints(this IEndpointRouteBuilder app)
     {
         // 匹配系统（双人匹配/战斗码匹配等）
-        app.MapPost("/lobbyplayers", async (LobbyPlayer lobbyPlayer, UserStoreService users, MatchManagerService matches, WebSocketHubService webSockets) =>
+        app.MapPost("/lobbyplayers", async (LobbyPlayer lobbyPlayer, UserStoreService users, MatchManagerService matches, MatchHistoryService history, WebSocketHubService webSockets) =>
         {
             var validation = await ValidateLobbyPlayerAsync(lobbyPlayer, users, webSockets);
             if (validation != null)
                 return validation;
 
+            var abandoned = matches.GetActiveMatchForUser(lobbyPlayer.PlayerId);
+            if (abandoned != null)
+            {
+                if (!string.IsNullOrEmpty(abandoned.WinnerSide)) await history.MarkCompletedAsync(abandoned);
+                else await history.MarkAbortedAsync(abandoned);
+            }
             matches.RemovePlayerFromAllQueues(lobbyPlayer.PlayerId);
             matches.RemovePlayerActiveMatches(lobbyPlayer.PlayerId, "requeue");
             matches.JoinLobby(lobbyPlayer, useAiOpponent: false);
             return Results.Text("OK");
         });
 
-        app.MapPost("/singleplayerlobby", async (LobbyPlayer lobbyPlayer, UserStoreService users, MatchManagerService matches, WebSocketHubService webSockets) =>
+        app.MapPost("/singleplayerlobby", async (LobbyPlayer lobbyPlayer, UserStoreService users, MatchManagerService matches, MatchHistoryService history, WebSocketHubService webSockets) =>
         {
             var validation = await ValidateLobbyPlayerAsync(lobbyPlayer, users, webSockets);
             if (validation != null)
                 return validation;
 
+            var abandoned = matches.GetActiveMatchForUser(lobbyPlayer.PlayerId);
+            if (abandoned != null)
+            {
+                if (!string.IsNullOrEmpty(abandoned.WinnerSide)) await history.MarkCompletedAsync(abandoned);
+                else await history.MarkAbortedAsync(abandoned);
+            }
             matches.RemovePlayerFromAllQueues(lobbyPlayer.PlayerId);
             matches.RemovePlayerActiveMatches(lobbyPlayer.PlayerId, "requeue");
             matches.JoinLobby(lobbyPlayer, useAiOpponent: true);

@@ -1,0 +1,36 @@
+<template>
+  <main class="page">
+    <div id="banner-host"></div>
+    <div class="page-head"><h1>对局管理</h1><p>查询服务器持久化保存的对局快照、动作与存储占用。</p></div>
+    <section class="card">
+      <div class="panel-head"><div><h2>持久化数据</h2><p class="muted" id="history-storage-label">读取存储信息中…</p></div><button class="btn btn--outline btn--small" id="history-refresh">刷新</button></div>
+      <div class="metric-grid" id="history-storage"></div>
+      <p class="muted">本地模式按 JSON 文件实际大小统计；MySQL / PostgreSQL 按快照与动作 payload 字节估算，不含索引及数据库页开销。</p>
+    </section>
+    <section class="card">
+      <h2>对局记录</h2>
+      <div class="form-grid" style="margin:16px 0">
+        <label class="field"><span>状态</span><select id="history-status"><option value="all">全部</option><option value="completed">已完成</option><option value="aborted">已中止</option><option value="active">进行中</option></select></label>
+        <label class="field"><span>玩家名称</span><input id="history-player-name" type="search" maxlength="64" placeholder="输入昵称搜索参与对局"></label>
+        <label class="field"><span>玩家 ID（可选）</span><input id="history-player-id" type="number" min="1" placeholder="精确筛选玩家 ID"></label>
+        <div class="field" style="align-self:end"><button class="btn btn--outline" id="history-search">筛选</button></div>
+      </div>
+      <p class="muted" id="history-summary"></p>
+      <div class="table-wrap" id="history-table"></div>
+      <div class="btn-row" style="justify-content:space-between;margin-top:12px"><button class="btn btn--outline btn--small" id="history-prev">上一页</button><span class="muted" id="history-page"></span><button class="btn btn--outline btn--small" id="history-next">下一页</button></div>
+    </section>
+    <section class="card" id="history-detail" hidden>
+      <div class="panel-head"><div><h2 id="history-detail-title">对局数据</h2><p class="muted">起始快照包含开局数据；动作按页读取原始持久化记录。</p></div><button class="btn btn--outline btn--small" id="history-detail-close">关闭</button></div>
+      <h3>起始快照</h3><pre class="match-json" id="history-starting-info"></pre>
+      <div class="panel-head"><h3>已保存动作</h3><div class="btn-row"><button class="btn btn--outline btn--small" id="actions-prev">上一批</button><button class="btn btn--outline btn--small" id="actions-next">下一批</button></div></div>
+      <p class="muted" id="actions-page-label"></p><pre class="match-json" id="history-actions"></pre>
+    </section>
+  </main>
+</template>
+<script setup>
+import { onMounted } from 'vue';
+onMounted(async () => {
+  window.Admin.hydrateIcons();
+  await import('../legacy/match-management.js');
+});
+</script>

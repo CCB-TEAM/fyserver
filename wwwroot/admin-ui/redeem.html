@@ -1,46 +1,5 @@
 <!doctype html>
-<html lang="zh-Hans">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>兑换码 · FYServer</title>
-  <link rel="stylesheet" href="/admin-ui/assets/admin-v4.css?v=20260923-2">
-</head>
-<body>
-<main class="page"><div id="banner-host"></div>
-  <div class="page-head"><h1>兑换码</h1><p>创建和管理玩家兑换码。协议兼容 NestJS 的 <span class="mono">GET /redeem/{code}</span>，奖励会直接写入玩家数据。</p></div>
-  <div class="redeem-layout">
-    <section class="card"><div class="panel-head"><div><h2>兑换码列表</h2><p class="muted">single 全局只能使用一次；perUser 每个玩家只能使用一次。</p></div><button class="btn btn--outline btn--small" id="refresh" type="button">刷新</button></div>
-      <div class="search-row redeem-search"><div class="field"><span>筛选兑换码</span><input id="filter" placeholder="输入兑换码"></div></div>
-      <div class="table-wrap" id="codes"><div class="empty">读取中…</div></div>
-    </section>
-    <section class="card sticky"><div class="panel-head"><div><h2>创建兑换码</h2><p class="muted">奖励至少包含一项；不支持 dust。</p></div><button class="btn btn--outline btn--small" id="generate" type="button">生成码</button></div>
-      <form id="create-form"><div class="form-grid"><label class="field"><span>兑换码</span><input id="code" required maxlength="96" placeholder="例如 FY-2026-001"></label><label class="field"><span>使用类型</span><select id="type"><option value="single">single · 全局一次</option><option value="perUser">perUser · 每人一次</option></select></label><label class="field"><span>过期时间（可选）</span><input id="expires" type="datetime-local"></label></div>
-        <div class="btn-row redeem-reward-toolbar"><h3>奖励</h3><button class="btn btn--outline btn--small" id="add-reward" type="button">添加奖励</button></div><div id="rewards"></div>
-        <details class="redeem-advanced"><summary><b>完整 JSON（高级编辑）</b></summary><p class="muted">可直接编辑 rewards 数组，适合暂未覆盖的客户端字段。</p><textarea id="raw" class="json-editor" spellcheck="false"></textarea><div class="btn-row"><button class="btn btn--outline btn--small" id="apply-json" type="button">从 JSON 读取奖励</button><button class="btn btn--outline btn--small" id="format-json" type="button">格式化</button></div></details>
-        <button class="btn redeem-submit" type="submit">创建兑换码</button>
-      </form>
-    </section>
-  </div>
-</main><footer class="page-footer">FYServer · Server Control Center</footer>
-<script src="/admin-ui/assets/admin-v4.js?v=20260923-1"></script>
-<script>
-(async function(){
-  if(!await Admin.ensureAuth())return; await Admin.mount('redeem','兑换码');
-  const $=id=>document.getElementById(id), num=v=>{const n=Number(v);return Number.isFinite(n)?n:0};
-  const types=['diamonds','gold','pack','card','draft','medkit','prop','alt_art','avatar','cardback','emote','token','deck'];let rewards=[{data:{itemType:'diamonds'},qty:100}],codes=[];
-  function rewardRow(item,index){const d=item.data||{};const row=document.createElement('div');row.className='reward-row';row.innerHTML='<div class="reward-head"><b>奖励 #'+(index+1)+'</b><button type="button" class="btn btn--danger btn--small">删除</button></div><div class="reward-grid"><label class="field"><span>itemType</span><select data-k="type">'+types.map(t=>'<option value="'+t+'">'+t+'</option>').join('')+'</select></label><label class="field"><span>数量</span><input data-k="qty" type="number" min="1"></label><label class="field"><span>name（卡牌/物品）</span><input data-k="name"></label><label class="field"><span>cardSet</span><input data-k="cardSet" placeholder="core"></label><label class="field"><span>cardCount</span><input data-k="cardCount" type="number" min="1"></label><label class="field"><span>duration</span><input data-k="duration" type="number" min="0"></label><label class="field"><span>闪卡</span><select data-k="isGold"><option value="">未设置</option><option value="true">是</option><option value="false">否</option></select></label></div>';
-    const set=(k,v)=>{const el=row.querySelector('[data-k="'+k+'"]');if(el&&v!==undefined&&v!==null)el.value=String(v)};set('type',d.itemType||'diamonds');set('qty',item.qty||1);['name','cardSet','cardCount','duration','isGold'].forEach(k=>set(k,d[k]));
-    row.querySelector('button').onclick=()=>{rewards.splice(index,1);renderRewards()};row.querySelectorAll('[data-k]').forEach(el=>el.onchange=()=>{const k=el.dataset.k;if(k==='type')d.itemType=el.value;else if(k==='qty')item.qty=Math.max(1,num(el.value)||1);else if(k==='isGold'){if(el.value==='')delete d.isGold;else d.isGold=el.value==='true'}else{if(el.value==='')delete d[k];else d[k]=['cardCount','duration'].includes(k)?num(el.value):el.value}item.data=d;syncRaw()});return row}
-  function renderRewards(){const host=$('rewards');host.innerHTML='';if(!rewards.length)host.innerHTML='<div class="empty">至少添加一项奖励</div>';rewards.forEach((r,i)=>host.appendChild(rewardRow(r,i)));syncRaw()}
-  function syncRaw(){$('raw').value=JSON.stringify(rewards,null,2)}
-  function parseRaw(){const value=JSON.parse($('raw').value);if(!Array.isArray(value)||!value.length)throw Error('rewards 必须是非空数组');rewards=value;renderRewards()}
-  function rewardSummary(c){return (c.rewards||[]).map(r=>(r.data?.itemType||'?')+' × '+(r.qty||1)).join('、')}
-  function renderList(){const q=$('filter').value.trim().toLowerCase(),list=codes.filter(c=>!q||String(c.code).toLowerCase().includes(q));if(!list.length){$('codes').innerHTML='<div class="empty">暂无兑换码</div>';return}$('codes').innerHTML='<table class="md-table"><thead><tr><th>兑换码</th><th>类型</th><th>奖励</th><th>使用情况</th><th>过期时间</th><th>操作</th></tr></thead><tbody>'+list.map(c=>{const uses=c.type==='perUser'?(c.usedByUsers||[]).length:(c.usedBy?'1':'0'),state=c.expiresAt&&new Date(c.expiresAt)<new Date()?'已过期':c.type==='single'&&c.usedBy?'已使用':'可用';return '<tr><td class="code-cell">'+Admin.esc(c.code)+'</td><td>'+Admin.esc(c.type)+'</td><td>'+Admin.esc(rewardSummary(c))+'</td><td>'+uses+' · <span class="chip '+(state==='可用'?'chip--ok':'chip--off')+'">'+state+'</span></td><td>'+Admin.esc(c.expiresAt?new Date(c.expiresAt).toLocaleString():'永不过期')+'</td><td><button class="btn btn--danger btn--small" data-delete="'+Admin.esc(c.code)+'">删除</button></td></tr>'}).join('')+'</tbody></table>'}
-  async function load(){const r=await Admin.api('/redeem');if(!r?.codes){Admin.banner(r?.message||'读取兑换码失败','err');return}codes=r.codes;renderList()}
-  $('filter').oninput=renderList;$('refresh').onclick=load;$('add-reward').onclick=()=>{rewards.push({data:{itemType:'diamonds'},qty:1});renderRewards()};$('generate').onclick=()=>{$('code').value=Array.from({length:3},()=>Math.random().toString(36).slice(2,6).toUpperCase()).join('-')};$('format-json').onclick=()=>{try{$('raw').value=JSON.stringify(JSON.parse($('raw').value),null,2)}catch(e){Admin.banner('JSON 格式错误：'+e.message,'err')}};$('apply-json').onclick=()=>{try{parseRaw();Admin.banner('已从 JSON 读取奖励','ok')}catch(e){Admin.banner('JSON 格式错误：'+e.message,'err')}};
-  $('codes').onclick=async e=>{const btn=e.target.closest('[data-delete]');if(!btn)return;if(!confirm('确定删除兑换码 '+btn.dataset.delete+'？'))return;const r=await Admin.api('/redeem/'+encodeURIComponent(btn.dataset.delete),{method:'DELETE'});Admin.banner(r?.message||'删除失败',r?.ok?'ok':'err');if(r?.ok)await load()};
-  $('create-form').onsubmit=async e=>{e.preventDefault();try{parseRaw()}catch(err){Admin.banner('奖励 JSON 格式错误：'+err.message,'err');return}const expiry=$('expires').value?new Date($('expires').value).toISOString():null;const r=await Admin.api('/redeem',{method:'POST',body:{code:$('code').value.trim(),type:$('type').value,rewards,expiresAt:expiry}});Admin.banner(r?.message||'创建失败',r?.ok?'ok':'err');if(r?.ok){e.target.reset();rewards=[{data:{itemType:'diamonds'},qty:100}];renderRewards();await load()}};
-  renderRewards();await load();
-})();
-</script>
-</body></html>
+<html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>兑换码 · FYServer</title>  <script type="module" crossorigin src="/admin-ui/assets/runtime-core.esm-bundler.js"></script>
+  <script type="module" crossorigin src="/admin-ui/assets/main.js"></script>
+  <link rel="stylesheet" crossorigin href="/admin-ui/assets/main.css">
+</head><body><div id="app"></div></body></html>

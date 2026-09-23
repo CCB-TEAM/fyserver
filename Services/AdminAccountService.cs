@@ -10,6 +10,8 @@ public sealed class AdminAccount
     public string Username { get; set; } = "";
     public string Salt { get; set; } = "";
     public string PasswordHash { get; set; } = "";
+    public string AvatarUrl { get; set; } = "";
+    public List<string> PreviousUsernames { get; set; } = [];
     public bool IsOwner { get; set; }
     public bool Enabled { get; set; } = true;
     public HashSet<string> Permissions { get; set; } = new(StringComparer.Ordinal);
@@ -143,7 +145,8 @@ public sealed class AdminAccountService
         if (!actor.IsOwner && selected.Any(permission => !actor.Permissions.Contains(permission))) return (false, "不能授予自己没有的权限");
         lock (_gate)
         {
-            if (_accounts.Any(a => a.Username.Equals(username!.Trim(), StringComparison.OrdinalIgnoreCase))) return (false, "用户名已存在");
+            if (_accounts.Any(a => a.Username.Equals(username!.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                                   a.PreviousUsernames.Contains(username.Trim(), StringComparer.OrdinalIgnoreCase))) return (false, "用户名已存在");
             _accounts.Add(NewAccount(username!.Trim(), password!, false, selected));
             Save();
             return (true, "后台账号已创建");
@@ -213,6 +216,61 @@ public sealed class AdminAccountService
         }
     }
 
+    public (bool Ok, string Message) UpdateOwnUsername(AdminAccount actor, string? currentPassword, string? username)
+    {
+        var normalized = username?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.Length is < 3 or > 32 || normalized.Any(char.IsControl))
+            return (false, "账号名称须为 3–32 个字符，且不能包含控制字符");
+        if (string.IsNullOrEmpty(currentPassword)) return (false, "请输入当前密码以确认身份");
+        lock (_gate)
+        {
+            var account = _accounts.FirstOrDefault(a => a.Id == actor.Id && a.Enabled);
+            if (account == null) return (false, "账号不存在或已禁用");
+            if (!VerifyPassword(account, currentPassword)) return (false, "当前密码不正确");
+            if (_accounts.Any(a => a.Id != account.Id && (a.Username.Equals(normalized, StringComparison.OrdinalIgnoreCase) ||
+                                   a.PreviousUsernames.Contains(normalized, StringComparer.OrdinalIgnoreCase))))
+                return (false, "账号名称已被使用");
+            if (!account.Username.Equals(normalized, StringComparison.Ordinal))
+            {
+                if (!account.PreviousUsernames.Contains(account.Username, StringComparer.OrdinalIgnoreCase))
+                    account.PreviousUsernames.Add(account.Username);
+                account.Username = normalized;
+                Save();
+            }
+            return (true, "账号名称已更新");
+        }
+    }
+
+    public (bool Ok, string Message) ChangeOwnPassword(AdminAccount actor, string? currentPassword, string? newPassword)
+    {
+        if (string.IsNullOrEmpty(newPassword) || newPassword.Length is < 10 or > 256)
+            return (false, "新密码长度应为 10–256 个字符");
+        if (string.IsNullOrEmpty(currentPassword)) return (false, "请输入当前密码");
+        lock (_gate)
+        {
+            var account = _accounts.FirstOrDefault(a => a.Id == actor.Id && a.Enabled);
+            if (account == null) return (false, "账号不存在或已禁用");
+            if (!VerifyPassword(account, currentPassword)) return (false, "当前密码不正确");
+            if (VerifyPassword(account, newPassword)) return (false, "新密码不能与当前密码相同");
+            SetPassword(account, newPassword);
+            account.SessionVersion++;
+            Save();
+            return (true, "密码已更新，当前会话也将退出，请使用新密码重新登录");
+        }
+    }
+
+    public bool UpdateOwnAvatar(AdminAccount actor, string avatarUrl)
+    {
+        lock (_gate)
+        {
+            var account = _accounts.FirstOrDefault(a => a.Id == actor.Id && a.Enabled);
+            if (account == null) return false;
+            account.AvatarUrl = avatarUrl;
+            Save();
+            return true;
+        }
+    }
+
     private static string TokenKey(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
     private void PrunePresence()
     {
@@ -244,8 +302,24 @@ public sealed class AdminAccountService
         Id = a.Id, Username = a.Username, Salt = a.Salt, PasswordHash = a.PasswordHash,
         IsOwner = a.IsOwner, Enabled = a.Enabled, Permissions = new HashSet<string>(a.Permissions, StringComparer.Ordinal),
         SessionVersion = a.SessionVersion, CreatedAt = a.CreatedAt
-        , LastLoginAt = a.LastLoginAt, LastLoginIp = a.LastLoginIp
+        , LastLoginAt = a.LastLoginAt, LastLoginIp = a.LastLoginIp,
+        AvatarUrl = a.AvatarUrl,
+        PreviousUsernames = a.PreviousUsernames.ToList()
     };
+
+    private static bool VerifyPassword(AdminAccount account, string password)
+    {
+        var expected = Convert.FromBase64String(account.PasswordHash);
+        var actual = HashPassword(password, Convert.FromBase64String(account.Salt));
+        return CryptographicOperations.FixedTimeEquals(expected, actual);
+    }
+
+    private static void SetPassword(AdminAccount account, string password)
+    {
+        var salt = RandomNumberGenerator.GetBytes(32);
+        account.Salt = Convert.ToBase64String(salt);
+        account.PasswordHash = Convert.ToBase64String(HashPassword(password, salt));
+    }
 
     private string Sign(string payload) => Convert.ToHexString(HMACSHA256.HashData(_sessionSecret, Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
     private static byte[] HashPassword(string password, byte[] salt) => Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, HashAlgorithmName.SHA256, 32);
@@ -273,6 +347,10 @@ public sealed class AdminAccountService
                         SessionVersion = node["sessionVersion"]?.GetValue<int>() ?? 1,
                         CreatedAt = DateTime.TryParse(node["createdAt"]?.GetValue<string>(), out var created) ? created : DateTime.UtcNow,
                         LastLoginAt = DateTime.TryParse(node["lastLoginAt"]?.GetValue<string>(), out var loginAt) ? loginAt : null,
+                        AvatarUrl = node["avatarUrl"]?.GetValue<string>() ?? "",
+                        PreviousUsernames = node["previousUsernames"] is JsonArray aliases
+                            ? aliases.Select(alias => alias?.GetValue<string>()).Where(alias => !string.IsNullOrWhiteSpace(alias)).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+                            : [],
                         LastLoginIp = node["lastLoginIp"]?.GetValue<string>(),
                         Permissions = (node["permissions"] as JsonArray)?.Select(p => p?.GetValue<string>() ?? "").Where(p => AvailablePermissions.Contains(p)).ToHashSet(StringComparer.Ordinal) ?? []
                     });
@@ -313,7 +391,9 @@ public sealed class AdminAccountService
                 ["passwordHash"] = a.PasswordHash, ["isOwner"] = a.IsOwner,
                 ["enabled"] = a.Enabled, ["sessionVersion"] = a.SessionVersion,
                 ["createdAt"] = a.CreatedAt.ToString("O"), ["lastLoginAt"] = a.LastLoginAt?.ToString("O"),
-                ["lastLoginIp"] = a.LastLoginIp, ["permissions"] = permissions
+                ["lastLoginIp"] = a.LastLoginIp, ["avatarUrl"] = a.AvatarUrl,
+                ["previousUsernames"] = new JsonArray(a.PreviousUsernames.Select(username => (JsonNode?)JsonValue.Create(username)).ToArray()),
+                ["permissions"] = permissions
             });
         }
         var json = new JsonObject { ["version"] = 2, ["sessionSecret"] = Convert.ToBase64String(_sessionSecret), ["accounts"] = accounts };

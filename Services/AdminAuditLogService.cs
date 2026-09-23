@@ -64,8 +64,15 @@ public sealed class AdminAuditLogService
     public (JsonArray Entries, int Total) ActionsFor(string username, int page = 1) => ReadFiltered(PathName, "actor", username, page);
     public (JsonArray Entries, int Total) LoginsFor(string username, int page = 1) => ReadFiltered(LoginPath, "username", username, page);
 
-    private (JsonArray Entries, int Total) ReadFiltered(string path, string field, string value, int page)
+    public (JsonArray Entries, int Total) ActionsFor(IEnumerable<string> usernames, int page = 1) => ReadFiltered(PathName, "actor", usernames, page);
+    public (JsonArray Entries, int Total) LoginsFor(IEnumerable<string> usernames, int page = 1) => ReadFiltered(LoginPath, "username", usernames, page);
+
+    private (JsonArray Entries, int Total) ReadFiltered(string path, string field, string value, int page) =>
+        ReadFiltered(path, field, [value], page);
+
+    private (JsonArray Entries, int Total) ReadFiltered(string path, string field, IEnumerable<string> values, int page)
     {
+        var filter = values.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var matches = new List<JsonNode>();
         lock (_gate)
         {
@@ -74,7 +81,7 @@ public sealed class AdminAuditLogService
             {
                 try
                 {
-                    if (JsonNode.Parse(line) is not JsonObject entry || entry[field]?.GetValue<string>() != value) continue;
+                    if (JsonNode.Parse(line) is not JsonObject entry || !filter.Contains(entry[field]?.GetValue<string>() ?? "")) continue;
                     matches.Add(entry);
                 }
                 catch (System.Text.Json.JsonException) { }

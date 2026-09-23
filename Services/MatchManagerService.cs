@@ -15,13 +15,15 @@ public class MatchManagerService
     private readonly PlayerLibraryService _playerLibrary;
     private readonly CodecService _codec;
     private readonly ServerOptions _serverOptions;
+    private readonly MatchHistoryService _history;
 
-    public MatchManagerService(UserStoreService users, PlayerLibraryService playerLibrary, CodecService codec, ServerOptions serverOptions)
+    public MatchManagerService(UserStoreService users, PlayerLibraryService playerLibrary, CodecService codec, ServerOptions serverOptions, MatchHistoryService history)
     {
         _users = users;
         _playerLibrary = playerLibrary;
         _codec = codec;
         _serverOptions = serverOptions;
+        _history = history;
     }
 
     // ---- 匹配队列状态 ----
@@ -92,7 +94,7 @@ public class MatchManagerService
         for (var i = 0; i < 64; i++)
         {
             var id = Random.Shared.Next(100000, 999999);
-            if (!MatchedPairs.ContainsKey(id))
+            if (!MatchedPairs.ContainsKey(id) && !_history.ExistsAsync(id).GetAwaiter().GetResult())
                 return id;
         }
         throw new InvalidOperationException("Unable to allocate unique match id.");
@@ -556,7 +558,7 @@ public class MatchManagerService
                         IsAiMatch: false,
                         LeftPlayerName: leftUser.Name,
                         LeftPlayerOfficer: false,
-                        LeftPlayerTag: leftUser.Tag.ToString(),
+                        LeftPlayerTag: leftUser.Tag.ToString("D4"),
                         LocationCardLeft: leftLocation,
                         LocationCardRight: rightLocation,
                         PlayerIdLeft: leftUser.Id,
@@ -565,7 +567,7 @@ public class MatchManagerService
                         PlayerStarsRight: 120,
                         RightPlayerName: rightUser.Name,
                         RightPlayerOfficer: false,
-                        RightPlayerTag: rightUser.Tag.ToString()
+                        RightPlayerTag: rightUser.Tag.ToString("D4")
                     )
                 )
             );

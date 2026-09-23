@@ -9,7 +9,71 @@ public static class MatchEndpoints
 {
     public static IEndpointRouteBuilder MapMatchEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/matches/v2", async (HttpContext context, AuthService auth, UserStoreService users, MatchManagerService matches, CodecService codec) =>
+        // KARDS replay entry point. Keep this literal route separate from /matches/v2/{id}:
+        // otherwise "replay" is bound as an integer id and fails before a useful response is produced.
+        app.MapPut("/matches/v2/replay", async (JsonElement payload, HttpContext context,
+            AuthService auth, MatchHistoryService history, CodecService codec, ServerOptions options) =>
+        {
+            if (await auth.GetUserFromAuthAsync(context) == null)
+                return Results.Unauthorized();
+            if (payload.ValueKind != JsonValueKind.Object ||
+                !payload.TryGetProperty("match_id", out var idNode) || !idNode.TryGetInt32(out var matchId) || matchId <= 0)
+                return Results.Text("{\"error\":\"Invalid request\",\"message\":\"match_id must be a positive integer\",\"status_code\":400}", "application/json", statusCode: 400);
+            if (!payload.TryGetProperty("pov_side", out var sideNode) || sideNode.ValueKind != JsonValueKind.String ||
+                sideNode.GetString() is not ("left" or "right"))
+                return Results.Text("{\"error\":\"Invalid request\",\"message\":\"pov_side must be left or right\",\"status_code\":400}", "application/json", statusCode: 400);
+
+            var side = sideNode.GetString()!;
+            var record = await history.GetAsync(matchId, context.RequestAborted);
+            if (record?.Summary.Status != "completed" || record.StartingInfo == null)
+                return Results.NotFound($"Replay with ID {matchId} not found");
+
+            var actions = new List<MatchAction>();
+            var cursor = 0;
+            while (true)
+            {
+                var page = await history.GetActionsAsync(matchId, cursor, 1000, context.RequestAborted);
+                if (page == null) return Results.NotFound($"Replay with ID {matchId} not found");
+                actions.AddRange(page.Actions);
+                if (!page.HasMore) break;
+                if (page.NextActionId <= cursor)
+                    return Results.Problem("Stored replay actions have an invalid cursor", statusCode: 500);
+                cursor = page.NextActionId;
+            }
+
+            var starting = record.StartingInfo.MatchAndStartingData;
+            var selectedPlayerId = side == "left" ? starting.StartingData.PlayerIdLeft : starting.StartingData.PlayerIdRight;
+            var replayUrl = $"{options.GetAddressHttpR()}/replays/{matchId}";
+            var replayActionsUrl = $"{replayUrl}/actions";
+            var replay = new MatchReconnect
+            {
+                Actions = actions.OrderBy(x => x.ActionId).Select(x => codec.Encode(x)).ToArray(),
+                LocalSubactions = record.StartingInfo.LocalSubactions,
+                Match = starting.Match with
+                {
+                    ActionPlayerId = selectedPlayerId,
+                    ActionSide = side,
+                    Actions = [],
+                    ActionsUrl = replayActionsUrl,
+                    CurrentActionId = 0,
+                    CurrentTurn = 1,
+                    MatchId = matchId,
+                    MatchUrl = replayUrl,
+                    // Replay clients reject a live-match status; this payload represents an ended match.
+                    Status = GameConstants.Finished,
+                    WinnerId = record.Summary.WinnerSide == "left" ? record.Summary.LeftPlayerId :
+                        record.Summary.WinnerSide == "right" ? record.Summary.RightPlayerId : 0,
+                    WinnerSide = record.Summary.WinnerSide ?? ""
+                },
+                SameTurn = false,
+                StartingData = starting.StartingData,
+                TimeSinceStartOfTurn = -1,
+                WaitingForSitNGoMatch = false
+            };
+            return Results.Json(replay, FyJsonContext.Default.MatchReconnect);
+        });
+
+        app.MapGet("/matches/v2", async (HttpContext context, AuthService auth, UserStoreService users, MatchManagerService matches, MatchHistoryService history, CodecService codec) =>
         {
             var user = await auth.GetUserFromAuthAsync(context);
             if (user == null)
@@ -20,7 +84,9 @@ public static class MatchEndpoints
             if (match == null)
                 return Results.Text("null");
 
-            return Results.Ok(await matches.MakeMatchStartingInfo(user.Id, match));
+            var startingInfo = await matches.MakeMatchStartingInfo(user.Id, match);
+            await history.SaveSnapshotAsync(match, startingInfo, context.RequestAborted);
+            return Results.Ok(startingInfo);
         });
 
         app.MapGet("/matches/v2/reconnect", async (HttpContext context, AuthService auth, MatchManagerService matches, CodecService codec) =>
@@ -68,16 +134,23 @@ public static class MatchEndpoints
             return Results.Ok("null");
         });
 
-        app.MapGet("/matches/v2/{id}", (int id) => Results.Text("running"));
+        app.MapGet("/matches/v2/{id}", async (int id, HttpContext context, AuthService auth, MatchManagerService matches) =>
+        {
+            var user = await auth.GetUserFromAuthAsync(context);
+            if (user == null) return Results.Unauthorized();
+            if (!matches.MatchedPairs.TryGetValue(id, out var match)) return Results.NotFound($"Match with ID {id} not found");
+            return IsParticipant(match, user.Id) ? Results.Text("running") : Results.StatusCode(StatusCodes.Status403Forbidden);
+        });
 
         app.MapPut("/matches/v2/{id}/", async (int id, JsonElement payload, HttpContext context,
-            AuthService auth, UserStoreService users, MatchManagerService matches, ServerOptions options, WebSocketHubService webSockets) =>
+            AuthService auth, UserStoreService users, MatchManagerService matches, MatchHistoryService history, ServerOptions options, WebSocketHubService webSockets) =>
         {
             var user = await auth.GetUserFromAuthAsync(context);
             if (user == null)
                 return Results.Unauthorized();
             if (!matches.MatchedPairs.TryGetValue(id, out var match))
                 return Results.NotFound($"Match with ID {id} not found");
+            if (!IsParticipant(match, user.Id)) return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             if (!matches.TryParseMatchActionPayload(payload, out var matchAction))
             {
@@ -91,7 +164,8 @@ public static class MatchEndpoints
             {
                 user.Banned = true;
                 await users.SaveUserAsync(user);
-                match.WinnerSide = user.Id == match.Left?.PlayerId ? "right" : "left";
+                lock (match.SyncRoot) match.WinnerSide = user.Id == match.Left?.PlayerId ? "right" : "left";
+                await history.MarkCompletedAsync(match, context.RequestAborted);
                 await webSockets.DisconnectAsync(user.Id, "该账户已被封禁");
                 return Results.Ok(new EmptyResponseDto());
             }
@@ -99,7 +173,21 @@ public static class MatchEndpoints
             if (matchAction.Action == "lvl-loaded")
                 return Results.Ok(new OtherPlayerReadyDto(1));
 
-            matches.TryApplyWinnerSide(match, matchAction, id, $"/matches/v2/{id}", payload);
+            MatchAction[] recorded;
+            lock (match.SyncRoot)
+            {
+                var priorCount = match.MatchActions.Count;
+                matches.TryApplyWinnerSide(match, matchAction, id, $"/matches/v2/{id}", payload);
+                if (!string.IsNullOrEmpty(matchAction.ActionType) || !string.IsNullOrEmpty(matchAction.Action))
+                {
+                    matchAction = matchAction with { ActionId = match.currentActionId, turn_number = match.Turns };
+                    match.MatchActions.Add(matchAction);
+                    match.currentActionId++;
+                }
+                recorded = match.MatchActions.Skip(priorCount).ToArray();
+            }
+            if (recorded.Length > 0) await history.AppendActionsAsync(match, recorded, context.RequestAborted);
+            if (!string.IsNullOrEmpty(match.WinnerSide)) await history.MarkCompletedAsync(match, context.RequestAborted);
             return Results.Text("OK");
         });
 
@@ -112,6 +200,7 @@ public static class MatchEndpoints
 
             if (!matches.MatchedPairs.TryGetValue(id, out var match))
                 return Results.NotFound($"Match with ID {id} not found");
+            if (!IsParticipant(match, user.Id)) return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             var result = new Dictionary<string, object>();
             var actions = match.GetActionsByMinActionId(matchPut.MinActionId);
@@ -125,7 +214,6 @@ public static class MatchEndpoints
             if (actions.Count > 0)
             {
                 result["actions"] = actions.Select(x => codec.Encode(x)).ToArray();
-                actions.Clear();
             }
 
             result["match"] = new MatchPollDto(
@@ -156,29 +244,25 @@ public static class MatchEndpoints
         )));
 
         app.MapPost("/matches/v2/{id}/actions", async (int id, MatchActionEn matchActionen, HttpContext context,
-            AuthService auth, UserStoreService users, MatchManagerService matches, ServerOptions options, WebSocketHubService webSockets) =>
+            AuthService auth, UserStoreService users, MatchManagerService matches, MatchHistoryService history, ServerOptions options, WebSocketHubService webSockets) =>
         {
             var user = await auth.GetUserFromAuthAsync(context);
             if (user == null)
                 return Results.Unauthorized();
             if (!matches.MatchedPairs.TryGetValue(id, out var match))
                 return Results.NotFound($"Match with ID {id} not found");
+            if (!IsParticipant(match, user.Id)) return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             var matchAction = matches.DecryptMatchAction(matchActionen);
             Console.WriteLine(matchActionen.A);
-
-            if (string.Equals(matchAction.ActionType, "XActionStartOfTurn", StringComparison.Ordinal))
-            {
-                Console.WriteLine("OK有个入开始了回合");
-                match.Turns += 1;
-            }
 
             // 反作弊检查
             if (options.bancheat && matchAction.ActionType == GameConstants.XActionCheat)
             {
                 user.Banned = true;
                 await users.SaveUserAsync(user);
-                match.WinnerSide = user.Id == match.Left?.PlayerId ? "right" : "left";
+                lock (match.SyncRoot) match.WinnerSide = user.Id == match.Left?.PlayerId ? "right" : "left";
+                await history.MarkCompletedAsync(match, context.RequestAborted);
                 await webSockets.DisconnectAsync(user.Id, "该账户已被封禁");
                 return Results.Ok(new EmptyResponseDto());
             }
@@ -186,34 +270,49 @@ public static class MatchEndpoints
             if (matchAction.Action == "lvl-loaded")
                 return Results.Ok(new OtherPlayerReadyDto(1));
 
-            matches.TryApplyWinnerSide(match, matchAction, id, $"/matches/v2/{id}/actions");
-            if (!string.IsNullOrEmpty(matchAction.ActionType) || !string.IsNullOrEmpty(matchAction.Action))
+            MatchAction[] recordedActions;
+            lock (match.SyncRoot)
             {
-                if (matchAction.sub_actions != null)
-                    matchAction = matchAction with { ActionId = match.currentActionId, turn_number = match.Turns };
-                else
-                    matchAction = matchAction with { ActionId = match.currentActionId, turn_number = match.Turns, sub_actions = [] };
-                match.MatchActions.Add(matchAction);
-                match.currentActionId++;
+                if (string.Equals(matchAction.ActionType, "XActionStartOfTurn", StringComparison.Ordinal))
+                {
+                    Console.WriteLine("OK有个入开始了回合");
+                    match.Turns += 1;
+                }
+                var priorCount = match.MatchActions.Count;
+                matches.TryApplyWinnerSide(match, matchAction, id, $"/matches/v2/{id}/actions");
+                if (!string.IsNullOrEmpty(matchAction.ActionType) || !string.IsNullOrEmpty(matchAction.Action))
+                {
+                    if (matchAction.sub_actions != null)
+                        matchAction = matchAction with { ActionId = match.currentActionId, turn_number = match.Turns };
+                    else
+                        matchAction = matchAction with { ActionId = match.currentActionId, turn_number = match.Turns, sub_actions = [] };
+                    match.MatchActions.Add(matchAction);
+                    match.currentActionId++;
+                }
+
+                if (string.Equals(matchAction.ActionType, "XActionEndOfTurn", StringComparison.Ordinal) && string.Equals(match.Ex, "pw", StringComparison.Ordinal))
+                {
+                    Console.WriteLine("OK有个入开始了回合");
+                    match.Turns += 1;
+                    match.MatchActions.Add(new MatchAction(match.currentActionId, "XActionStartOfTurn", -9178, new()
+                    {
+                        { "side", "right" },
+                        { "75", "20" },
+                    }, [], match.Turns, SendActionId: matchAction.SendActionId));
+                    match.currentActionId++;
+                    match.MatchActions.Add(new MatchAction(match.currentActionId, "XActionEndOfTurn", -9178, new()
+                    {
+                        { "side", "right" },
+                        { "75", "20" },
+                    }, [], match.Turns, SendActionId: matchAction.SendActionId));
+                    match.currentActionId++;
+                }
+                recordedActions = match.MatchActions.Skip(priorCount).ToArray();
             }
 
-            if (string.Equals(matchAction.ActionType, "XActionEndOfTurn", StringComparison.Ordinal) && string.Equals(match.Ex, "pw", StringComparison.Ordinal))
-            {
-                Console.WriteLine("OK有个入开始了回合");
-                match.Turns += 1;
-                match.MatchActions.Add(new MatchAction(match.currentActionId, "XActionStartOfTurn", -9178, new()
-                {
-                    { "side", "right" },
-                    { "75", "20" },
-                }, [], match.Turns, SendActionId: matchAction.SendActionId));
-                match.currentActionId++;
-                match.MatchActions.Add(new MatchAction(match.currentActionId, "XActionEndOfTurn", -9178, new()
-                {
-                    { "side", "right" },
-                    { "75", "20" },
-                }, [], match.Turns, SendActionId: matchAction.SendActionId));
-                match.currentActionId++;
-            }
+            if (recordedActions.Length > 0)
+                await history.AppendActionsAsync(match, recordedActions, context.RequestAborted);
+            if (!string.IsNullOrEmpty(match.WinnerSide)) await history.MarkCompletedAsync(match, context.RequestAborted);
 
             return Results.Text("OK");
         });
@@ -228,6 +327,7 @@ public static class MatchEndpoints
 
             if (!matches.MatchedPairs.TryGetValue(id, out var match))
                 return Results.NotFound($"Match with ID {id} not found");
+            if (!IsParticipant(match, user.Id)) return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             List<MatchCard> deck, hand;
             if (user.Id == match.Left?.PlayerId)
@@ -236,12 +336,13 @@ public static class MatchEndpoints
                 hand = match.LeftHand;
                 match.PlayerStatusLeft = GameConstants.MulliganDone;
             }
-            else
+            else if (user.Id == match.Right?.PlayerId)
             {
                 deck = match.RightDeck;
                 hand = match.RightHand;
                 match.PlayerStatusRight = GameConstants.MulliganDone;
             }
+            else return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             var result = new MulliganResult(
                 Deck: deck,
@@ -288,10 +389,14 @@ public static class MatchEndpoints
             return Results.Ok(result);
         });
 
-        app.MapGet("/matches/v2/{id}/mulligan/{location}", (int id, string location, MatchManagerService matches) =>
+        app.MapGet("/matches/v2/{id}/mulligan/{location}", async (int id, string location, HttpContext context, AuthService auth, MatchManagerService matches) =>
         {
+            var user = await auth.GetUserFromAuthAsync(context);
+            if (user == null) return Results.Unauthorized();
             if (!matches.MatchedPairs.TryGetValue(id, out var match))
                 return Results.Text("null");
+            if (!IsParticipant(match, user.Id)) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            if (location is not ("left" or "right")) return Results.BadRequest();
 
             var mulligan = location == "left" ? match.MulliganLeft : match.MulliganRight;
             if (string.Equals(match.Ex, "pw", StringComparison.Ordinal))
@@ -307,7 +412,7 @@ public static class MatchEndpoints
         });
 
         // 比赛结束
-        app.MapGet("/matches/v2/{id}/post", async (int id, HttpContext context, AuthService auth, MatchManagerService matches) =>
+        app.MapGet("/matches/v2/{id}/post", async (int id, HttpContext context, AuthService auth, MatchManagerService matches, MatchHistoryService history) =>
         {
             var user = await auth.GetUserFromAuthAsync(context);
             if (user == null)
@@ -315,6 +420,7 @@ public static class MatchEndpoints
 
             if (!matches.MatchedPairs.TryGetValue(id, out var match))
                 return Results.NotFound($"Match with ID {id} not found");
+            if (!IsParticipant(match, user.Id)) return Results.StatusCode(StatusCodes.Status403Forbidden);
 
             if (MatchManagerService.IsSoloMatch(match))
             {
@@ -332,6 +438,7 @@ public static class MatchEndpoints
 
             if (MatchManagerService.CanRemoveMatch(match))
             {
+                await history.MarkCompletedAsync(match, context.RequestAborted);
                 matches.ClearMatchRuntimeState(match);
                 matches.MatchedPairs.TryRemove(id, out _);
             }
@@ -354,5 +461,7 @@ public static class MatchEndpoints
 
         return app;
     }
+
+    private static bool IsParticipant(MatchInfo match, int userId) => match.Left?.PlayerId == userId || match.Right?.PlayerId == userId;
 }
 

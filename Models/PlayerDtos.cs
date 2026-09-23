@@ -62,23 +62,7 @@ public record CurrentUser(
     string Tier,
     int UserId,
     string UserName
-)
-{
-    /// <summary>
-    /// /session（GET /）下发的 roles。参照 dev 服抓包，对所有用户统一分发同一组角色，
-    /// 不做权限管理（客户端只根据该字段解锁 dev/vip/tester 等界面）。
-    /// 静态成员不参与 JSON 序列化，因此响应里只会出现 roles 数组本身。
-    /// </summary>
-    public static IReadOnlyList<string> DefaultRoles { get; } = new[]
-    {
-        "spectator",
-        "vip",
-        "dev",
-        "internal_tester",
-        "support",
-        "tester"
-    };
-}
+);
 
 public record Endpoints(
     string Draft,

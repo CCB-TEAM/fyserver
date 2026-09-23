@@ -83,6 +83,15 @@ public static class PlayerEndpoints
         });
 
         app.MapMethods("/players/{id}/heartbeat", new[] { "PUT", "DELETE" }, (string id) => Results.Ok(new EmptyResponseDto()));
+        // The game client reports non-fatal client-side diagnostics here (including replay failures).
+        // Accept and discard them so telemetry does not turn into a second 404 after the original error.
+        app.MapPost("/players/{id:int}/logger", async (int id, HttpContext context, AuthService auth) =>
+        {
+            var playerId = await auth.GetPlayerIdFromAuthAsync(context);
+            if (playerId <= 0) return Results.Unauthorized();
+            if (playerId != id) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            return Results.Ok(new EmptyResponseDto());
+        });
         app.MapMethods("/players/notifications/{id}", new[] { "PUT", "DELETE" }, (string id) => Results.Ok(new EmptyResponseDto()));
 
         // 卡牌目录（保留旧 /library 路由）；用户拥有卡牌见 /librarynew。
@@ -174,9 +183,8 @@ public static class PlayerEndpoints
             return Failure("Player name must be 1–32 characters and contain no control characters");
         var result = await users.WithUserLockAsync<IResult>(id, async user =>
         {
-            user.Name = name;
-            user.Tag = Random.Shared.Next(1000, 10000);
-            await users.SaveUserAsync(user);
+            if (!await users.SavePlayerIdentityAsync(user, name))
+                return Failure("Could not allocate a unique player tag");
             users.RecordIncremental();
             return Json(new JsonObject { ["player_name"] = user.Name, ["player_tag"] = user.Tag });
         });

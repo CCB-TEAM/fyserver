@@ -1,5 +1,17 @@
 namespace fyserver.Models;
 
+/// <summary>客户端 session.roles 支持的角色及默认集合。</summary>
+public static class PlayerRoleCatalog
+{
+    public static IReadOnlyList<string> Available { get; } =
+        ["spectator", "vip", "dev", "internal_tester", "support", "tester"];
+
+    public static IReadOnlyList<string> Default { get; } = Available;
+
+    public static List<string> Normalize(IEnumerable<string>? roles) =>
+        (roles ?? Default).Where(Available.Contains).Distinct(StringComparer.Ordinal).ToList();
+}
+
 /// <summary>玩家账户数据。无参构造是 FASTER 反序列化所必需的。</summary>
 public class User
 {
@@ -43,6 +55,8 @@ public class User
     public string Name { get; set; } = "";
     public string Locale { get; set; } = "";
     public int Tag { get; set; }
+    /// <summary>会写入 GET / 返回的 current_user.roles 角色列表。</summary>
+    public List<string> Roles { get; set; } = PlayerRoleCatalog.Default.ToList();
     public int Gold { get; set; }
     public int Diamonds { get; set; }
     public int Dust { get; set; } = 1000;
@@ -73,6 +87,8 @@ public class User
     public DateTime? BanExpiresAt { get; set; }
     public DateTime? BannedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+    public string LastLoginIp { get; set; } = "";
+    public string LastLoginDevice { get; set; } = "";
 
     public bool IsBanActive(DateTime nowUtc) => Banned && (BanExpiresAt == null || BanExpiresAt > nowUtc);
     [System.Text.Json.Serialization.JsonIgnore]

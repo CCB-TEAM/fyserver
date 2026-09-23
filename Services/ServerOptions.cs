@@ -14,7 +14,7 @@ public class ServerOptions
     public string listenIp { get; set; } = "0.0.0.0";
     public int publicPortHttp { get; set; } = 0;
     public bool bancheat { get; set; } = false;
-    public string ip { get; set; } = "0.0.0.0";
+    public string ip { get; set; } = "127.0.0.1";
     /// <summary>绠＄悊 API 瀵嗛挜锛涗负绌烘椂绠＄悊鎺ュ彛浠呭厑璁?loopback 璁块棶銆?/summary>
     public string adminApiKey { get; set; } = "";
 

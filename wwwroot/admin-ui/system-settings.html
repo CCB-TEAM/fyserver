@@ -1,37 +1,5 @@
 <!doctype html>
-<html lang="zh-Hans">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>系统设置 · FYServer</title><link rel="stylesheet" href="/admin-ui/assets/admin-v4.css?v=20260923-2"></head>
-<body>
-<main class="page">
-  <div id="banner-host"></div>
-  <div class="page-head"><p class="dashboard-eyebrow">SYSTEM SETTINGS</p><h1>系统设置</h1><p>配置服务器监听地址，以及返回给游戏客户端的对外访问地址。HTTP 与 WebSocket 共用同一个监听端口。</p></div>
-  <section class="card"><h2>网络地址</h2><p class="muted">保存只更新 setting.json，不会立即切换正在运行的监听器。确认新地址可用后重启服务器；修改监听 IP 或端口可能使当前后台地址失效。</p>
-    <form id="settings-form">
-      <div class="form-grid">
-        <label class="field"><span>监听 IP（IPv4）</span><input id="listen-ip" type="text" required placeholder="0.0.0.0" autocomplete="off"><small>0.0.0.0 监听所有网卡；127.0.0.1 仅允许本机连接。</small></label>
-        <label class="field"><span>监听端口</span><input id="listen-port" type="number" min="1" max="65535" required></label>
-        <label class="field"><span>对外 IP / 域名</span><input id="public-ip" type="text" required placeholder="example.com" autocomplete="off"><small>填写客户端实际可访问的地址；不要填写 0.0.0.0。</small></label>
-        <label class="field"><span>对外端口</span><input id="public-port" type="number" min="1" max="65535" required><small>可与监听端口不同，例如经过端口映射或反向代理。</small></label>
-      </div>
-      <div class="btn-row"><button class="btn" type="submit" id="save">保存设置</button><button class="btn btn--outline" type="button" id="reload">重新读取</button></div>
-    </form>
-  </section>
-  <section class="card"><h2>当前运行与待生效配置</h2><p class="muted" id="restart-state"></p><div class="table-wrap"><table class="md-table"><thead><tr><th>项目</th><th>当前运行</th><th>已保存（重启后）</th></tr></thead><tbody id="comparison"></tbody></table></div><p class="muted">对外地址仅用于生成客户端收到的 HTTP / WebSocket URL；不会自动创建端口映射、配置防火墙或 TLS。</p></section>
-</main><footer class="page-footer">FYServer · Server Control Center</footer>
-<script src="/admin-ui/assets/admin-v4.js?v=20260919-13"></script>
-<script>
-(async function(){
-if(!await Admin.ensureAuth())return;Admin.mount('system-settings','系统设置');
-const $=id=>document.getElementById(id);
-function render(d){
- $('listen-ip').value=d.listenIp;$('listen-port').value=d.listenPort;$('public-ip').value=d.publicIp;$('public-port').value=d.publicPort;
- $('restart-state').textContent=d.restartRequired?'已保存的地址与当前运行地址不同，需要重启服务器后生效。':'已保存配置与当前运行配置一致。';
- const rows=[['监听 IP',d.activeListenIp,d.listenIp],['监听端口',d.activeListenPort,d.listenPort],['对外 IP / 域名',d.activePublicIp,d.publicIp],['对外端口',d.activePublicPort,d.publicPort]];
- $('comparison').innerHTML=rows.map(r=>'<tr><td>'+Admin.esc(r[0])+'</td><td class="mono">'+Admin.esc(r[1])+'</td><td class="mono">'+Admin.esc(r[2])+'</td></tr>').join('');
-}
-async function load(){const d=await Admin.api('/system-settings');if(d&&d.listenIp!==undefined)render(d);else Admin.banner(d?.message||'读取系统设置失败','err')}
-$('reload').onclick=load;
-$('settings-form').onsubmit=async e=>{e.preventDefault();const body={listenIp:$('listen-ip').value.trim(),listenPort:Number($('listen-port').value),publicIp:$('public-ip').value.trim(),publicPort:Number($('public-port').value)};if(!confirm('保存后需要重启服务器才会生效。确定保存网络地址？'))return;$('save').disabled=true;try{const r=await Admin.api('/system-settings',{method:'PUT',body});Admin.banner(r?.message||'保存失败',r?.ok?'ok':'err');if(r?.ok)await load()}finally{$('save').disabled=false}};
-await load();
-})();
-</script></body></html>
+<html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>系统设置 · FYServer</title>  <script type="module" crossorigin src="/admin-ui/assets/runtime-core.esm-bundler.js"></script>
+  <script type="module" crossorigin src="/admin-ui/assets/main.js"></script>
+  <link rel="stylesheet" crossorigin href="/admin-ui/assets/main.css">
+</head><body><div id="app"></div></body></html>

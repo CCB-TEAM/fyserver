@@ -35,14 +35,23 @@ public sealed class AdminApiAuthorizationMiddleware
         var local = path["/admin/api".Length..];
         var permission = RequiredPermission(local);
         var mutating = !HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method);
+        var isSelfAccountRoute = local.Equals("/me", StringComparison.OrdinalIgnoreCase) || local.StartsWith("/me/", StringComparison.OrdinalIgnoreCase);
         if (local.Equals("/logout", StringComparison.OrdinalIgnoreCase)) mutating = false;
+        var isPlayerRoleChange = mutating && local.StartsWith("/users/", StringComparison.OrdinalIgnoreCase) &&
+                                 local.EndsWith("/roles", StringComparison.OrdinalIgnoreCase);
+        if (isPlayerRoleChange && !accounts.HasPermission(actor, "permissions"))
+        {
+            await Reject(context, 403, "修改玩家角色需要权限管理权限");
+            audit.Record(actor.Username, context.Request.Method, path, 403, context.Connection.RemoteIpAddress?.ToString());
+            return;
+        }
         if (permission != null && (mutating || permission == "permissions") && !accounts.HasPermission(actor, permission))
         {
             await Reject(context, 403, "没有执行此操作所需的权限");
             audit.Record(actor.Username, context.Request.Method, path, 403, context.Connection.RemoteIpAddress?.ToString());
             return;
         }
-        if (mutating && permission == null && !actor.IsOwner)
+        if (mutating && permission == null && !actor.IsOwner && !isSelfAccountRoute)
         {
             await Reject(context, 403, "此操作仅 Owner 可执行");
             audit.Record(actor.Username, context.Request.Method, path, 403, context.Connection.RemoteIpAddress?.ToString());

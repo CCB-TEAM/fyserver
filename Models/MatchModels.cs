@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace fyserver.Models;
 
@@ -160,6 +161,9 @@ public record MatchingAction(
 /// <summary>对局运行时状态。由 MatchManagerService 持有。</summary>
 public class MatchInfo
 {
+    [JsonIgnore]
+    public object SyncRoot { get; } = new();
+
     public MatchInfo()
     {
     }
@@ -177,6 +181,10 @@ public class MatchInfo
     }
 
     public int MatchId { get; set; }
+    public DateTime? StartedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime? CompletedAtUtc { get; set; }
+    public bool IsCompleted { get; set; }
+    public bool IsAborted { get; set; }
     public string Ex { get; set; } = "";
     public MatchStartingInfo? MatchStartingInfo { get; set; }
     public LobbyPlayer? Left { get; set; }
@@ -207,18 +215,19 @@ public class MatchInfo
 
     public List<MatchAction> GetActionsByMinActionId(int minActionId)
     {
-        if (MatchActions.Count == 0)
-            return new List<MatchAction>();
+        lock (SyncRoot)
+        {
+            if (MatchActions.Count == 0) return new List<MatchAction>();
+            if (minActionId <= 1) return new List<MatchAction>(MatchActions);
+            var startIndex = minActionId - 1;
+            if (startIndex >= MatchActions.Count) return new List<MatchAction>();
+            return MatchActions.GetRange(startIndex, MatchActions.Count - startIndex);
+        }
+    }
 
-        if (minActionId <= 1)
-            return new List<MatchAction>(MatchActions);
-
-        var startIndex = minActionId - 1;
-        if (startIndex >= MatchActions.Count)
-            return new List<MatchAction>();
-
-        var count = MatchActions.Count - startIndex;
-        return MatchActions.GetRange(startIndex, count);
+    public List<MatchAction> SnapshotActions()
+    {
+        lock (SyncRoot) return MatchActions.ToList();
     }
 }
 

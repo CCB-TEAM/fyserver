@@ -9,7 +9,7 @@ public static class UserEndpoints
     public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         // 2. 配置和基本信息
-        app.MapPost("/session", async (Session session, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig) =>
+        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig) =>
         {
             string addressHttp = options.GetAddressHttpR();
             User? user;
@@ -63,6 +63,13 @@ public static class UserEndpoints
             user = await users.WithUserLockAsync(user.Id, async current =>
             {
                 current.LastLoginAt = DateTime.UtcNow;
+                var remoteIp = context.Connection.RemoteIpAddress;
+                current.LastLoginIp = remoteIp == null ? "" : remoteIp.IsIPv4MappedToIPv6 ? remoteIp.MapToIPv4().ToString() : remoteIp.ToString();
+                var deviceParts = new[] { session.PlatformType, session.PlatformInfo, session.PlatformVersion, session.ClientType, session.Build }
+                    .Where(value => !string.IsNullOrWhiteSpace(value));
+                var device = string.Join(" · ", deviceParts);
+                if (string.IsNullOrWhiteSpace(device)) device = context.Request.Headers.UserAgent.ToString();
+                current.LastLoginDevice = device.Length > 512 ? device[..512] : device;
                 await users.SaveUserAsync(current);
                 return current;
             }) ?? user;
@@ -248,7 +255,7 @@ public static class UserEndpoints
                 Payment: "notavailable",
                 PlayerId: user.Id.ToString(),
                 Provider: "device_id",
-                Roles: CurrentUser.DefaultRoles.ToList(),
+                Roles: PlayerRoleCatalog.Normalize(user.Roles),
                 Tier: "LIVE",
                 UserId: user.Id,
                 UserName: userName

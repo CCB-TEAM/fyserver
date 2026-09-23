@@ -30,7 +30,10 @@ var storeConfig = new StoreConfigService();
 var redeemCodes = new RedeemCodeService();
 var webSocketHub = new WebSocketHubService();
 var auth = new AuthService(users, codec);
-var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions);
+var matchHistory = new MatchHistoryService(userDatabaseConfiguration);
+try { await matchHistory.InitializeAsync(); }
+catch (Exception ex) { Console.WriteLine($"对局历史数据库初始化失败：{ex.GetBaseException().Message}"); }
+var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions, matchHistory);
 
 // ==================== 后台（静态页 /admin-ui 的数据层）服务 ====================
 var adminUsers = new AdminUserService(users, webSocketHub);
@@ -53,6 +56,7 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(webSocketHub);
     services.AddSingleton(auth);
     services.AddSingleton(matches);
+    services.AddSingleton(matchHistory);
     services.AddSingleton(adminUsers);
     services.AddSingleton(frontpage);
     services.AddSingleton(contentEntries);
@@ -65,6 +69,7 @@ void RegisterSharedServices(IServiceCollection services)
 // ============ HTTP host（含 WebSocket 端点，共用同一端口） ============
 var httpBuilder = WebApplication.CreateSlimBuilder();
 RegisterSharedServices(httpBuilder.Services);
+httpBuilder.Services.AddHostedService<MatchHistoryCleanupWorker>();
 
 httpBuilder.WebHost.UseUrls(serverOptions.GetAddressHttp());
 httpBuilder.Services.Configure<JsonOptions>(options =>
@@ -116,6 +121,7 @@ httpApp.MapRedeemEndpoints();
 httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();
 httpApp.MapMatchEndpoints();
+httpApp.MapMatchHistoryEndpoints();
 httpApp.MapAdminApiEndpoints();
 // 后台入口别名：/admin-ui/ → index.html、/admin-ui/login → login.html
 httpApp.UseMiddleware<AdminUiEntryMiddleware>();

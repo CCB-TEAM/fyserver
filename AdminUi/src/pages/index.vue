@@ -1,0 +1,38 @@
+<template>
+
+<main class="page dashboard-page"><div id="banner-host"></div>
+  <section class="dashboard-hero"><div><p class="dashboard-eyebrow">SERVER OVERVIEW</p><h1>晚上好，管理员</h1><p>欢迎回到 FYServer 控制台。一切运行平稳。</p></div><div class="online-box"><span></span><div><b>Online</b><small id="uptime">正在读取运行状态…</small></div></div></section>
+  <section class="metric-grid">
+    <article class="metric-card"><i class="metric-icon blue"><span data-icon="users"></span></i><div><small>注册用户</small><strong id="user-count">—</strong><em id="user-hint">读取中</em></div></article>
+    <article class="metric-card"><i class="metric-icon purple"><span data-icon="online"></span></i><div><small>当前在线</small><strong id="online-count">—</strong><em>WebSocket 长连接</em></div></article>
+    <article class="metric-card"><i class="metric-icon green"><span data-icon="matches"></span></i><div><small>活跃对局</small><strong id="match-count">—</strong><em>已排除人机</em></div></article>
+    <article class="metric-card"><i class="metric-icon amber"><span data-icon="queue"></span></i><div><small>等待匹配</small><strong id="queue-count">—</strong><em>所有匹配队列</em></div></article>
+  </section>
+  <section class="dashboard-main-grid">
+    <article class="card activity-card"><div class="panel-head"><div><p class="dashboard-eyebrow">REALTIME</p><h2>服务器活动</h2></div><button class="btn btn--outline btn--small" id="refresh">刷新数据</button></div><div class="chart-legend"><span class="online">在线玩家</span><span class="matches">活跃对局</span><span class="queued">等待匹配</span></div><div class="chart-wrap"><div class="chart-labels" id="chart-labels"><span>3</span><span>2</span><span>1</span><span>0</span></div><svg class="activity-chart" viewBox="0 0 700 240" preserveAspectRatio="none"><path class="chart-gridline" d="M0 30H700M0 90H700M0 150H700M0 210H700"/><path id="online-line" class="chart-line online-line"/><path id="matches-line" class="chart-line matches-line"/><path id="queued-line" class="chart-line queued-line"/></svg><div class="chart-times" id="chart-times"><span>等待数据</span><span>现在</span></div></div></article>
+    <article class="card status-card"><div class="panel-head"><div><p class="dashboard-eyebrow">SYSTEM</p><h2>服务状态</h2></div></div><div class="status-logo"><img src="/assets/fyserver-logo-transparent.png" alt="FYServer"><span><b>FYServer</b><small id="runtime">.NET Runtime</small></span></div><dl class="compact-kv" id="runinfo"></dl></article>
+  </section>
+  <section class="performance-grid">
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon cpu"><span data-icon="cpu"></span></i><span><small>整机 CPU 使用率</small><strong id="cpu-percent">—%</strong></span></div><div class="progress"><i id="cpu-bar"></i></div><p>所有进程合计 · 首次采样需等待</p></article>
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon memory"><span data-icon="memory"></span></i><span><small>整机内存占用</small><strong id="memory-percent">—%</strong></span></div><div class="progress"><i id="memory-bar"></i></div><p id="memory-value">— / —</p></article>
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon disk"><span data-icon="disk"></span></i><span><small>所在磁盘总占用</small><strong id="disk-percent">—%</strong></span></div><div class="progress"><i id="disk-bar"></i></div><p id="disk-value">— / —</p></article>
+  </section>
+  <section class="performance-grid">
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon cpu"><span data-icon="cpu"></span></i><span><small>FYServer CPU</small><strong id="process-cpu">—</strong></span></div><p>仅 FYServer 进程占整机 CPU 的比例</p></article>
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon memory"><span data-icon="memory"></span></i><span><small>FYServer 内存</small><strong id="process-memory">—</strong></span></div><p id="process-memory-value">—</p></article>
+    <article class="performance-card"><div class="performance-head"><i class="perf-icon disk"><span data-icon="disk"></span></i><span><small>数据库文件占用</small><strong id="database-percent">—</strong></span></div><p id="database-value">—</p></article>
+  </section>
+  <section class="dashboard-lower-grid">
+    <article class="card"><div class="panel-head"><div><p class="dashboard-eyebrow">MATCHMAKING</p><h2>匹配队列</h2></div><button class="circle-action" id="queue-refresh" aria-label="刷新匹配队列"><span data-icon="refresh"></span></button></div><div class="queue-cards" id="queues"></div></article>
+    <article class="card"><div class="panel-head"><div><p class="dashboard-eyebrow">OPERATIONS</p><h2>快捷操作</h2></div><span class="chip chip--off">ADMIN</span></div><div class="operation-list"><a href="/admin-ui/server-config.html"><i><span data-icon="settings"></span></i><span><b>服务器设置</b><small>修改客户端 server_options 配置</small></span><strong><span data-icon="chevron"></span></strong></a><button id="reload-store"><i><span data-icon="store"></span></i><span><b>重载商店配置</b><small>立即重新读取 config/store.json</small></span><strong><span data-icon="chevron"></span></strong></button><a href="/admin-ui/users.html"><i><span data-icon="users"></span></i><span><b>管理玩家</b><small>用户查询、封禁与在线状态</small></span><strong><span data-icon="chevron"></span></strong></a><a href="/admin-ui/matches.html"><i><span data-icon="matches"></span></i><span><b>查看对局</b><small>活跃对局与匹配队列</small></span><strong><span data-icon="chevron"></span></strong></a></div></article>
+  </section>
+</main>
+</template>
+<script setup>
+import { onMounted } from 'vue';
+onMounted(async () => {
+
+  window.Admin.hydrateIcons();
+  await import('../legacy/index.js');
+});
+</script>

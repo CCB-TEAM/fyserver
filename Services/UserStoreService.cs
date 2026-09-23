@@ -10,6 +10,7 @@ public sealed class UserStoreService
     private readonly UserDatabaseConfigurationService _configuration;
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _userLocks = new();
     private readonly SemaphoreSlim _createLock = new(1, 1);
+    private readonly SemaphoreSlim _identityLock = new(1, 1);
     private readonly SemaphoreSlim _backendLock = new(1, 1);
     private IUserStoreBackend? _backend;
 
@@ -89,10 +90,52 @@ public sealed class UserStoreService
             var user = new User(userName);
             do { user.Id = Random.Shared.Next(100000, 1000000); }
             while (await GetByIdAsync(user.Id) != null);
-            await SaveUserAsync(user);
+            await SavePlayerIdentityAsync(user, user.Name);
             return user;
         }
         finally { _createLock.Release(); }
+    }
+
+    /// <summary>保存公开昵称和四位 Tag；新 Tag 在同昵称用户中尽量避免重复。</summary>
+    public async Task<bool> SavePlayerIdentityAsync(User user, string name, int? requestedTag = null)
+    {
+        await _identityLock.WaitAsync();
+        try
+        {
+            var peers = (await GetAllUsersAsync())
+                .Where(other => other.Id != user.Id && string.Equals(other.Name, name, StringComparison.OrdinalIgnoreCase))
+                .Select(other => other.Tag)
+                .Where(tag => tag is >= 0 and <= 9999)
+                .ToHashSet();
+
+            int tag;
+            if (requestedTag is { } requested)
+            {
+                var unchangedLegacyIdentity = string.Equals(user.Name, name, StringComparison.OrdinalIgnoreCase) && user.Tag == requested;
+                if (requested is < 0 or > 9999 || peers.Contains(requested) && !unchangedLegacyIdentity) return false;
+                tag = requested;
+            }
+            else
+            {
+                var start = Random.Shared.Next(0, 10000);
+                var found = -1;
+                for (var offset = 0; offset < 10000; offset++)
+                {
+                    var candidate = (start + offset) % 10000;
+                    if (peers.Contains(candidate)) continue;
+                    found = candidate;
+                    break;
+                }
+                if (found < 0) throw new InvalidOperationException("该昵称的四位玩家 Tag 已用完");
+                tag = found;
+            }
+
+            user.Name = name;
+            user.Tag = tag;
+            await SaveUserAsync(user);
+            return true;
+        }
+        finally { _identityLock.Release(); }
     }
 
     public async Task DeleteUserAsync(int userId)

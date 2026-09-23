@@ -39,7 +39,7 @@ A simple game server written in C# using .NET 10.0.
 - [ ] 军需箱
 - [x] 清理对局（管理后台）
 - [ ] 更多物件
-- [ ] 兑换码
+- [x] 兑换码
 - [ ] 乱斗模式 （comming soon）
 - [x] 佩戴
 - [ ] 抽卡
@@ -58,6 +58,7 @@ A simple game server written in C# using .NET 10.0.
 # 技术栈
 
 - .NET 10 / ASP.NET Core（minimal API）
+- Vue 3 + Vite 8（后台界面；ASP.NET Core 托管构建后的静态资源）
 - FASTER（`Microsoft.FASTER.Core`）—— 用户数据持久化（`user:username:*` / `user:id:*` 双索引）
 - System.Text.Json **全量源生成**（`FyJsonContext` / `ConfigJsonContext` / `StoreJsonContext`），零反射，NativeAOT 兼容
 - 消息编解码为**纯 C# 实现**（Base64 + XOR、查表密钥），无任何原生 DLL 依赖
@@ -68,6 +69,8 @@ A simple game server written in C# using .NET 10.0.
 dotnet build FYServer.slnx
 dotnet run --project fyserver.csproj
 ```
+
+`dotnet build` 和 `dotnet publish` 会先在 `AdminUi/` 执行 Vue/Vite 构建，再将生成文件作为 ASP.NET 静态资源复制到输出目录。首次构建需要 Node.js 和 npm，依赖由 `npm ci` 安装。若只修改后台页面，可在 `AdminUi/` 中运行 `npm run build`；Vue 组件和页面逻辑位于 `AdminUi/src/`，`wwwroot/admin-ui/` 是生成结果。前端开发服务器可用 `npm run dev` 启动，默认监听 `127.0.0.1:5173`，并将 `/admin/api` 代理至仓库当前使用的 `127.0.0.1:1145`。如果后端端口不同，可设置 `FYSERVER_DEV_ORIGIN`，例如 `http://127.0.0.1:5231`。
 
 - HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成。
 - 后台位于同一 HTTP 端口的 `/admin-ui/`。首次启动需在服务器本机创建 Owner 账户，之后本机和远程访问都必须登录；后台接口不再接受 `adminApiKey` 作为账号权限的替代凭据。
@@ -82,7 +85,7 @@ dotnet publish fyserver.csproj -c Release -r win-x64 --self-contained true
 
 产物位于 `bin/Release/net10.0/win-x64/publish/`：`fyserver.exe`（约 24 MB 原生可执行文件）+ `setting.json` + `config/` + `library/` + `wwwroot/`（静态后台页面），拷到目标机直接运行即可，无需安装 .NET 运行时。原生 PDB 仅用于调试，不是运行必需文件。
 
-**后台与 AOT 不冲突**：后台是纯静态 HTML/JS（`wwwroot/admin-ui`）+ JSON 接口（`/admin/api`），不含 Razor/MVC 运行时反射，因此 AOT 产物同样带完整后台。
+**后台与 AOT 不冲突**：Vite 生成的 HTML/CSS/JS 位于 `wwwroot/admin-ui`，ASP.NET Core 托管这些静态产物与 `/admin/api` JSON 接口；没有 Razor/MVC 运行时反射，因此 AOT 产物同样带完整后台。
 
 
 # 目录结构
@@ -95,7 +98,8 @@ fyserver/
 ├── Models/                     # DTO 与实体
 ├── Middleware/                 # 路径归一化、Content-Type 清理
 ├── Serialization/              # System.Text.Json 源生成上下文
-└── wwwroot/admin-ui/           # 静态后台页面与资源（纯 HTML/JS，无 CDN 依赖）
+├── AdminUi/                    # Vite 后台源码、页面入口与 npm 依赖
+└── wwwroot/admin-ui/           # Vite 生成的静态页面与资源，由 ASP.NET 托管
 ```
 
 # 已实现的 HTTP API
@@ -152,6 +156,7 @@ fyserver/
 | `DELETE` | `/lobbyplayers` | 退出匹配队列 |
 | `GET` | `/matches/v2` | 获取当前对局与起始数据 |
 | `GET` | `/matches/v2/reconnect` | 获取断线重连数据 |
+| `PUT` | `/matches/v2/replay` | 按 `match_id` 与 `pov_side` 载入已保存对局回放 |
 | `GET` | `/matches/v2/{id}` | 获取对局运行状态 |
 | `PUT` | `/matches/v2/{id}/` | 提交对局状态动作 |
 | `POST` / `PUT` | `/matches/v2/{id}/actions` | 获取或提交编码后的对局动作 |
@@ -205,9 +210,36 @@ fyserver/
 | `GET` | `/admin/api/content/{kind}/export` | 导出原始配置 JSON |
 | `POST` | `/admin/api/content/{kind}/import` | 导入并校验完整 JSON，备份旧文件 |
 | `PUT` | `/admin/api/content/frontpage/{id}/published` | 快捷发布或下线首页内容 |
+# 对局观战与回放
+
+对局起始信息、已接受的动作和结束结果会写入配置的玩家数据库。MySQL/PostgreSQL 模式使用 `fy_match_history` 与 `fy_match_events` 表；本地 FASTER 模式使用 `data/match-history/` 下的原子 JSON 文档。PostgreSQL 模式启动或首次配置数据库时会自动创建表和索引。对局 ID 会同时避开仍在运行的对局和已归档历史 ID。
+
+对局 ID 为随机六位数字（100000–999998），创建时检查运行中对局和已持久化历史记录以避免复用；它不是递增序号。后台“对局监控”页只显示实时对局与匹配队列；“对局管理”页可按状态、玩家名称或 ID 筛选和分页浏览持久化对局，查看开局快照及分页动作，并删除单条已结束/已中止记录。FASTER 本地玩家库模式同样支持观战与回放：实时观战从运行时对局读取，回放快照/动作从 `data/match-history/` 读取。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/admin/api/matches/history/storage` | 持久化记录数、动作数与数据体积 |
+| `GET` | `/admin/api/matches/history?page=1&pageSize=25&status=all&playerId=...` | 后台分页查询持久化对局 |
+| `GET` | `/admin/api/matches/history/{id}` | 对局摘要与完整开局快照 |
+| `GET` | `/admin/api/matches/history/{id}/actions?afterActionId=0&limit=250` | 按游标读取已持久化动作 |
+| `DELETE` | `/admin/api/matches/history/{id}` | 删除一条历史记录及其全部动作（需要对局管理权限） |
+
+只读数据接口默认开放，供游戏端观战及未来官网使用：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/spectate/matches` | 进行中的对局摘要 |
+| `GET` | `/spectate/matches/{id}` | 观战起始快照 |
+| `GET` | `/spectate/matches/{id}/actions?afterActionId=0&limit=500` | 实时动作游标分页 |
+| `GET` | `/replays?limit=50&playerId=...` | 最近已结束对局，可按玩家筛选 |
+| `GET` | `/replays/{id}` | 已结束对局摘要与起始快照 |
+| `GET` | `/replays/{id}/actions?afterActionId=0&limit=500` | 回放动作游标分页 |
+
+普通对局动作轮询现在按请求游标读取，不再清空共享动作列表；对局操作接口也会检查玩家是否为本局参赛者。系统设置中的“对局历史保留”可选按时间（默认保留 30 天）或按数量，并设置每周 UTC 清理时间；仅清理已结束/中止对局，相关事件通过外键级联删除。官网应在 Next.js 服务端使用只读 PostgreSQL 账号或读取 fyserver 只读接口，不能让浏览器直连数据库。该数据表为官网的公开只读视图，记录包含双方牌组/动作数据。
+
 # 后台管理
 
-纯静态页面（`wwwroot/admin-ui/`）+ JSON 接口（`/admin/api/*`），自包含 Material 主题（`wwwroot/admin-ui/assets/admin-v4.css`，无外部 CDN 依赖），**不依赖 Razor/MVC**，因此 AOT 与裁剪发布都能带后台。
+后台由 Vue 3 + Vite 多页面入口构建，产物在 `wwwroot/admin-ui/`；ASP.NET Core 托管静态文件并提供 `/admin/api/*` JSON 接口。页面外壳和组件在 `AdminUi/src/`，已有页面的业务控制器在 `AdminUi/src/legacy/` 逐步迁入响应式组件。样式和脚本自包含，无外部 CDN 依赖，**不依赖 Razor/MVC**，因此 AOT 与裁剪发布都能带后台。
 
 入口：直接访问 `/admin-ui/` 即可（会 302 到 `index.html`；`/admin-ui/login` 同理）。注：旧的 Razor 后台地址 `/admin/*` 已随 Razor 移除而失效（404）。
 
@@ -216,7 +248,7 @@ fyserver/
 | 页面 | 说明 |
 |---|---|
 | `/admin-ui/`（等价 `/admin-ui/index.html`） | 概览：端口与地址、在线连接数、用户与封禁数、匹配队列明细、重载商店配置 |
-| `/admin-ui/users.html` | 用户管理：搜索（ID / 用户名 / 昵称）、封禁 / 解封 / 踢下线 / 删除、用户详情与卡组 |
+| `/admin-ui/users.html` | 用户管理：搜索（ID / 用户名 / 昵称）、封禁 / 解封 / 踢下线 / 删除、用户详情与卡组；详情显示登录 IP、设备及近期对局 |
 | `/admin-ui/matches.html` | 对局与匹配：进行中的真人对局、各队列等待玩家、移除对局 / 清空队列 |
 | `/admin-ui/content.html` | 内容配置：首页公告（**带游戏内 SVG 实时预览**）、乱斗、淘汰赛，JSON 编辑 + 校验 + `.bak` 备份 |
 | `/admin-ui/server-config.html` | 管理客户端 `server_options`，支持镜像注释、配置项筛选、左侧编辑/删除、新增和逐项启用/关闭（关闭不删除值） |
@@ -230,7 +262,7 @@ fyserver/
 
 服务器配置值保存在 `config/serverOptions.json`，发送开关保存在 `config/serverOptions.flags.json`，自定义注释保存在 `config/serverOptions.comments.json`。镜像原始说明由 `config/serverOptions.schema.json` 提供；自定义注释只影响后台展示，不会进入游戏客户端的 `server_options`。镜像页面截断的六项默认值以禁用的占位值保留，填入完整值后才能启用。
 
-宿主网络设置独立保存在 `setting.json`：`listenIp`/`portHttp` 控制实际监听，`ip`/`publicPortHttp` 控制返回给客户端的 HTTP 与 WebSocket 地址。旧配置缺少新字段时，仍默认监听 `0.0.0.0`，对外端口沿用 `portHttp`。后台保存不会中断当前连接，重启后生效；对外地址不同于监听地址时，需要自行配置端口映射、防火墙或反向代理。
+宿主网络设置独立保存在 `setting.json`：`listenIp`/`portHttp` 控制实际监听，`ip`/`publicPortHttp` 控制返回给客户端的 HTTP 与 WebSocket 地址。默认监听 `0.0.0.0`，默认对外 IP 为 `127.0.0.1`，对外端口沿用 `portHttp`。后台保存不会中断当前连接，重启后生效；若要让其他设备连接，应在后台把对外 IP 改为该设备可访问的服务器地址，并按需配置端口映射、防火墙或反向代理。
 
 内容配置落盘：`config/frontpage.json` 保持客户端原生的 `elements`/`targeted` 和 camelCase 字段；`config/skirmish.json`、`config/knockout.json` 使用 `entries` 数组。后台支持导入/导出、日历、状态筛选、定时发布和快捷发布开关；frontpage 的常用字段可通过表单编辑，图片可填写图床 URL 或上传 PNG/JPEG/WebP/GIF（每张最多 5 MB，存于 `wwwroot/admin-ui/uploads/`）。乱斗表单参考镜像后台，支持多语言说明、奖励、基础规则、黑名单、随机牌组、卡牌数量限制与主要回合/部署效果。完整 JSON 编辑仍保留，未被表单修改的字段原样保留，保存前备份 `.bak`。`/fp/` 仅下发生效且已发布的普通条目。镜像的定向规则引擎尚未接入，因此定向条目虽可编辑保存，但不会下发给玩家。首页预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564）。
 

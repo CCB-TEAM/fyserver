@@ -1,34 +1,5 @@
 <!doctype html>
-<html lang="zh-Hans">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>编辑服务器配置 · FYServer</title><link rel="stylesheet" href="/admin-ui/assets/admin-v4.css?v=20260923-2"></head>
-<body>
-<main class="page">
-  <div id="banner-host"></div>
-  <div class="page-head"><p class="dashboard-eyebrow">SERVER OPTIONS / EDITOR</p><h1 id="page-title">新增配置项</h1><p>每个配置项单独保存。关闭“启用”不会删除值，只会让客户端下次登录时不再收到该项。</p></div>
-  <section class="card config-edit-grid">
-    <form id="config-form">
-      <label class="field"><span>配置项名称</span><input id="key" name="key" required pattern="[A-Za-z0-9_]+" maxlength="96" placeholder="例如 battle_wait_time"></label>
-      <label class="field"><span>值类型</span><select id="type" name="type"><option value="string">string · 文本</option><option value="int">int · 整数</option><option value="double">double · 小数</option><option value="json">json · JSON 值</option></select></label>
-      <label class="field"><span>配置值</span><textarea id="value" name="value" class="json" spellcheck="false" placeholder="输入配置值"></textarea></label>
-      <label class="field"><span>注释（可修改；自定义配置项也可填写）</span><textarea id="description-input" name="description" maxlength="2000" placeholder="说明该配置项的用途"></textarea></label>
-      <div class="btn-row"><button class="btn" type="submit">保存配置</button><a class="btn btn--outline" href="/admin-ui/server-config.html">取消并返回</a></div>
-    </form>
-    <aside class="config-edit-help"><h3>镜像参考</h3><p id="description">镜像已有配置项的原始说明会显示在这里，供编辑时参考。</p><p id="send-to-client"></p><p class="mirror-default" id="reference"></p><p class="muted">自定义注释保存在 config/serverOptions.comments.json；更新镜像参考数据不会覆盖它。键名只允许英文字母、数字和下划线。websocketurl 由 FYServer 自动生成，只允许编辑注释。</p></aside>
-  </section>
-</main><footer class="page-footer">FYServer · Server Control Center</footer>
-<script src="/admin-ui/assets/admin-v4.js?v=20260919-13"></script>
-<script>
-(async function(){
-  if(!await Admin.ensureAuth())return;Admin.mount('server-config','服务器配置');
-  const $=id=>document.getElementById(id), query=new URLSearchParams(location.search), editing=query.get('key')||'';
-  const incomplete=new Set(['account_linking_url','discount_products','front_page_data','most_popular_products','wc_qualifiers_1','wc_steam_url']);
-  let raw={},schema={},comments={};
-  function pretty(v){if(typeof v==='string')return v;try{return JSON.stringify(v,null,2)}catch(_){return String(v??'')}}
-  function showInfo(key){const info=schema[key]||{};$('description').textContent=info.description||'该配置项暂无镜像注释。';$('send-to-client').textContent=info.sendToClient===true?'镜像默认：发送给客户端（Client 已启用）':info.sendToClient===false?'镜像默认：不发送给客户端（Client 已关闭）':'';$('reference').textContent=info.default!==undefined&&info.default!==''?'镜像参考默认：'+info.default:''}
-  async function load(){const r=await Admin.api('/server-config');if(!r)return;try{raw=JSON.parse(r.raw||'{}')}catch(_){raw={}};schema=Object.fromEntries((r.schema||[]).map(x=>[x.key,x]));comments=r.comments||{};const exists=Object.prototype.hasOwnProperty.call(raw,editing);const keyInput=$('key');if(editing){keyInput.value=editing;keyInput.readOnly=true;keyInput.classList.add('config-key-readonly');$('page-title').textContent='编辑配置项';$('type').value=(schema[editing]||{}).type||({number:Number.isInteger(raw[editing])?'int':'double',boolean:'json'}[typeof raw[editing]]||((typeof raw[editing]==='object')?'json':'string'));$('value').value=exists?pretty(raw[editing]):'';$('description-input').value=Object.prototype.hasOwnProperty.call(comments,editing)?comments[editing]:(schema[editing]?.description||'');showInfo(editing);if(editing==='websocketurl'){$('type').disabled=true;$('value').readOnly=true;Admin.banner('websocketurl 的值由服务器生成；可在此修改注释。','info')}else if(!exists)Admin.banner('该项只有镜像参考定义，保存后会新增实际值。','info')}else{$('value').value='';showInfo('')};$('type').onchange=()=>{if(!editing&&$('type').value==='json'&&!$('value').value.trim())$('value').value='{}'};}
-  function parseValue(type,text){if(type==='string')return text;if(type==='int'){if(!/^[+-]?\d+$/.test(text.trim()))throw new Error('整数类型必须填写整数');return Number.parseInt(text.trim(),10)}if(type==='double'){if(!/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(text.trim()))throw new Error('小数类型必须填写数字');return Number.parseFloat(text.trim())}try{return JSON.parse(text)}catch(e){throw new Error('JSON 格式错误：'+e.message)}}
-  $('config-form').onsubmit=async e=>{e.preventDefault();const key=$('key').value.trim();if(!/^[A-Za-z0-9_]+$/.test(key)){Admin.banner('配置名只能包含英文字母、数字和下划线','err');return}let value;try{value=parseValue($('type').value,$('value').value)}catch(err){Admin.banner(err.message,'err');return}const description=$('description-input').value;const result=await Admin.api('/server-config/item',{method:'PUT',body:{key,value,description}});Admin.banner(result.message||'保存失败',result.ok?'ok':'err');if(result.ok)setTimeout(()=>location.href='/admin-ui/server-config.html',350)};
-  await load();
-  if(incomplete.has(editing))Admin.banner('镜像只保存了截断值或未提供完整默认值。请填写完整值，再回列表启用发送。','info');
-})();
-</script></body></html>
+<html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>编辑服务器配置 · FYServer</title>  <script type="module" crossorigin src="/admin-ui/assets/runtime-core.esm-bundler.js"></script>
+  <script type="module" crossorigin src="/admin-ui/assets/main.js"></script>
+  <link rel="stylesheet" crossorigin href="/admin-ui/assets/main.css">
+</head><body><div id="app"></div></body></html>

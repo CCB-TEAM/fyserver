@@ -39,6 +39,7 @@ public static class AdminApiEndpoints
                 ["loopback"] = loopback,
                 ["initialized"] = account.IsInitialized,
                 ["username"] = actor?.Username,
+                ["avatarUrl"] = actor?.AvatarUrl,
                 ["isOwner"] = actor?.IsOwner ?? false,
                 ["permissions"] = permissions,
                 ["hasSession"] = actor != null,
@@ -94,6 +95,54 @@ public static class AdminApiEndpoints
             account.RevokeSession(context.Request.Cookies[AdminAccountService.CookieName]);
             context.Response.Cookies.Delete(AdminAccountService.CookieName);
             return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "已退出" }.ToJsonString(), "application/json");
+        });
+
+        api.MapGet("/me", (HttpContext context, AdminAccountService accounts) =>
+        {
+            var actor = (AdminAccount)context.Items["adminActor"]!;
+            var current = accounts.ListAccounts().FirstOrDefault(account => account.Id == actor.Id);
+            return current == null ? Results.NotFound() : Results.Text(AccountJson(current, accounts).ToJsonString(), "application/json");
+        });
+        api.MapPut("/me/profile", async (HttpContext context, AdminAccountService accounts) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var actor = (AdminAccount)context.Items["adminActor"]!;
+            return ToResult(accounts.UpdateOwnUsername(actor, body["currentPassword"]?.GetValue<string>(), body["username"]?.GetValue<string>()));
+        });
+        api.MapPost("/me/password", async (HttpContext context, AdminAccountService accounts) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var actor = (AdminAccount)context.Items["adminActor"]!;
+            return ToResult(accounts.ChangeOwnPassword(actor, body["currentPassword"]?.GetValue<string>(), body["newPassword"]?.GetValue<string>()));
+        });
+        api.MapPost("/me/avatar", async (HttpContext context, AdminAccountService accounts) =>
+        {
+            const int maxBytes = 1_500_000;
+            if (context.Request.ContentLength > maxBytes + 32_768) return SystemSettingsError("头像文件超过 1.5 MB", 413);
+            if (!context.Request.HasFormContentType) return SystemSettingsError("请选择裁剪后的 PNG 头像");
+            var form = await context.Request.ReadFormAsync(context.RequestAborted);
+            var file = form.Files.GetFile("avatar");
+            if (file == null || file.Length is <= 0 or > maxBytes) return SystemSettingsError("头像文件无效或超过 1.5 MB", 413);
+            await using var input = file.OpenReadStream();
+            using var buffer = new MemoryStream();
+            await input.CopyToAsync(buffer, context.RequestAborted);
+            var image = buffer.ToArray();
+            if (image.Length < 24 || !image.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }) ||
+                !image.AsSpan(12, 4).SequenceEqual("IHDR"u8))
+                return SystemSettingsError("头像必须是有效的 PNG 图片");
+            var width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(image.AsSpan(16, 4));
+            var height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(image.AsSpan(20, 4));
+            if (width is < 64 or > 1024 || height != width) return SystemSettingsError("头像必须为 1:1 正方形，边长为 64–1024 像素");
+            var folder = Path.Combine("wwwroot", "admin-ui", "uploads", "admin-avatars");
+            Directory.CreateDirectory(folder);
+            var filename = Guid.NewGuid().ToString("N") + ".png";
+            await File.WriteAllBytesAsync(Path.Combine(folder, filename), image, context.RequestAborted);
+            var avatarUrl = "/admin-ui/uploads/admin-avatars/" + filename;
+            var actor = (AdminAccount)context.Items["adminActor"]!;
+            if (!accounts.UpdateOwnAvatar(actor, avatarUrl)) return Results.NotFound();
+            return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "头像已更新", ["avatarUrl"] = avatarUrl }.ToJsonString(), "application/json");
         });
 
         // ---------------------------------------------------------- 概览
@@ -226,7 +275,7 @@ public static class AdminApiEndpoints
         });
 
         api.MapPost("/database/configure", async (HttpContext context, UserDatabaseConfigurationService configuration,
-            UserStoreService users) =>
+            UserStoreService users, MatchHistoryService matchHistory) =>
         {
             if (context.Items["adminActor"] is not AdminAccount actor || !actor.IsOwner)
                 return JsonResult(false, "只有 Owner 可以配置玩家数据库", 403);
@@ -268,6 +317,11 @@ public static class AdminApiEndpoints
             }
 
             var result = await users.ConfigureAsync(settings, context.RequestAborted);
+            if (result.Ok)
+            {
+                try { await matchHistory.InitializeAsync(context.RequestAborted); }
+                catch (Exception ex) { return JsonResult(false, "玩家数据库已连接，但对局历史表初始化失败：" + ex.GetBaseException().Message, 500); }
+            }
             return JsonResult(result.Ok, result.Message, result.Ok ? 200 : 400);
         });
 
@@ -328,14 +382,14 @@ public static class AdminApiEndpoints
         {
             var user = accounts.ListAccounts().FirstOrDefault(a => a.Id == id);
             if (user == null) return Results.NotFound();
-            var history = audit.ActionsFor(user.Username, page ?? 1);
+            var history = audit.ActionsFor(user.PreviousUsernames.Append(user.Username), page ?? 1);
             return Results.Text(new JsonObject { ["entries"] = history.Entries, ["total"] = history.Total, ["page"] = page ?? 1 }.ToJsonString(), "application/json");
         });
         api.MapGet("/accounts/{id}/logins", (string id, int? page, AdminAccountService accounts, AdminAuditLogService audit) =>
         {
             var user = accounts.ListAccounts().FirstOrDefault(a => a.Id == id);
             if (user == null) return Results.NotFound();
-            var history = audit.LoginsFor(user.Username, page ?? 1);
+            var history = audit.LoginsFor(user.PreviousUsernames.Append(user.Username), page ?? 1);
             return Results.Text(new JsonObject { ["entries"] = history.Entries, ["total"] = history.Total, ["page"] = page ?? 1 }.ToJsonString(), "application/json");
         });
         api.MapPost("/accounts", async (HttpContext context, AdminAccountService accounts) =>
@@ -373,6 +427,37 @@ public static class AdminApiEndpoints
             Results.Text(new JsonObject { ["entries"] = audit.Recent() }.ToJsonString(), "application/json"));
 
         // 宿主网络地址保存在 setting.json。保存不修改正在运行的监听器，重启后生效。
+        api.MapGet("/system-settings/match-retention", (MatchHistoryService history) =>
+        {
+            var settings = history.GetRetentionSettings();
+            return Results.Text(new JsonObject
+            {
+                ["mode"] = settings.Mode,
+                ["keepCount"] = settings.KeepCount,
+                ["keepDays"] = settings.KeepDays,
+                ["cleanupDayUtc"] = settings.CleanupDayUtc,
+                ["cleanupHourUtc"] = settings.CleanupHourUtc
+            }.ToJsonString(), "application/json");
+        });
+
+        api.MapPut("/system-settings/match-retention", async (HttpContext context, MatchHistoryService history) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var mode = body["mode"]?.GetValue<string>();
+            if (mode is not ("age" or "count")) return SystemSettingsError("保留模式必须是 age 或 count");
+            if (!int.TryParse(body["keepCount"]?.ToString(), out var keepCount) || keepCount is < 1 or > 1_000_000)
+                return SystemSettingsError("保留对局数量必须在 1 到 1,000,000 之间");
+            if (!int.TryParse(body["keepDays"]?.ToString(), out var keepDays) || keepDays is < 1 or > 3650)
+                return SystemSettingsError("保留天数必须在 1 到 3650 之间");
+            if (!int.TryParse(body["cleanupDayUtc"]?.ToString(), out var cleanupDay) || cleanupDay is < 0 or > 6 ||
+                !int.TryParse(body["cleanupHourUtc"]?.ToString(), out var cleanupHour) || cleanupHour is < 0 or > 23)
+                return SystemSettingsError("每周清理时间无效");
+
+            history.SaveRetentionSettings(new MatchRetentionSettings(mode, keepCount, keepDays, cleanupDay, cleanupHour));
+            return Results.Text("{\"ok\":true,\"message\":\"对局保留策略已保存，每周按 UTC 计划清理\"}", "application/json");
+        });
+
         api.MapGet("/system-settings", (ServerOptions active) =>
         {
             try
@@ -516,7 +601,8 @@ public static class AdminApiEndpoints
                 if (!string.IsNullOrEmpty(keyword) &&
                     !user.Id.ToString().Contains(keyword, StringComparison.Ordinal) &&
                     !user.UserName.Contains(keyword, StringComparison.OrdinalIgnoreCase) &&
-                    !user.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                    !user.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase) &&
+                    !$"{user.Name}#{user.Tag:D4}".Contains(keyword, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 array.Add(new JsonObject
@@ -525,12 +611,16 @@ public static class AdminApiEndpoints
                     ["userName"] = user.UserName,
                     ["name"] = user.Name,
                     ["tag"] = user.Tag,
+                    ["displayName"] = $"{user.Name}#{user.Tag:D4}",
                     ["deckCount"] = user.Decks.Count,
                     ["gold"] = user.Gold,
                     ["diamonds"] = user.Diamonds,
                     ["dust"] = user.Dust,
                     ["banned"] = user.IsBanActive(DateTime.UtcNow),
                     ["banExpiresAt"] = user.BanExpiresAt?.ToString("O"),
+                    ["lastLoginAt"] = user.LastLoginAt?.ToString("O"),
+                    ["lastLoginIp"] = user.LastLoginIp,
+                    ["lastLoginDevice"] = user.LastLoginDevice,
                     ["online"] = online.Contains(user.Id),
                     ["createdAt"] = user.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
                 });
@@ -539,7 +629,7 @@ public static class AdminApiEndpoints
             return Results.Text(new JsonObject { ["total"] = all.Count, ["users"] = array }.ToJsonString(), "application/json");
         });
 
-        api.MapGet("/users/{id:int}", async (int id, UserStoreService users, WebSocketHubService hub, MatchManagerService matches) =>
+        api.MapGet("/users/{id:int}", async (int id, UserStoreService users, WebSocketHubService hub, MatchManagerService matches, MatchHistoryService history, CancellationToken cancellationToken) =>
         {
             var user = await users.GetByIdAsync(id);
             if (user == null)
@@ -560,6 +650,34 @@ public static class AdminApiEndpoints
             }
 
             var match = matches.GetActiveMatchForUser(id);
+            var recentMatches = await history.ListAdminAsync(1, 10, null, id, null, cancellationToken);
+            var recentMatchItems = new JsonArray();
+            foreach (var recent in recentMatches.Matches)
+            {
+                recentMatchItems.Add(new JsonObject
+                {
+                    ["matchId"] = recent.MatchId,
+                    ["matchType"] = recent.MatchType,
+                    ["status"] = recent.Status,
+                    ["startedAt"] = recent.StartedAt,
+                    ["completedAt"] = recent.CompletedAt,
+                    ["leftPlayerId"] = recent.LeftPlayerId,
+                    ["leftPlayerName"] = recent.LeftPlayerName,
+                    ["leftPlayerTag"] = recent.LeftPlayerTag,
+                    ["rightPlayerId"] = recent.RightPlayerId,
+                    ["rightPlayerName"] = recent.RightPlayerName,
+                    ["rightPlayerTag"] = recent.RightPlayerTag,
+                    ["turns"] = recent.Turns,
+                    ["actionCount"] = recent.ActionCount,
+                    ["winnerSide"] = recent.WinnerSide
+                });
+            }
+            var playerRoles = new JsonArray();
+            foreach (var role in PlayerRoleCatalog.Normalize(user.Roles))
+                playerRoles.Add(JsonValue.Create(role));
+            var availablePlayerRoles = new JsonArray();
+            foreach (var role in PlayerRoleCatalog.Available)
+                availablePlayerRoles.Add(JsonValue.Create(role));
             var payload = new JsonObject
             {
                 ["id"] = user.Id,
@@ -573,19 +691,49 @@ public static class AdminApiEndpoints
                 ["banExpiresAt"] = user.BanExpiresAt?.ToString("O"),
                 ["bannedAt"] = user.BannedAt?.ToString("O"),
                 ["lastLoginAt"] = user.LastLoginAt?.ToString("O"),
+                ["lastLoginIp"] = user.LastLoginIp,
+                ["lastLoginDevice"] = user.LastLoginDevice,
                 ["online"] = hub.TryGetClient(id, out _),
                 ["createdAt"] = user.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 ["updatedAt"] = user.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                 ["equippedItemCount"] = user.EquippedItem.Count,
                 ["gold"] = user.Gold,
                 ["diamonds"] = user.Diamonds,
+                ["roles"] = playerRoles,
+                ["availableRoles"] = availablePlayerRoles,
                 ["dust"] = user.Dust,
                 ["packCount"] = user.Packs.Count,
                 ["decks"] = decks,
-                ["activeMatchId"] = match?.MatchId
+                ["activeMatchId"] = match?.MatchId,
+                ["recentMatches"] = recentMatchItems
             };
 
             return Results.Text(payload.ToJsonString(), "application/json");
+        });
+
+        api.MapPut("/users/{id:int}/roles", async (int id, HttpContext context, UserStoreService users) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body?["roles"] is not JsonArray roleNodes)
+                return SystemSettingsError("roles 必须是数组");
+
+            var roles = new List<string>();
+            foreach (var node in roleNodes)
+            {
+                if (node is not JsonValue value || !value.TryGetValue<string>(out var role) ||
+                    string.IsNullOrWhiteSpace(role) || !PlayerRoleCatalog.Available.Contains(role, StringComparer.Ordinal))
+                    return SystemSettingsError("角色列表包含无效角色");
+                if (!roles.Contains(role, StringComparer.Ordinal)) roles.Add(role);
+            }
+
+            var result = await users.WithUserLockAsync<IResult>(id, async user =>
+            {
+                user.Roles = PlayerRoleCatalog.Normalize(roles);
+                await users.SaveUserAsync(user);
+                users.RecordIncremental();
+                return ToResult((true, "玩家角色已保存"));
+            });
+            return result ?? Results.NotFound();
         });
 
         api.MapPost("/users/{id:int}/ban", async (int id, HttpContext context, AdminUserService adminUsers) =>
@@ -615,10 +763,9 @@ public static class AdminApiEndpoints
             var tag = AsInt(body["tag"]);
             if (name.Length is < 1 or > 32 || locale.Length is < 2 or > 20 || tag is < 0 or > 9999)
                 return SystemSettingsError("昵称、语言或 Tag 格式不正确");
-            user.Name = name;
             user.Locale = locale;
-            user.Tag = tag;
-            await users.SaveUserAsync(user);
+            if (!await users.SavePlayerIdentityAsync(user, name, tag))
+                return SystemSettingsError("该昵称与 Tag 已被其他玩家使用");
             return ToResult((true, "玩家资料已保存"));
         });
         api.MapPut("/users/{id:int}/wallet", async (int id, HttpContext context, UserStoreService users) =>
@@ -643,11 +790,68 @@ public static class AdminApiEndpoints
         api.MapDelete("/users/{id:int}", async (int id, AdminUserService adminUsers) => ToResult(await adminUsers.DeleteAsync(id)));
 
         // ---------------------------------------------------------- 对局与队列
+        api.MapGet("/matches/history/storage", async (MatchHistoryService history, CancellationToken cancellationToken) =>
+            Results.Text((await history.GetStorageInfoAsync(cancellationToken)).ToJsonString(), "application/json"));
+
+        api.MapGet("/matches/history", async (int? page, int? pageSize, string? status, int? playerId, string? playerName,
+            MatchHistoryService history, CancellationToken cancellationToken) =>
+        {
+            var result = await history.ListAdminAsync(page ?? 1, pageSize ?? 25, status, playerId, playerName, cancellationToken);
+            var items = new JsonArray();
+            foreach (var match in result.Matches)
+            {
+                items.Add(new JsonObject
+                {
+                    ["matchId"] = match.MatchId, ["matchType"] = match.MatchType, ["status"] = match.Status,
+                    ["startedAt"] = match.StartedAt, ["completedAt"] = match.CompletedAt,
+                    ["leftPlayerId"] = match.LeftPlayerId, ["leftPlayerName"] = match.LeftPlayerName, ["leftPlayerTag"] = match.LeftPlayerTag,
+                    ["rightPlayerId"] = match.RightPlayerId, ["rightPlayerName"] = match.RightPlayerName, ["rightPlayerTag"] = match.RightPlayerTag,
+                    ["turns"] = match.Turns, ["actionCount"] = match.ActionCount, ["winnerSide"] = match.WinnerSide
+                });
+            }
+            return Results.Text(new JsonObject { ["matches"] = items, ["total"] = result.Total, ["page"] = Math.Max(1, page ?? 1), ["pageSize"] = Math.Clamp(pageSize ?? 25, 1, 100) }.ToJsonString(), "application/json");
+        });
+
+        api.MapGet("/matches/history/{matchId:int}", async (int matchId, MatchHistoryService history, CancellationToken cancellationToken) =>
+        {
+            var record = await history.GetAsync(matchId, cancellationToken);
+            if (record == null) return Results.Text("{\"ok\":false,\"message\":\"找不到这条已持久化的对局记录\"}", "application/json", statusCode: 404);
+            var summary = record.Summary;
+            var detail = new JsonObject
+            {
+                ["summary"] = new JsonObject
+                {
+                    ["matchId"] = summary.MatchId, ["matchType"] = summary.MatchType, ["status"] = summary.Status,
+                    ["startedAt"] = summary.StartedAt, ["completedAt"] = summary.CompletedAt,
+                    ["leftPlayerId"] = summary.LeftPlayerId, ["leftPlayerName"] = summary.LeftPlayerName, ["leftPlayerTag"] = summary.LeftPlayerTag,
+                    ["rightPlayerId"] = summary.RightPlayerId, ["rightPlayerName"] = summary.RightPlayerName, ["rightPlayerTag"] = summary.RightPlayerTag,
+                    ["turns"] = summary.Turns, ["actionCount"] = summary.ActionCount, ["winnerSide"] = summary.WinnerSide
+                },
+                ["startingInfo"] = record.StartingInfo == null ? null : JsonSerializer.SerializeToNode(record.StartingInfo, FyJsonContext.Default.MatchStartingInfo)
+            };
+            return Results.Text(detail.ToJsonString(), "application/json");
+        });
+
+        api.MapGet("/matches/history/{matchId:int}/actions", async (int matchId, int? afterActionId, int? limit,
+            MatchHistoryService history, CancellationToken cancellationToken) =>
+        {
+            var page = await history.GetActionsAsync(matchId, afterActionId ?? 0, limit ?? 500, cancellationToken);
+            return page == null ? Results.NotFound() : Results.Json(page, FyJsonContext.Default.MatchHistoryActionPage);
+        });
+
+        api.MapDelete("/matches/history/{matchId:int}", async (int matchId, MatchHistoryService history, MatchManagerService matches, CancellationToken cancellationToken) =>
+        {
+            if (matches.GetMatch(matchId) != null)
+                return Results.Text("{\"ok\":false,\"message\":\"这场对局仍保留在运行时状态中，请先让服务器完成结算并移除对局后再删除持久化数据\"}", "application/json", statusCode: 409);
+            var deleted = await history.DeleteAsync(matchId, cancellationToken);
+            return Results.Text(new JsonObject { ["ok"] = deleted, ["message"] = deleted ? $"已删除对局 {matchId} 的持久化快照与全部动作" : $"未找到对局 {matchId}" }.ToJsonString(), "application/json", statusCode: deleted ? 200 : 404);
+        });
+
         api.MapGet("/matches", async (MatchManagerService matches, UserStoreService users, WebSocketHubService hub) =>
         {
             var names = new Dictionary<int, string>();
             foreach (var user in await users.GetAllUsersAsync())
-                names[user.Id] = user.UserName;
+                names[user.Id] = $"{user.Name}#{user.Tag:D4}";
             var online = hub.OnlineUserIds().ToHashSet();
 
             string NameOf(int playerId) => playerId <= 0
@@ -702,10 +906,16 @@ public static class AdminApiEndpoints
             return Results.Text(payload.ToJsonString(), "application/json");
         });
 
-        api.MapPost("/matches/{matchId:int}/remove", (int matchId, MatchManagerService matches) =>
-            matches.RemoveMatch(matchId)
-                ? Results.Text(new JsonObject { ["ok"] = true, ["message"] = $"已移除对局 {matchId}" }.ToJsonString(), "application/json")
-                : Results.Text(new JsonObject { ["ok"] = false, ["message"] = $"对局 {matchId} 不存在" }.ToJsonString(), "application/json"));
+        api.MapPost("/matches/{matchId:int}/remove", async (int matchId, MatchManagerService matches, MatchHistoryService history) =>
+        {
+            var match = matches.GetMatch(matchId);
+            if (match == null)
+                return Results.Text(new JsonObject { ["ok"] = false, ["message"] = $"对局 {matchId} 不存在" }.ToJsonString(), "application/json");
+            if (!string.IsNullOrEmpty(match.WinnerSide)) await history.MarkCompletedAsync(match);
+            else await history.MarkAbortedAsync(match);
+            matches.RemoveMatch(matchId);
+            return Results.Text(new JsonObject { ["ok"] = true, ["message"] = $"已移除对局 {matchId}" }.ToJsonString(), "application/json");
+        });
 
         api.MapPost("/queues/clear", (MatchManagerService matches) =>
         {
@@ -985,6 +1195,7 @@ public static class AdminApiEndpoints
         return new JsonObject
         {
             ["id"] = account.Id, ["username"] = account.Username,
+            ["avatarUrl"] = account.AvatarUrl,
             ["isOwner"] = account.IsOwner, ["enabled"] = account.Enabled,
             ["permissions"] = permissions, ["createdAt"] = account.CreatedAt.ToString("O"),
             ["lastLoginAt"] = account.LastLoginAt?.ToString("O"), ["lastLoginIp"] = account.LastLoginIp,

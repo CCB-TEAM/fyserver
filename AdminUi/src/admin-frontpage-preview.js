@@ -10,6 +10,27 @@ window.FpPreview = (function () {
     var TYPE_SIZE = { 0: [1540, 770], 1: [614, 307], 2: [1232, 564] };
     var TYPE_LABEL = { 0: '轮播 1540×770', 1: '侧栏按钮 614×307', 2: '弹窗 1232×564' };
 
+    // Keep the templates with the renderer. The old static HTML page defined
+    // these separately, but the Vue migration dropped those nodes; without
+    // them generate() returned null and left only the dark preview container.
+    var TEMPLATE_MARKUP = {
+        0: '<div class="fp-carousel"><svg viewBox="0 0 1540 770" preserveAspectRatio="xMinYMid meet" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="fp-blacktint" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="black" stop-opacity="0"/><stop offset="100%" stop-color="black"/></linearGradient></defs><image data-field="image" href="" x="0" y="0" width="100%" height="100%"/><rect x="9.2%" y="66.66%" width="100%" height="33.34%" fill="url(#fp-blacktint)"/><text data-field="heading" x="13%" y="717.64" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="56"/><text data-field="sub_heading" x="13%" y="93.2%" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="30"/></svg></div>',
+        1: '<div class="fp-button"><svg viewBox="0 0 614 307" preserveAspectRatio="xMinYMid meet" xmlns="http://www.w3.org/2000/svg"><image data-field="image" href="" x="0" y="0" width="100%" height="100%"/><image data-field="icon" href="" x="16" y="16" width="96" height="96"/><text data-field="heading" x="13%" y="150" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="56"/><text data-field="sub_heading" x="13%" y="210" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="30"/></svg></div>',
+        2: '<div class="fp-popup"><svg viewBox="0 0 1232 564" preserveAspectRatio="xMinYMid meet" xmlns="http://www.w3.org/2000/svg"><image data-field="image" href="" x="0" y="0" width="100%" height="100%"/><text data-field="heading" x="13%" y="300" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="56"/><text data-field="sub_heading" x="13%" y="360" font-family="Roboto Condensed, sans-serif" fill="#e4e4d1" font-size="30"/></svg></div>'
+    };
+    var templates = {};
+
+    function getTemplate(type) {
+        var existing = document.getElementById(TEMPLATE_ID[type]);
+        if (existing) return existing;
+        if (!templates[type] && TEMPLATE_MARKUP[type]) {
+            var template = document.createElement('template');
+            template.innerHTML = TEMPLATE_MARKUP[type];
+            templates[type] = template;
+        }
+        return templates[type] || null;
+    }
+
     var language = 'zh-hans';
 
     function placeholder(w, h) {
@@ -39,7 +60,7 @@ window.FpPreview = (function () {
         var type = parseInt(entry.content.type, 10);
         if (isNaN(type)) type = TYPE_CAROUSEL;
 
-        var template = document.getElementById(TEMPLATE_ID[type]);
+        var template = getTemplate(type);
         if (!template) return null;
 
         var node = template.content.firstElementChild.cloneNode(true);

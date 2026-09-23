@@ -38,6 +38,11 @@ const Admin = window.Admin;
     $('locale').value = player.locale || '';
     $('gold').value = player.gold;
     $('diamonds').value = player.diamonds;
+    const wildcardCounts = new Map((player.wildcards || []).map(item => [item.cardType, item]));
+    document.querySelectorAll('.wildcard-count').forEach(input => {
+      const data = wildcardCounts.get(input.dataset.cardType);
+      input.value = data ? data[input.dataset.countKind] ?? 0 : 0;
+    });
     $('roles-panel').hidden = false;
     const availableRoles = Array.isArray(player.availableRoles) ? player.availableRoles : Object.keys(roleDetails);
     const selectedRoles = new Set(Array.isArray(player.roles) ? player.roles : []);
@@ -66,6 +71,22 @@ const Admin = window.Admin;
   async function action(path, options) { const result = await Admin.api('/users/' + id + path, options); Admin.banner(result?.message || '操作完成', result?.ok ? 'ok' : 'err'); if (result?.ok) await load(); return result; }
   $('profile-form').onsubmit = async event => { event.preventDefault(); await action('/profile', { method: 'PUT', body: { name: $('name').value, tag: Number($('tag').value), locale: $('locale').value } }); };
   $('wallet-form').onsubmit = async event => { event.preventDefault(); await action('/wallet', { method: 'PUT', body: { gold: Number($('gold').value), diamonds: Number($('diamonds').value) } }); };
+  $('wildcards-form').onsubmit = async event => {
+    event.preventDefault();
+    const byType = new Map();
+    let valid = true;
+    document.querySelectorAll('.wildcard-count').forEach(input => {
+      const value = Number(input.value);
+      if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) { valid = false; return; }
+      const row = byType.get(input.dataset.cardType) || { cardType: input.dataset.cardType, count: 0, goldCount: 0 };
+      row[input.dataset.countKind] = value;
+      byType.set(input.dataset.cardType, row);
+    });
+    if (!valid || byType.size !== 4) { Admin.banner('万能卡数量必须是 0 到 2,147,483,647 的整数', 'err'); return; }
+    const result = await Admin.api('/users/' + id + '/wildcards', { method: 'PUT', body: { wildcards: Array.from(byType.values()) } });
+    Admin.banner(result?.message || '保存万能卡数量失败', result?.ok ? 'ok' : 'err');
+    if (result?.ok) await load();
+  };
   $('save-roles').onclick = async () => {
     const roles = Array.from(document.querySelectorAll('[data-player-role]:checked')).map(input => input.dataset.playerRole);
     const result = await Admin.api('/users/' + id + '/roles', { method: 'PUT', body: { roles } });

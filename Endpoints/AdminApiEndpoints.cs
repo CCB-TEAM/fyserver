@@ -18,6 +18,13 @@ namespace fyserver.Endpoints;
 public static class AdminApiEndpoints
 {
     private static readonly object SystemSettingsLock = new();
+    private static readonly (string CardType, string Rarity)[] WildcardTypes =
+    [
+        ("card_wildcard_standard", "Standard"),
+        ("card_wildcard_limited", "Limited"),
+        ("card_wildcard_special", "Special"),
+        ("card_wildcard_elite", "Elite")
+    ];
     public static IEndpointRouteBuilder MapAdminApiEndpoints(this IEndpointRouteBuilder app)
     {
         var api = app.MapGroup("/admin/api");
@@ -700,6 +707,23 @@ public static class AdminApiEndpoints
             var availablePlayerRoles = new JsonArray();
             foreach (var role in PlayerRoleCatalog.Available)
                 availablePlayerRoles.Add(JsonValue.Create(role));
+            user.UserCards ??= new UserCardCollection();
+            user.UserCards.Cards ??= [];
+            user.CardCollection ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var wildcards = new JsonArray();
+            foreach (var wildcard in WildcardTypes)
+            {
+                var card = user.UserCards.Cards.FirstOrDefault(item => string.Equals(item.CardType, wildcard.CardType, StringComparison.OrdinalIgnoreCase));
+                var normalCount = card?.Count ?? user.CardCollection.GetValueOrDefault(wildcard.CardType);
+                var goldCount = card?.GoldCardCount ?? user.CardCollection.GetValueOrDefault(wildcard.CardType + "#gold");
+                wildcards.Add(new JsonObject
+                {
+                    ["cardType"] = wildcard.CardType,
+                    ["rarity"] = wildcard.Rarity,
+                    ["count"] = Math.Max(0, normalCount),
+                    ["goldCount"] = Math.Max(0, goldCount)
+                });
+            }
             var payload = new JsonObject
             {
                 ["id"] = user.Id,
@@ -723,6 +747,7 @@ public static class AdminApiEndpoints
                 ["diamonds"] = user.Diamonds,
                 ["roles"] = playerRoles,
                 ["availableRoles"] = availablePlayerRoles,
+                ["wildcards"] = wildcards,
                 ["dust"] = user.Dust,
                 ["packCount"] = user.Packs.Count,
                 ["decks"] = decks,
@@ -804,6 +829,51 @@ public static class AdminApiEndpoints
                 await users.SaveUserAsync(user);
                 users.RecordIncremental();
                 return (IResult)ToResult((true, "玩家货币已保存"));
+            });
+            return result ?? Results.NotFound();
+        });
+        api.MapPut("/users/{id:int}/wildcards", async (int id, HttpContext context, UserStoreService users) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body?["wildcards"] is not JsonArray wildcardNodes || wildcardNodes.Count != WildcardTypes.Length)
+                return SystemSettingsError("必须提交 Standard、Limited、Special、Elite 四类万能卡数量");
+
+            var requested = new Dictionary<string, (int Count, int GoldCount)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var node in wildcardNodes)
+            {
+                if (node is not JsonObject item || item["cardType"] is not JsonValue cardTypeNode ||
+                    !cardTypeNode.TryGetValue<string>(out var cardType) || string.IsNullOrWhiteSpace(cardType) ||
+                    !WildcardTypes.Any(wildcard => string.Equals(wildcard.CardType, cardType, StringComparison.OrdinalIgnoreCase)) ||
+                    !TryNonNegativeInt(item["count"], out var count) ||
+                    !TryNonNegativeInt(item["goldCount"], out var goldCount) ||
+                    !requested.TryAdd(cardType, (count, goldCount)))
+                    return SystemSettingsError("万能卡类型重复或数量无效；数量必须是非负整数");
+            }
+            if (WildcardTypes.Any(wildcard => !requested.ContainsKey(wildcard.CardType)))
+                return SystemSettingsError("万能卡数据不完整");
+
+            var result = await users.WithUserLockAsync<IResult>(id, async user =>
+            {
+                user.UserCards ??= new UserCardCollection();
+                user.UserCards.Cards ??= [];
+                user.CardCollection ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var wildcard in WildcardTypes)
+                {
+                    var card = user.UserCards.Cards.FirstOrDefault(item => string.Equals(item.CardType, wildcard.CardType, StringComparison.OrdinalIgnoreCase));
+                    if (card == null)
+                    {
+                        card = new UserCard(wildcard.CardType, 0, 0, 0, 0);
+                        user.UserCards.Cards.Add(card);
+                    }
+                    var counts = requested[wildcard.CardType];
+                    card.Count = counts.Count;
+                    card.GoldCardCount = counts.GoldCount;
+                    user.CardCollection[wildcard.CardType] = counts.Count;
+                    user.CardCollection[wildcard.CardType + "#gold"] = counts.GoldCount;
+                }
+                await users.SaveUserAsync(user);
+                users.RecordIncremental();
+                return ToResult((true, "玩家万能卡数量已保存"));
             });
             return result ?? Results.NotFound();
         });

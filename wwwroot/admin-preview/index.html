@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>FYServer Console Preview</title>
+  <link rel="stylesheet" href="./preview.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark"><img src="./assets/napcat-logo.png" alt="NapCat"></span><span class="brand-copy"><b>FYServer</b><small>NAPCAT THEME</small></span></div>
+      <nav id="nav">
+        <button class="nav-item active" data-view="overview"><span class="icon">⌂</span><span>基础信息</span><i></i></button>
+        <button class="nav-item" data-view="users"><span class="icon">♙</span><span>用户管理</span><i></i></button>
+        <button class="nav-item" data-view="matches"><span class="icon">⚔</span><span>对局监控</span><i></i></button>
+        <button class="nav-item" data-view="content"><span class="icon">▤</span><span>内容配置</span><i></i></button>
+        <button class="nav-item" data-view="store"><span class="icon">◇</span><span>商店管理</span><i></i></button>
+        <button class="nav-item" data-view="settings"><span class="icon">⚙</span><span>系统配置</span><i></i></button>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="soft-button" id="themeButton"><span>☼</span><span>切换主题</span></button>
+        <button class="soft-button danger"><span>↪</span><span>退出登录</span></button>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar glass">
+        <button class="round-button" id="menuButton" aria-label="折叠菜单">☰</button>
+        <div class="crumb"><span>FYServer</span><b>/</b><strong id="pageTitle">基础信息</strong></div>
+        <div class="top-actions"><span class="live-dot"></span><span class="live-text">服务运行中</span><button class="avatar"><img src="./assets/napcat-logo.png" alt="管理员"></button></div>
+      </header>
+
+      <section class="view active" id="overview">
+        <div class="hero">
+          <div><p class="eyebrow">SERVER OVERVIEW</p><h1>晚上好，管理员</h1><p>欢迎回到 FYServer 控制台。一切运行平稳。</p></div>
+          <div class="hero-status"><span class="pulse"></span><div><b>Online</b><small>已连续运行 2 天 08 小时</small></div></div>
+        </div>
+
+        <div class="stat-grid">
+          <article class="stat-card glass"><div class="stat-icon blue">♙</div><div><small>注册用户</small><strong>1,284</strong><em>+12 本周</em></div></article>
+          <article class="stat-card glass"><div class="stat-icon violet">◉</div><div><small>当前在线</small><strong>38</strong><em>2.9% 在线率</em></div></article>
+          <article class="stat-card glass"><div class="stat-icon green">⚔</div><div><small>活跃对局</small><strong>14</strong><em>7 场真人对战</em></div></article>
+          <article class="stat-card glass"><div class="stat-icon amber">⌁</div><div><small>等待匹配</small><strong>6</strong><em>平均 18 秒</em></div></article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="panel glass activity-panel">
+            <div class="panel-head"><div><p class="eyebrow">REALTIME</p><h2>服务器活动</h2></div><button class="pill-button">查看日志</button></div>
+            <div class="chart-wrap">
+              <div class="chart-labels"><span>60</span><span>40</span><span>20</span><span>0</span></div>
+              <svg class="chart" viewBox="0 0 700 240" preserveAspectRatio="none" aria-label="活动趋势图">
+                <defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#006fee" stop-opacity=".32"/><stop offset="1" stop-color="#006fee" stop-opacity="0"/></linearGradient></defs>
+                <path class="gridline" d="M0 30H700M0 90H700M0 150H700M0 210H700"/>
+                <path class="area" d="M0 187 C55 170,72 185,120 142 S202 157,250 104 S335 130,390 88 S465 115,520 55 S620 98,700 42 L700 240 L0 240Z"/>
+                <path class="line" d="M0 187 C55 170,72 185,120 142 S202 157,250 104 S335 130,390 88 S465 115,520 55 S620 98,700 42"/>
+              </svg>
+              <div class="chart-times"><span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>现在</span></div>
+            </div>
+          </article>
+
+          <article class="panel glass system-panel">
+            <div class="panel-head"><div><p class="eyebrow">SYSTEM</p><h2>资源状态</h2></div><span class="health">健康</span></div>
+            <div class="rings">
+              <div class="ring" style="--value:36;--ring:#006fee"><div><strong>36%</strong><small>CPU</small></div></div>
+              <div class="ring" style="--value:62;--ring:#20b486"><div><strong>62%</strong><small>内存</small></div></div>
+            </div>
+            <div class="system-list"><div><span>运行环境</span><b>.NET 10.0</b></div><div><span>监听端口</span><b>1145</b></div><div><span>WebSocket</span><b class="green-text">已连接</b></div></div>
+          </article>
+        </div>
+
+        <div class="lower-grid">
+          <article class="panel glass"><div class="panel-head"><div><p class="eyebrow">MATCHMAKING</p><h2>匹配队列</h2></div><button class="icon-button">↻</button></div><div class="queue-list"><div><span class="queue-icon">Ⅰ</span><span><b>经典对战</b><small>等待中的玩家</small></span><strong>3</strong></div><div><span class="queue-icon purple">Ⅱ</span><span><b>休闲模式</b><small>等待中的玩家</small></span><strong>2</strong></div><div><span class="queue-icon gold">Ⅲ</span><span><b>竞技场</b><small>等待中的玩家</small></span><strong>1</strong></div></div></article>
+          <article class="panel glass"><div class="panel-head"><div><p class="eyebrow">RECENT</p><h2>最近动态</h2></div><button class="pill-button">全部</button></div><div class="timeline"><div><span class="timeline-dot success"></span><p><b>玩家 Orion 登录服务器</b><small>刚刚 · #829104</small></p></div><div><span class="timeline-dot primary"></span><p><b>对局 #482191 已结束</b><small>2 分钟前 · left 胜利</small></p></div><div><span class="timeline-dot warning"></span><p><b>商店配置已重新加载</b><small>12 分钟前 · Admin</small></p></div></div></article>
+        </div>
+      </section>
+
+      <section class="view placeholder-view" id="users"><div class="placeholder glass"><span>♙</span><h2>用户管理</h2><p>这里将承载用户搜索、在线状态、封禁与踢出操作。</p><button class="primary-button">模拟加载用户</button></div></section>
+      <section class="view placeholder-view" id="matches"><div class="placeholder glass"><span>⚔</span><h2>对局监控</h2><p>这里将展示活跃对局、回合进度与匹配队列。</p><button class="primary-button">查看活跃对局</button></div></section>
+      <section class="view placeholder-view" id="content"><div class="placeholder glass"><span>▤</span><h2>内容配置</h2><p>这里将编辑首页公告、Skirmish 与 Knockout 内容。</p><button class="primary-button">打开内容编辑器</button></div></section>
+      <section class="view placeholder-view" id="store"><div class="placeholder glass"><span>◇</span><h2>商店管理</h2><p>预览商店配置、商品组与热重载状态。</p><button class="primary-button">载入商店</button></div></section>
+      <section class="view placeholder-view" id="settings"><div class="placeholder glass"><span>⚙</span><h2>系统配置</h2><p>服务器地址、端口、反作弊和管理访问配置。</p><button class="primary-button">查看配置</button></div></section>
+    </main>
+  </div>
+  <div class="toast" id="toast">这是静态效果预览，尚未连接 FYServer API。</div>
+  <script src="./preview.js"></script>
+</body>
+</html>

@@ -37,6 +37,7 @@ public class User
         Tag = 0;
         Banned = false;
         UserCards.Cards.AddRange(DefaultCards());
+        UserCards.Cards.AddRange(DefaultWildcards());
     }
 
     public User(int id, string userName) : this()
@@ -48,6 +49,8 @@ public class User
         Locale = "zh-Hans";
         Tag = 0;
         Banned = false;
+        UserCards.Cards.AddRange(DefaultCards());
+        UserCards.Cards.AddRange(DefaultWildcards());
     }
 
     public int Id { get; set; }
@@ -108,6 +111,14 @@ public class User
         new("card_location_cherbourg", 1, 0, 0, 0),
         new("card_location_london", 1, 0, 0, 0),
         new("card_location_berlin", 1, 0, 0, 0)
+    ];
+
+    private static List<UserCard> DefaultWildcards() =>
+    [
+        new("card_wildcard_standard", 0, 0, 0, 0),
+        new("card_wildcard_limited", 0, 0, 0, 0),
+        new("card_wildcard_special", 0, 0, 0, 0),
+        new("card_wildcard_elite", 0, 0, 0, 0)
     ];
 }
 

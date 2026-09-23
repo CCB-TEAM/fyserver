@@ -27,6 +27,14 @@
       <div class="field"><label for="diamonds">钻石</label><input id="diamonds" type="number" min="0" step="1" required /></div>
     </div><button class="btn" type="submit">保存货币</button></form>
   </section>
+  <section class="card"><h2>万能卡数量</h2><p class="muted">按稀有度分别设置普通与闪卡数量；新用户默认均为 0。保存后立即写入玩家卡牌数据。</p>
+    <form id="wildcards-form"><div class="table-wrap"><table class="md-table"><thead><tr><th>稀有度</th><th>普通万能卡</th><th>闪卡万能卡</th></tr></thead><tbody>
+      <tr><td>Standard</td><td><input class="wildcard-count" data-card-type="card_wildcard_standard" data-count-kind="count" type="number" min="0" step="1" required></td><td><input class="wildcard-count" data-card-type="card_wildcard_standard" data-count-kind="goldCount" type="number" min="0" step="1" required></td></tr>
+      <tr><td>Limited</td><td><input class="wildcard-count" data-card-type="card_wildcard_limited" data-count-kind="count" type="number" min="0" step="1" required></td><td><input class="wildcard-count" data-card-type="card_wildcard_limited" data-count-kind="goldCount" type="number" min="0" step="1" required></td></tr>
+      <tr><td>Special</td><td><input class="wildcard-count" data-card-type="card_wildcard_special" data-count-kind="count" type="number" min="0" step="1" required></td><td><input class="wildcard-count" data-card-type="card_wildcard_special" data-count-kind="goldCount" type="number" min="0" step="1" required></td></tr>
+      <tr><td>Elite</td><td><input class="wildcard-count" data-card-type="card_wildcard_elite" data-count-kind="count" type="number" min="0" step="1" required></td><td><input class="wildcard-count" data-card-type="card_wildcard_elite" data-count-kind="goldCount" type="number" min="0" step="1" required></td></tr>
+    </tbody></table></div><button class="btn" type="submit">保存万能卡数量</button></form>
+  </section>
   <section class="card" id="roles-panel" hidden>
     <div class="panel-head"><div><h2>客户端角色</h2><p class="muted">这些角色会写入 GET / 返回的 current_user.roles。</p></div><span class="chip chip--off">ROLES</span></div>
     <div id="roles-list" class="player-role-grid"></div>

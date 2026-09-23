@@ -50,10 +50,13 @@ public static class AdminApiEndpoints
             }.ToJsonString(), "application/json");
         });
 
-        api.MapPost("/setup", async (HttpContext context, AdminAccountService account, AdminAuditLogService audit) =>
+        api.MapPost("/setup", async (HttpContext context, AdminAccountService account, AdminAuditLogService audit,
+            UserStoreService users, UserDatabaseConfigurationService databaseConfiguration) =>
         {
             if (!ClientAddress.IsLoopback(context))
                 return Results.Text(new JsonObject { ["ok"] = false, ["message"] = "首次设置仅允许在服务器本机完成" }.ToJsonString(), "application/json", statusCode: 403);
+            if (!databaseConfiguration.IsConfigured || !users.IsReady)
+                return Results.Text(new JsonObject { ["ok"] = false, ["message"] = "请先选择并初始化玩家数据存储，再创建 Owner 账号" }.ToJsonString(), "application/json", statusCode: 428);
             var body = await ReadJsonBody(context);
             var result = account.Initialize(body?["username"]?.GetValue<string>(), body?["password"]?.GetValue<string>());
             if (!result.Ok)
@@ -275,9 +278,12 @@ public static class AdminApiEndpoints
         });
 
         api.MapPost("/database/configure", async (HttpContext context, UserDatabaseConfigurationService configuration,
-            UserStoreService users, MatchHistoryService matchHistory) =>
+            UserStoreService users, MatchHistoryService matchHistory, AdminAccountService accounts) =>
         {
-            if (context.Items["adminActor"] is not AdminAccount actor || !actor.IsOwner)
+            var actor = accounts.GetSessionAccount(context.Request.Cookies[AdminAccountService.CookieName]);
+            var firstRunLoopback = actor == null && ClientAddress.IsLoopback(context) &&
+                !accounts.IsInitialized && !configuration.IsConfigured;
+            if (!(actor?.IsOwner ?? false) && !firstRunLoopback)
                 return JsonResult(false, "只有 Owner 可以配置玩家数据库", 403);
 
             var body = await ReadJsonBody(context);
@@ -466,21 +472,26 @@ public static class AdminApiEndpoints
                 {
                     var saved = JsonNode.Parse(File.ReadAllText("setting.json")) as JsonObject ?? new JsonObject();
                     var listenPort = (int?)saved["portHttp"] ?? active.portHttp;
-                    var publicPort = (int?)saved["publicPortHttp"] ?? 0;
+                    var publicPort = (int?)saved["publicPortHttp"];
+                    if (publicPort is <= 0) publicPort = null;
+                    var publicScheme = string.Equals((string?)saved["publicScheme"], "https", StringComparison.OrdinalIgnoreCase) ? "https" : "http";
                     var payload = new JsonObject
                     {
                         ["listenIp"] = (string?)saved["listenIp"] ?? "0.0.0.0",
                         ["listenPort"] = listenPort,
                         ["publicIp"] = (string?)saved["ip"] ?? active.ip,
-                        ["publicPort"] = publicPort > 0 ? publicPort : listenPort,
+                        ["publicPort"] = publicPort,
+                        ["publicScheme"] = publicScheme,
                         ["activeListenIp"] = active.listenIp,
                         ["activeListenPort"] = active.portHttp,
                         ["activePublicIp"] = active.ip,
-                        ["activePublicPort"] = active.publicPortHttp > 0 ? active.publicPortHttp : active.portHttp
+                        ["activePublicPort"] = active.publicPortHttp is > 0 ? active.publicPortHttp : null,
+                        ["activePublicScheme"] = string.Equals(active.publicScheme, "https", StringComparison.OrdinalIgnoreCase) ? "https" : "http"
                     };
                     payload["restartRequired"] = (string?)payload["listenIp"] != active.listenIp ||
                         (int?)payload["listenPort"] != active.portHttp || (string?)payload["publicIp"] != active.ip ||
-                        (int?)payload["publicPort"] != (active.publicPortHttp > 0 ? active.publicPortHttp : active.portHttp);
+                        (int?)payload["publicPort"] != (active.publicPortHttp is > 0 ? active.publicPortHttp : null) ||
+                        (string?)payload["publicScheme"] != (string?)payload["activePublicScheme"];
                     return Results.Text(payload.ToJsonString(), "application/json");
                 }
             }
@@ -497,14 +508,24 @@ public static class AdminApiEndpoints
             if (body == null) return BadJson();
             var listenIp = body["listenIp"]?.ToString()?.Trim() ?? "";
             var publicIp = body["publicIp"]?.ToString()?.Trim() ?? "";
+            var publicScheme = body["publicScheme"]?.ToString()?.Trim().ToLowerInvariant() ?? "http";
             if (!IPAddress.TryParse(listenIp, out var address) || address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
                 return SystemSettingsError("监听 IP 必须是 IPv4 地址，例如 0.0.0.0 或 127.0.0.1");
             if (publicIp.Length > 253 || publicIp.Contains("://") ||
                 Uri.CheckHostName(publicIp) is not (UriHostNameType.Dns or UriHostNameType.IPv4) || publicIp == "0.0.0.0")
                 return SystemSettingsError("对外 IP 必须是可供客户端访问的 IPv4 地址或域名，不能是 0.0.0.0");
-            if (!int.TryParse(body["listenPort"]?.ToString(), out var listenPort) || listenPort is < 1 or > 65535 ||
-                !int.TryParse(body["publicPort"]?.ToString(), out var publicPort) || publicPort is < 1 or > 65535)
-                return SystemSettingsError("端口必须在 1–65535 之间");
+            if (publicScheme is not ("http" or "https"))
+                return SystemSettingsError("对外协议只能选择 http 或 https");
+            if (!int.TryParse(body["listenPort"]?.ToString(), out var listenPort) || listenPort is < 1 or > 65535)
+                return SystemSettingsError("监听端口必须在 1–65535 之间");
+            int? publicPort = null;
+            var publicPortText = body["publicPort"]?.ToString()?.Trim();
+            if (!string.IsNullOrEmpty(publicPortText))
+            {
+                if (!int.TryParse(publicPortText, out var parsedPublicPort) || parsedPublicPort is < 1 or > 65535)
+                    return SystemSettingsError("对外端口留空即可省略；填写时必须在 1–65535 之间");
+                publicPort = parsedPublicPort;
+            }
             try
             {
                 lock (SystemSettingsLock)
@@ -515,7 +536,8 @@ public static class AdminApiEndpoints
                     root["listenIp"] = listenIp;
                     root["portHttp"] = listenPort;
                     root["ip"] = publicIp;
-                    root["publicPortHttp"] = publicPort;
+                    root["publicPortHttp"] = publicPort is null ? null : JsonValue.Create(publicPort.Value);
+                    root["publicScheme"] = publicScheme;
                     var temp = path + ".tmp";
                     try
                     {

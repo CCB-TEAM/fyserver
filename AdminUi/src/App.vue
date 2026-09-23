@@ -7,6 +7,7 @@ const pages = import.meta.glob('./pages/*.vue');
 const loader = pages[`./pages/${route}.vue`] || pages['./pages/index.vue'];
 const Page = defineAsyncComponent(loader);
 const isLogin = route === 'login';
+const isStandalone = isLogin || route === 'database-setup';
 const links = [
   ['index', 'home', '基础信息', '监控'],
   ['matches', 'matches', '对局监控', '监控'],
@@ -57,7 +58,7 @@ async function session() {
 }
 
 onMounted(() => {
-  document.body.classList.toggle('auth-body', isLogin);
+  document.body.classList.toggle('auth-body', isStandalone);
   window.Admin.applyTheme({ ...theme.value, dark: dark.value });
   if (!isLogin) {
     session();
@@ -68,7 +69,7 @@ onUnmounted(() => clearInterval(heartbeat));
 </script>
 
 <template>
-  <Page v-if="isLogin" />
+  <Page v-if="isStandalone" />
   <div v-else class="admin-shell" :class="{ 'sidebar-collapsed': sidebarClosed }">
     <button type="button" class="sidebar-scrim" aria-label="关闭侧边栏" @click="sidebarClosed = true"></button>
     <aside class="admin-sidebar">

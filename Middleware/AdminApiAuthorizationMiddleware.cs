@@ -18,7 +18,8 @@ public sealed class AdminApiAuthorizationMiddleware
         }
         if (path.Equals("/admin/api/login", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/admin/api/session", StringComparison.OrdinalIgnoreCase) ||
-            path.Equals("/admin/api/setup", StringComparison.OrdinalIgnoreCase))
+            path.Equals("/admin/api/setup", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/admin/api/database/configure", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;

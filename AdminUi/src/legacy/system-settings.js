@@ -10,12 +10,15 @@ const Admin = window.Admin;
     $('listen-ip').value = d.listenIp;
     $('listen-port').value = d.listenPort;
     $('public-ip').value = d.publicIp;
-    $('public-port').value = d.publicPort;
+    $('public-port').value = d.publicPort ?? '';
+    $('public-scheme').value = d.publicScheme || 'http';
     $('restart-state').textContent = d.restartRequired
       ? '已保存的地址与当前运行地址不同，需要重启服务器后生效。'
       : '已保存配置与当前运行配置一致。';
+    const port = value => value == null || value === '' ? '不拼接（标准端口）' : value;
     const rows = [['监听 IP', d.activeListenIp, d.listenIp], ['监听端口', d.activeListenPort, d.listenPort],
-      ['对外 IP / 域名', d.activePublicIp, d.publicIp], ['对外端口', d.activePublicPort, d.publicPort]];
+      ['对外协议', d.activePublicScheme || 'http', d.publicScheme || 'http'], ['对外 IP / 域名', d.activePublicIp, d.publicIp],
+      ['对外端口', port(d.activePublicPort), port(d.publicPort)]];
     $('comparison').innerHTML = rows.map(r => '<tr><td>' + Admin.esc(r[0]) + '</td><td class="mono">' + Admin.esc(r[1]) + '</td><td class="mono">' + Admin.esc(r[2]) + '</td></tr>').join('');
   }
 
@@ -38,7 +41,8 @@ const Admin = window.Admin;
   $('reload').onclick = loadNetwork;
   $('settings-form').onsubmit = async e => {
     e.preventDefault();
-    const body = { listenIp: $('listen-ip').value.trim(), listenPort: Number($('listen-port').value), publicIp: $('public-ip').value.trim(), publicPort: Number($('public-port').value) };
+    const publicPort = $('public-port').value.trim();
+    const body = { listenIp: $('listen-ip').value.trim(), listenPort: Number($('listen-port').value), publicIp: $('public-ip').value.trim(), publicPort: publicPort || null, publicScheme: $('public-scheme').value };
     if (!confirm('保存后需要重启服务器才会生效。确定保存网络地址？')) return;
     $('save').disabled = true;
     try {

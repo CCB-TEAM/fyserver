@@ -9,12 +9,13 @@
         <label class="field"><span>监听 IP（IPv4）</span><input id="listen-ip" type="text" required placeholder="0.0.0.0" autocomplete="off"><small>0.0.0.0 监听所有网卡；127.0.0.1 仅允许本机连接。</small></label>
         <label class="field"><span>监听端口</span><input id="listen-port" type="number" min="1" max="65535" required></label>
         <label class="field"><span>对外 IP / 域名</span><input id="public-ip" type="text" required placeholder="example.com" autocomplete="off"><small>填写客户端实际可访问的地址；不要填写 0.0.0.0。</small></label>
-        <label class="field"><span>对外端口</span><input id="public-port" type="number" min="1" max="65535" required><small>可与监听端口不同，例如经过端口映射或反向代理。</small></label>
+        <label class="field"><span>对外协议</span><select id="public-scheme"><option value="http">HTTP</option><option value="https">HTTPS</option></select><small>HTTPS 同时将客户端 WebSocket 地址设为 WSS；TLS 证书需由服务器或反向代理提供。</small></label>
+        <label class="field"><span>对外端口（可选）</span><input id="public-port" type="number" min="1" max="65535" placeholder="留空则不拼接端口"><small>留空时返回标准 URL（例如 https://example.com）；需要非标准端口时再填写。</small></label>
       </div>
       <div class="btn-row"><button class="btn" type="submit" id="save">保存设置</button><button class="btn btn--outline" type="button" id="reload">重新读取</button></div>
     </form>
   </section>
-  <section class="card"><h2>当前运行与待生效配置</h2><p class="muted" id="restart-state"></p><div class="table-wrap"><table class="md-table"><thead><tr><th>项目</th><th>当前运行</th><th>已保存（重启后）</th></tr></thead><tbody id="comparison"></tbody></table></div><p class="muted">对外地址仅用于生成客户端收到的 HTTP / WebSocket URL；不会自动创建端口映射、配置防火墙或 TLS。</p></section>
+  <section class="card"><h2>当前运行与待生效配置</h2><p class="muted" id="restart-state"></p><div class="table-wrap"><table class="md-table"><thead><tr><th>项目</th><th>当前运行</th><th>已保存（重启后）</th></tr></thead><tbody id="comparison"></tbody></table></div><p class="muted">对外协议用于生成客户端收到的 HTTP / WebSocket URL；此设置不会自动创建端口映射、配置防火墙或部署 TLS 证书。</p></section>
   <section class="card"><h2>对局历史保留</h2><p class="muted">清理任务每周运行一次，仅删除已结束对局；进行中的对局不会被清理。可按数量或结束时间保留，设置时间均为 UTC。</p>
     <form id="match-retention-form"><div class="form-grid">
       <label class="field"><span>保留方式</span><select id="retention-mode"><option value="age">按时间保留</option><option value="count">按对局数量保留</option></select></label>

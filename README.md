@@ -262,7 +262,7 @@ fyserver/
 
 服务器配置值保存在 `config/serverOptions.json`，发送开关保存在 `config/serverOptions.flags.json`，自定义注释保存在 `config/serverOptions.comments.json`。镜像原始说明由 `config/serverOptions.schema.json` 提供；自定义注释只影响后台展示，不会进入游戏客户端的 `server_options`。镜像页面截断的六项默认值以禁用的占位值保留，填入完整值后才能启用。
 
-宿主网络设置独立保存在 `setting.json`：`listenIp`/`portHttp` 控制实际监听，`ip`/`publicPortHttp` 控制返回给客户端的 HTTP 与 WebSocket 地址。默认监听 `0.0.0.0`，默认对外 IP 为 `127.0.0.1`，对外端口沿用 `portHttp`。后台保存不会中断当前连接，重启后生效；若要让其他设备连接，应在后台把对外 IP 改为该设备可访问的服务器地址，并按需配置端口映射、防火墙或反向代理。
+宿主网络设置独立保存在 `setting.json`：`listenIp`/`portHttp` 控制实际监听，`ip`/`publicPortHttp`/`publicScheme` 控制返回给客户端的 HTTP 与 WebSocket 地址。对外端口可留空以省略 URL 端口；`publicScheme` 可选 `http` 或 `https`，HTTPS 会对应生成 WSS 地址。默认监听 `0.0.0.0`，默认对外 IP 为 `127.0.0.1`。后台保存不会中断当前连接，重启后生效；HTTPS 需由本机 Kestrel 或反向代理实际提供 TLS，后台设置只控制通告给客户端的 URL。
 
 内容配置落盘：`config/frontpage.json` 保持客户端原生的 `elements`/`targeted` 和 camelCase 字段；`config/skirmish.json`、`config/knockout.json` 使用 `entries` 数组。后台支持导入/导出、日历、状态筛选、定时发布和快捷发布开关；frontpage 的常用字段可通过表单编辑，图片可填写图床 URL 或上传 PNG/JPEG/WebP/GIF（每张最多 5 MB，存于 `wwwroot/admin-ui/uploads/`）。乱斗表单参考镜像后台，支持多语言说明、奖励、基础规则、黑名单、随机牌组、卡牌数量限制与主要回合/部署效果。完整 JSON 编辑仍保留，未被表单修改的字段原样保留，保存前备份 `.bak`。`/fp/` 仅下发生效且已发布的普通条目。镜像的定向规则引擎尚未接入，因此定向条目虽可编辑保存，但不会下发给玩家。首页预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564）。
 

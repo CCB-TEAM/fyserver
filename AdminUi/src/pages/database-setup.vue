@@ -6,7 +6,7 @@
   <section class="card">
     <form id="database-form">
       <div class="form-grid database-grid">
-        <label class="field"><span>存储类型</span><select id="provider"><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option><option value="local">本地 FASTER（兼容旧数据）</option></select><small>新部署推荐使用 PostgreSQL 或 MySQL；本地模式无需外部数据库。</small></label>
+        <label class="field"><span>存储类型</span><select id="provider"><option value="local">FASTER（本地存储）</option><option value="mysql">MySQL</option><option value="postgresql">PostgreSQL</option></select><small>首次启动先选择玩家数据存储。FASTER 无需外部数据库；MySQL / PostgreSQL 需预先创建数据库。</small></label>
         <label class="field remote"><span>主机 / IP</span><input id="host" autocomplete="off" placeholder="127.0.0.1"></label>
         <label class="field remote"><span>端口</span><input id="port" type="number" min="1" max="65535"></label>
         <label class="field remote"><span>数据库名</span><input id="database" autocomplete="off" placeholder="fyserver"></label>

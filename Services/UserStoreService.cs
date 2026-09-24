@@ -8,6 +8,7 @@ public sealed class UserStoreService
 {
     private readonly Func<FasterKvService> _localDatabaseFactory;
     private readonly UserDatabaseConfigurationService _configuration;
+    private readonly AppDataStoreService _appData;
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _userLocks = new();
     private readonly SemaphoreSlim _createLock = new(1, 1);
     private readonly SemaphoreSlim _identityLock = new(1, 1);
@@ -18,10 +19,11 @@ public sealed class UserStoreService
     public string? Provider => _backend?.Provider;
     public string? LastInitializationError { get; private set; }
 
-    public UserStoreService(Func<FasterKvService> localDatabaseFactory, UserDatabaseConfigurationService configuration)
+    public UserStoreService(Func<FasterKvService> localDatabaseFactory, UserDatabaseConfigurationService configuration, AppDataStoreService appData)
     {
         _localDatabaseFactory = localDatabaseFactory;
         _configuration = configuration;
+        _appData = appData;
     }
 
     public async Task TryInitializeConfiguredAsync(CancellationToken cancellationToken = default)
@@ -156,6 +158,7 @@ public sealed class UserStoreService
                 ? new LocalUserStoreBackend(_localDatabaseFactory())
                 : new RelationalUserStoreBackend(settings);
             await candidate.InitializeAsync(cancellationToken);
+            _appData.Initialize(settings);
             if (save) _configuration.Save(settings);
             var previous = _backend;
             _backend = candidate;

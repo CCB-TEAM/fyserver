@@ -26,7 +26,16 @@ public sealed class LocalUserStoreBackend(FasterKvService database) : IUserStore
     }
     public Task<List<User>> GetAllAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult(database.GetAllByPrefix<User>("user:id:"));
-    public Task ClearAsync(CancellationToken cancellationToken = default) { database.Clear(); return Task.CompletedTask; }
+    public Task ClearAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var keys = database.GetKeysByPrefix("user:id:")
+            .Concat(database.GetKeysByPrefix("user:username:"))
+            .ToList();
+        if (keys.Count > 0) database.Batch<User>(null, keys);
+        database.Checkpoint(FASTER.core.CheckpointType.FoldOver);
+        return Task.CompletedTask;
+    }
     public Task CheckpointAsync(CancellationToken cancellationToken = default)
     {
         database.Checkpoint(FASTER.core.CheckpointType.FoldOver);

@@ -22,6 +22,7 @@ export default defineConfig({
     proxy: {
       '/admin/api': backend,
       '/admin-ui/uploads': backend,
+      '/patch-paks': backend,
     },
   },
   build: {

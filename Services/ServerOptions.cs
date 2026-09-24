@@ -33,16 +33,16 @@ public class ServerOptions
     public void ReadFromFile()
     {
         const string path = "./setting.json";
-        if (!File.Exists(path))
-        {
-            Write();
-            return;
-        }
+        if (!File.Exists(path)) return;
 
-        var loaded = JsonSerializer.Deserialize(File.ReadAllText(path), ConfigJsonContext.Default.ServerOptions);
+        ReadFromJson(File.ReadAllText(path));
+    }
+
+    public void ReadFromJson(string json)
+    {
+        var loaded = JsonSerializer.Deserialize(json, ConfigJsonContext.Default.ServerOptions);
         if (loaded == null)
         {
-            Write();
             return;
         }
 
@@ -53,10 +53,5 @@ public class ServerOptions
         publicScheme = string.Equals(loaded.publicScheme, "https", StringComparison.OrdinalIgnoreCase) ? "https" : "http";
         bancheat = loaded.bancheat;
         adminApiKey = loaded.adminApiKey ?? "";
-    }
-
-    public void Write()
-    {
-        File.WriteAllText("./setting.json", JsonSerializer.Serialize(this, ConfigJsonContext.Default.ServerOptions));
     }
 }

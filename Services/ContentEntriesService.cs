@@ -6,7 +6,7 @@ using System.Globalization;
 namespace fyserver.Services;
 
 /// <summary>
-/// 后台内容配置的落盘存储：frontpage 元素 / skirmish / knockout 共用一套「条目数组」模型。
+/// 后台内容配置的数据库存储：frontpage 元素 / skirmish / knockout 共用一套「条目数组」模型。
 ///
 /// 文件结构（三者一致）：
 /// <code>
@@ -19,7 +19,7 @@ namespace fyserver.Services;
 /// frontpage 额外兼容客户端既有格式（顶层 elements/targeted 数组），读写时自动转换。
 ///
 /// 一律走 JsonNode DOM API（不依赖反射序列化），NativeAOT 安全；
-/// 保存前校验 JSON 并备份为 <c>{path}.bak</c>。
+/// 保存前校验 JSON，原始 JSON 作为数据库记录持久化。
 /// </summary>
 public class ContentEntriesService
 {
@@ -28,6 +28,9 @@ public class ContentEntriesService
     public const string KnockoutPath = "./config/knockout.json";
 
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    private readonly AppDataStoreService _appData;
+
+    public ContentEntriesService(AppDataStoreService appData) => _appData = appData;
 
     /// <summary>后台列表里显示的一条内容配置。</summary>
     public sealed class Entry
@@ -197,10 +200,10 @@ public class ContentEntriesService
         return Write(FrontpagePath, root, published ? $"已发布条目 {id}" : $"已取消发布条目 {id}");
     }
 
-    /// <summary>读取文件原始文本（编辑页的 JSON 视图）。</summary>
-    public string ReadRaw(string path) => File.Exists(path) ? File.ReadAllText(path) : DefaultDocument(path);
+    /// <summary>读取数据库中的原始 JSON 文本（编辑页的 JSON 视图）。</summary>
+    public string ReadRaw(string path) => _appData.Get(StorageKey(path)) ?? DefaultDocument(path);
 
-    /// <summary>直接保存编辑后的文件原文（校验 + 备份）。</summary>
+    /// <summary>直接保存编辑后的 JSON 原文（校验后写入数据库）。</summary>
     public (bool ok, string message) SaveRaw(string path, string json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -239,7 +242,7 @@ public class ContentEntriesService
                 (!string.IsNullOrWhiteSpace(start) && !string.IsNullOrWhiteSpace(end) && startAt > endAt))
                 return (false, $"条目 {EntryId(entry)} 的发布时间无效");
         }
-        return Write(path, root, "已保存（原文件已备份为 .bak）");
+        return Write(path, root, "已保存到数据库");
     }
 
     // ---------------------------------------------------------------- 内部
@@ -409,12 +412,13 @@ public class ContentEntriesService
 
     private JsonObject ReadRoot(string path)
     {
-        if (!File.Exists(path))
+        var raw = _appData.Get(StorageKey(path));
+        if (raw == null)
             return new JsonObject { ["entries"] = new JsonArray() };
 
         try
         {
-            var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject
+            var root = JsonNode.Parse(raw) as JsonObject
                        ?? new JsonObject { ["entries"] = new JsonArray() };
 
             if (path == FrontpagePath) NormalizeFrontpageRoot(root);
@@ -431,21 +435,22 @@ public class ContentEntriesService
     {
         try
         {
-            var directory = Path.GetDirectoryName(Path.GetFullPath(path));
-            if (!string.IsNullOrEmpty(directory))
-                Directory.CreateDirectory(directory);
-
-            var temp = path + ".tmp";
-            File.WriteAllText(temp, root.ToJsonString(Indented));
-            if (File.Exists(path)) File.Copy(path, path + ".bak", overwrite: true);
-            File.Move(temp, path, true);
-            return (true, $"{message}（{path}，原文件已备份为 .bak）");
+            _appData.Set(StorageKey(path), root.ToJsonString(Indented));
+            return (true, $"{message}（已保存到数据库并立即生效）");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Data.Common.DbException)
         {
-            return (false, $"写入 {path} 失败：{ex.Message}");
+            return (false, $"写入数据库失败：{ex.Message}");
         }
     }
+
+    private static string StorageKey(string path) => path switch
+    {
+        FrontpagePath => "content:frontpage",
+        SkirmishPath => "content:skirmish",
+        KnockoutPath => "content:knockout",
+        _ => throw new ArgumentOutOfRangeException(nameof(path), "未知内容配置类型")
+    };
 
     private static string DefaultDocument(string path) => "{ \"entries\": [] }";
 
@@ -475,7 +480,7 @@ public class ContentEntriesService
         return "active";
     }
 
-    /// <summary>按发布时间生成客户端格式，不修改存储文件。定向规则未实现前绝不向所有玩家广播定向条目。</summary>
+    /// <summary>按发布时间生成客户端格式，不修改存储数据。定向规则未实现前绝不向所有玩家广播定向条目。</summary>
     public string ReadPublishedFrontpage()
     {
         var root = ReadRoot(FrontpagePath);

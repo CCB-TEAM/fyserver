@@ -2,93 +2,93 @@ using System.Text.Json.Nodes;
 
 namespace fyserver.Services;
 
-/// <summary>后台写操作审计日志。只记录路径和结果，不记录请求体、密码、Cookie 或密钥。</summary>
-public sealed class AdminAuditLogService
+/// <summary>后台写操作和登录审计日志，统一存储在所选数据库中。</summary>
+public sealed class AdminAuditLogService(AppDataStoreService appData)
 {
-    private const string PathName = "./data/admin-audit.jsonl";
-    private const string LoginPath = "./data/admin-logins.jsonl";
+    private const string ActionPrefix = "admin:audit:";
+    private const string LoginPrefix = "admin:login:";
     private readonly object _gate = new();
 
     public void Record(string actor, string action, string path, int status, string? address)
     {
+        var now = DateTime.UtcNow;
         var entry = new JsonObject
         {
-            ["time"] = DateTime.UtcNow.ToString("O"), ["actor"] = actor,
+            ["time"] = now.ToString("O"), ["actor"] = actor,
             ["action"] = action, ["path"] = path, ["status"] = status,
             ["address"] = address ?? ""
         };
-        lock (_gate)
-        {
-            try
-            {
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(PathName)!);
-                File.AppendAllText(PathName, entry.ToJsonString() + Environment.NewLine);
-            }
-            catch (IOException ex) { Console.WriteLine($"后台审计日志写入失败：{ex.Message}"); }
-        }
+        Write(ActionPrefix, now, entry);
     }
 
-    public JsonArray Recent(int count = 200)
-    {
-        var entries = new JsonArray();
-        lock (_gate)
-        {
-            if (!File.Exists(PathName)) return entries;
-            foreach (var line in File.ReadLines(PathName).TakeLast(Math.Clamp(count, 1, 500)))
-            {
-                try { if (JsonNode.Parse(line) is { } node) entries.Add(node); }
-                catch (System.Text.Json.JsonException) { }
-            }
-        }
-        return entries;
-    }
+    public JsonArray Recent(int count = 200) => new(
+        ReadAll(ActionPrefix)
+            .OrderByDescending(item => (string?)item["time"])
+            .Take(Math.Clamp(count, 1, 500))
+            .Select(item => (JsonNode?)item)
+            .ToArray());
 
     public void RecordLogin(string username, bool success, string? address)
     {
+        var now = DateTime.UtcNow;
         var entry = new JsonObject
         {
-            ["time"] = DateTime.UtcNow.ToString("O"), ["username"] = username,
+            ["time"] = now.ToString("O"), ["username"] = username,
             ["success"] = success, ["address"] = address ?? ""
         };
+        Write(LoginPrefix, now, entry);
+    }
+
+    public (JsonArray Entries, int Total) ActionsFor(string username, int page = 1) => ReadFiltered(ActionPrefix, "actor", [username], page);
+    public (JsonArray Entries, int Total) LoginsFor(string username, int page = 1) => ReadFiltered(LoginPrefix, "username", [username], page);
+    public (JsonArray Entries, int Total) ActionsFor(IEnumerable<string> usernames, int page = 1) => ReadFiltered(ActionPrefix, "actor", usernames, page);
+    public (JsonArray Entries, int Total) LoginsFor(IEnumerable<string> usernames, int page = 1) => ReadFiltered(LoginPrefix, "username", usernames, page);
+
+    private void Write(string prefix, DateTime time, JsonObject entry)
+    {
         lock (_gate)
         {
             try
             {
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(LoginPath)!);
-                File.AppendAllText(LoginPath, entry.ToJsonString() + Environment.NewLine);
+                var key = prefix + time.ToString("yyyyMMddHHmmssfffffff") + ":" + Guid.NewGuid().ToString("N");
+                appData.Set(key, entry.ToJsonString());
             }
-            catch (IOException ex) { Console.WriteLine($"后台登录日志写入失败：{ex.Message}"); }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or System.Data.Common.DbException)
+            {
+                Console.WriteLine($"后台审计日志数据库写入失败：{ex.GetBaseException().Message}");
+            }
         }
     }
 
-    public (JsonArray Entries, int Total) ActionsFor(string username, int page = 1) => ReadFiltered(PathName, "actor", username, page);
-    public (JsonArray Entries, int Total) LoginsFor(string username, int page = 1) => ReadFiltered(LoginPath, "username", username, page);
-
-    public (JsonArray Entries, int Total) ActionsFor(IEnumerable<string> usernames, int page = 1) => ReadFiltered(PathName, "actor", usernames, page);
-    public (JsonArray Entries, int Total) LoginsFor(IEnumerable<string> usernames, int page = 1) => ReadFiltered(LoginPath, "username", usernames, page);
-
-    private (JsonArray Entries, int Total) ReadFiltered(string path, string field, string value, int page) =>
-        ReadFiltered(path, field, [value], page);
-
-    private (JsonArray Entries, int Total) ReadFiltered(string path, string field, IEnumerable<string> values, int page)
+    private List<JsonObject> ReadAll(string prefix)
     {
-        var filter = values.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var matches = new List<JsonNode>();
         lock (_gate)
         {
-            if (!File.Exists(path)) return (new JsonArray(), 0);
-            foreach (var line in File.ReadLines(path))
+            try
             {
-                try
-                {
-                    if (JsonNode.Parse(line) is not JsonObject entry || !filter.Contains(entry[field]?.GetValue<string>() ?? "")) continue;
-                    matches.Add(entry);
-                }
-                catch (System.Text.Json.JsonException) { }
+                return appData.List(prefix)
+                    .Select(pair => JsonNode.Parse(pair.Value) as JsonObject)
+                    .Where(item => item != null)
+                    .Cast<JsonObject>()
+                    .ToList();
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or System.Data.Common.DbException)
+            {
+                Console.WriteLine($"后台审计日志数据库读取失败：{ex.GetBaseException().Message}");
+                return [];
             }
         }
+    }
+
+    private (JsonArray Entries, int Total) ReadFiltered(string prefix, string field, IEnumerable<string> values, int page)
+    {
+        var filter = values.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var matches = ReadAll(prefix)
+            .Where(entry => filter.Contains((string?)entry[field] ?? ""))
+            .OrderByDescending(entry => (string?)entry["time"])
+            .ToList();
         var result = new JsonArray();
-        foreach (var entry in matches.AsEnumerable().Reverse().Skip((Math.Clamp(page, 1, 100000) - 1) * 100).Take(100)) result.Add(entry);
+        foreach (var entry in matches.Skip((Math.Clamp(page, 1, 100000) - 1) * 100).Take(100)) result.Add(entry.DeepClone());
         return (result, matches.Count);
     }
 }

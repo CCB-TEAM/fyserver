@@ -9,13 +9,12 @@ using Npgsql;
 namespace fyserver.Services;
 
 /// <summary>
-/// 对局历史持久化。关系型模式与玩家数据共用已配置数据库；本地模式使用独立原子 JSON 文件，
-/// 以便未迁移到 PostgreSQL 的开发实例仍可验证回放功能。
+/// 对局历史持久化。关系型模式与玩家数据共用数据库；本地模式写入 FASTER KV。
 /// </summary>
-public sealed class MatchHistoryService(UserDatabaseConfigurationService databaseConfiguration)
+public sealed class MatchHistoryService(UserDatabaseConfigurationService databaseConfiguration, AppDataStoreService appData)
 {
-    private const string LocalPath = "./data/match-history";
-    private const string RetentionPath = "./data/match-retention.json";
+    private const string RetentionKey = "match:retention";
+    private const string LocalPrefix = "match:document:";
     private readonly SemaphoreSlim _schemaLock = new(1, 1);
     private readonly object _retentionLock = new();
     private bool _schemaReady;
@@ -31,10 +30,21 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
     {
         lock (_retentionLock)
         {
-            if (!File.Exists(RetentionPath)) return DefaultRetention;
+            if (!appData.IsReady) return DefaultRetention;
+            var raw = appData.Get(RetentionKey);
+            if (raw == null)
+            {
+                appData.Set(RetentionKey, new JsonObject
+                {
+                    ["mode"] = DefaultRetention.Mode, ["keepCount"] = DefaultRetention.KeepCount,
+                    ["keepDays"] = DefaultRetention.KeepDays, ["cleanupDayUtc"] = DefaultRetention.CleanupDayUtc,
+                    ["cleanupHourUtc"] = DefaultRetention.CleanupHourUtc
+                }.ToJsonString());
+                return DefaultRetention;
+            }
             try
             {
-                var root = JsonNode.Parse(File.ReadAllText(RetentionPath))?.AsObject();
+                var root = JsonNode.Parse(raw)?.AsObject();
                 return NormalizeRetention(new MatchRetentionSettings(
                     root?["mode"]?.GetValue<string>() ?? DefaultRetention.Mode,
                     root?["keepCount"]?.GetValue<int>() ?? DefaultRetention.KeepCount,
@@ -51,8 +61,7 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         var normalized = NormalizeRetention(settings);
         lock (_retentionLock)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(RetentionPath)!);
-            var temp = RetentionPath + ".tmp";
+            if (!appData.IsReady) throw new InvalidOperationException("应用数据数据库尚未初始化");
             var json = new JsonObject
             {
                 ["mode"] = normalized.Mode,
@@ -61,8 +70,7 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
                 ["cleanupDayUtc"] = normalized.CleanupDayUtc,
                 ["cleanupHourUtc"] = normalized.CleanupHourUtc
             };
-            File.WriteAllText(temp, json.ToJsonString(new() { WriteIndented = true }));
-            File.Move(temp, RetentionPath, true);
+            appData.Set(RetentionKey, json.ToJsonString(new() { WriteIndented = true }));
         }
     }
 
@@ -81,14 +89,13 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return;
         if (settings.Provider == "local")
         {
-            var path = LocalFile(match.MatchId);
             await WithFileLockAsync(match.MatchId, async () =>
             {
-                var document = await ReadLocalAsync(path, cancellationToken) ?? BuildDocument(match, match.MatchStartingInfo);
+                var document = await ReadLocalAsync(match.MatchId, cancellationToken) ?? BuildDocument(match, match.MatchStartingInfo);
                 var known = document.Actions.Select(x => x.ActionId).ToHashSet();
                 document.Actions.AddRange(actions.Where(x => known.Add(x.ActionId)).OrderBy(x => x.ActionId));
                 document.Summary = ToSummary(match, document.Summary.StartedAt);
-                await WriteLocalAsync(path, document, cancellationToken);
+                await WriteLocalAsync(document, cancellationToken);
             });
             return;
         }
@@ -139,12 +146,11 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return;
         if (settings.Provider == "local")
         {
-            var path = LocalFile(match.MatchId);
             await WithFileLockAsync(match.MatchId, async () =>
             {
-                var document = await ReadLocalAsync(path, cancellationToken) ?? BuildDocument(match, match.MatchStartingInfo);
+                var document = await ReadLocalAsync(match.MatchId, cancellationToken) ?? BuildDocument(match, match.MatchStartingInfo);
                 document.Summary = ToSummary(match, document.Summary.StartedAt);
-                await WriteLocalAsync(path, document, cancellationToken);
+                await WriteLocalAsync(document, cancellationToken);
             });
             return;
         }
@@ -161,12 +167,11 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return;
         if (settings.Provider == "local")
         {
-            var path = LocalFile(match.MatchId);
             await WithFileLockAsync(match.MatchId, async () =>
             {
-                var document = await ReadLocalAsync(path, cancellationToken) ?? BuildDocument(match, match.MatchStartingInfo);
+                var document = await ReadLocalAsync(match.MatchId, cancellationToken) ?? BuildDocument(match, match.MatchStartingInfo);
                 document.Summary = ToSummary(match, document.Summary.StartedAt);
-                await WriteLocalAsync(path, document, cancellationToken);
+                await WriteLocalAsync(document, cancellationToken);
             });
             return;
         }
@@ -180,16 +185,13 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return [];
         if (settings.Provider == "local")
         {
-            Directory.CreateDirectory(LocalPath);
             var result = new List<MatchHistorySummary>();
-            foreach (var path in Directory.EnumerateFiles(LocalPath, "*.json").OrderByDescending(File.GetLastWriteTimeUtc))
+            foreach (var document in ReadLocalDocuments())
             {
-                var document = await ReadLocalAsync(path, cancellationToken);
                 if (document != null && (!completedOnly || document.Summary.Status == "completed") &&
                     (playerId == null || document.Summary.LeftPlayerId == playerId || document.Summary.RightPlayerId == playerId)) result.Add(document.Summary);
-                if (result.Count >= limit) break;
             }
-            return result.OrderByDescending(x => x.CompletedAt ?? x.StartedAt).ToList();
+            return result.OrderByDescending(x => x.CompletedAt ?? x.StartedAt).Take(limit).ToList();
         }
 
         await EnsureSchemaAsync(settings, cancellationToken);
@@ -230,11 +232,9 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return ([], 0);
         if (settings.Provider == "local")
         {
-            if (!Directory.Exists(LocalPath)) return ([], 0);
             var matches = new List<MatchHistorySummary>();
-            foreach (var path in Directory.EnumerateFiles(LocalPath, "*.json"))
+            foreach (var document in ReadLocalDocuments())
             {
-                var document = await ReadLocalAsync(path, cancellationToken);
                 var summary = document?.Summary;
                 if (summary == null || status != null && summary.Status != status ||
                     playerId != null && summary.LeftPlayerId != playerId && summary.RightPlayerId != playerId ||
@@ -286,22 +286,10 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return new JsonObject { ["configured"] = false, ["provider"] = "unconfigured", ["matchCount"] = 0, ["actionCount"] = 0, ["dataBytes"] = 0 };
         if (settings.Provider == "local")
         {
-            long bytes = 0;
-            var matchCount = 0;
-            var actionCount = 0;
-            if (Directory.Exists(LocalPath))
-            {
-                foreach (var path in Directory.EnumerateFiles(LocalPath, "*.json"))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    bytes += new FileInfo(path).Length;
-                    var document = await ReadLocalAsync(path, cancellationToken);
-                    if (document == null) continue;
-                    matchCount++;
-                    actionCount += document.Actions.Count;
-                }
-            }
-            return new JsonObject { ["configured"] = true, ["provider"] = "本地模式（玩家库：FASTER）", ["location"] = Path.GetFullPath(LocalPath), ["matchCount"] = matchCount, ["actionCount"] = actionCount, ["dataBytes"] = bytes };
+            cancellationToken.ThrowIfCancellationRequested();
+            var documents = ReadLocalDocuments();
+            var bytes = appData.List(LocalPrefix).Sum(item => (long)System.Text.Encoding.UTF8.GetByteCount(item.Value));
+            return new JsonObject { ["configured"] = true, ["provider"] = "本地模式（FASTER）", ["location"] = "FASTER: " + LocalPrefix, ["matchCount"] = documents.Count, ["actionCount"] = documents.Sum(document => document.Actions.Count), ["dataBytes"] = bytes };
         }
 
         await EnsureSchemaAsync(settings, cancellationToken);
@@ -328,14 +316,13 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return false;
         if (settings.Provider == "local")
         {
-            var path = LocalFile(matchId);
-            if (!File.Exists(path)) return false;
+            var exists = false;
             await WithFileLockAsync(matchId, () =>
             {
-                if (File.Exists(path)) File.Delete(path);
+                exists = appData.Delete(LocalKey(matchId));
                 return Task.CompletedTask;
             });
-            return true;
+            return exists;
         }
         await EnsureSchemaAsync(settings, cancellationToken);
         await using var connection = CreateConnection(settings);
@@ -353,7 +340,7 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         MatchHistoryDocument? document;
         if (settings.Provider == "local")
         {
-            document = await ReadLocalAsync(LocalFile(matchId), cancellationToken);
+            document = await ReadLocalAsync(matchId, cancellationToken);
             if (document == null) return null;
             return document;
         }
@@ -386,7 +373,7 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
     {
         var settings = databaseConfiguration.Load();
         if (settings == null) return false;
-        if (settings.Provider == "local") return File.Exists(LocalFile(matchId));
+        if (settings.Provider == "local") return appData.Get(LocalKey(matchId)) != null;
         await EnsureSchemaAsync(settings, cancellationToken);
         await using var connection = CreateConnection(settings);
         await connection.OpenAsync(cancellationToken);
@@ -404,7 +391,7 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         List<MatchAction> actions;
         if (settings.Provider == "local")
         {
-            var document = await ReadLocalAsync(LocalFile(matchId), cancellationToken);
+            var document = await ReadLocalAsync(matchId, cancellationToken);
             if (document == null) return null;
             actions = document.Actions.Where(x => x.ActionId > afterActionId).OrderBy(x => x.ActionId).Take(limit + 1).ToList();
         }
@@ -446,15 +433,13 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return 0;
         if (settings.Provider == "local")
         {
-            if (!Directory.Exists(LocalPath)) return 0;
-            var docs = new List<(string Path, MatchHistorySummary Summary)>();
-            foreach (var path in Directory.EnumerateFiles(LocalPath, "*.json"))
-            {
-                var doc = await ReadLocalAsync(path, cancellationToken);
-                if (doc?.Summary.Status is "completed" or "aborted") docs.Add((path, doc.Summary));
-            }
-            var expired = SelectExpired(docs.Select(x => (x.Path, x.Summary)).ToList(), options);
-            foreach (var item in expired) File.Delete(item.Path);
+            cancellationToken.ThrowIfCancellationRequested();
+            var docs = ReadLocalDocuments()
+                .Where(document => document.Summary.Status is "completed" or "aborted")
+                .Select(document => (Id: document.Summary.MatchId, Summary: document.Summary))
+                .ToList();
+            var expired = SelectExpired(docs, options);
+            foreach (var item in expired) appData.Delete(LocalKey(item.Id));
             return expired.Count;
         }
 
@@ -505,12 +490,11 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
         if (settings == null) return;
         if (settings.Provider == "local")
         {
-            var path = LocalFile(document.Summary.MatchId);
             await WithFileLockAsync(document.Summary.MatchId, async () =>
             {
-                var existing = await ReadLocalAsync(path, cancellationToken);
+                var existing = await ReadLocalAsync(document.Summary.MatchId, cancellationToken);
                 if (existing != null) document.Actions = existing.Actions;
-                await WriteLocalAsync(path, document, cancellationToken);
+                await WriteLocalAsync(document, cancellationToken);
             });
             return;
         }
@@ -607,7 +591,7 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
             match.MatchActions.Count, match.WinnerSide);
     }
 
-    private static List<(string Path, MatchHistorySummary Summary)> SelectExpired(List<(string Path, MatchHistorySummary Summary)> items, MatchRetentionSettings options)
+    private static List<(int Id, MatchHistorySummary Summary)> SelectExpired(List<(int Id, MatchHistorySummary Summary)> items, MatchRetentionSettings options)
     {
         var completed = items.Where(x => x.Summary.Status is "completed" or "aborted").OrderByDescending(x => x.Summary.CompletedAt).ToList();
         return options.Mode == "count"
@@ -615,19 +599,33 @@ public sealed class MatchHistoryService(UserDatabaseConfigurationService databas
             : completed.Where(x => x.Summary.CompletedAt < DateTime.UtcNow.AddDays(-options.KeepDays)).ToList();
     }
 
-    private static string LocalFile(int matchId) => Path.Combine(LocalPath, matchId + ".json");
-    private static async Task<MatchHistoryDocument?> ReadLocalAsync(string path, CancellationToken cancellationToken)
+    private static string LocalKey(int matchId) => LocalPrefix + matchId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    private List<MatchHistoryDocument> ReadLocalDocuments()
     {
-        if (!File.Exists(path)) return null;
-        try { return JsonSerializer.Deserialize(await File.ReadAllTextAsync(path, cancellationToken), FyJsonContext.Default.MatchHistoryDocument); }
-        catch { return null; }
+        return appData.List(LocalPrefix)
+            .Select(item => DeserializeLocal(item.Value))
+            .Where(document => document != null)
+            .Cast<MatchHistoryDocument>()
+            .ToList();
     }
-    private static async Task WriteLocalAsync(string path, MatchHistoryDocument document, CancellationToken cancellationToken)
+
+    private Task<MatchHistoryDocument?> ReadLocalAsync(int matchId, CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temp = path + ".tmp";
-        await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(document, FyJsonContext.Default.MatchHistoryDocument), cancellationToken);
-        File.Move(temp, path, true);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(DeserializeLocal(appData.Get(LocalKey(matchId))));
+    }
+    private Task WriteLocalAsync(MatchHistoryDocument document, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        appData.Set(LocalKey(document.Summary.MatchId), JsonSerializer.Serialize(document, FyJsonContext.Default.MatchHistoryDocument));
+        return Task.CompletedTask;
+    }
+
+    private static MatchHistoryDocument? DeserializeLocal(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return null;
+        try { return JsonSerializer.Deserialize(payload, FyJsonContext.Default.MatchHistoryDocument); }
+        catch (JsonException) { return null; }
     }
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> LocalLocks = new();
     private static async Task WithFileLockAsync(int id, Func<Task> action)

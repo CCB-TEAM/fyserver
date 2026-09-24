@@ -5,7 +5,7 @@ const Admin = window.Admin;
   if(!await Admin.ensureAuth())return;
   await Admin.mount('accounts','后台用户');
   const $=id=>document.getElementById(id);
-  const labels={players:'玩家管理',content:'内容管理',matches:'对局管理',serverConfig:'服务器配置',systemSettings:'系统设置',permissions:'权限管理'};
+  const labels={players:'玩家管理',content:'内容管理',matches:'对局管理',serverConfig:'服务器配置',systemSettings:'系统设置',patchPaks:'Patch Pak 管理',permissions:'权限管理'};
   $('new-permissions').innerHTML=Object.entries(labels).map(([key,label])=>'<label><input type="checkbox" data-permission="'+key+'"> '+label+'</label>').join('');
   async function load(){
     const response=await Admin.api('/accounts');

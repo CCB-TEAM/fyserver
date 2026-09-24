@@ -17,6 +17,7 @@ defineProps({ name: { type: String, required: true } });
       <path d="M9 3v3m0 3v2m0 3v2m0 3v2" stroke-dasharray="1 2" />
       <path d="m15.3 7.7.9 1.9 2.1.3-1.5 1.5.4 2.1-1.9-1-1.9 1 .4-2.1-1.5-1.5 2.1-.3Z" fill="currentColor" opacity=".7" />
     </template>
+    <template v-else-if="name === 'package'"><path d="m12 2 8 4.5v11L12 22l-8-4.5v-11L12 2Z" fill="currentColor" opacity=".14"/><path d="m4.4 6.7 7.6 4.4 7.6-4.4M12 11v10.5M8 4.2l8 4.6"/><path d="M8 13.3h2.5m3 0H16"/></template>
     <template v-else-if="name === 'home'"><rect x="3" y="3" width="8" height="8" rx="2" fill="currentColor" stroke="none" /><rect x="14" y="3" width="7" height="12" rx="2" fill="currentColor" opacity=".25" /><rect x="3" y="14" width="8" height="7" rx="2" fill="currentColor" opacity=".25" /><rect x="14" y="18" width="7" height="3" rx="1.5" fill="currentColor" stroke="none" /></template>
     <template v-else-if="name === 'users'"><circle cx="9" cy="8" r="4" fill="currentColor" stroke="none" /><path d="M2 21v-3a7 7 0 0 1 14 0v3Z" fill="currentColor" opacity=".25" /><path d="M16 4a4 4 0 0 1 0 8m2 3a5 5 0 0 1 4 5" /></template>
     <template v-else-if="name === 'matches'"><path d="M7 6h10c3 0 4 3 5 10 .5 4-3 5-5 2l-2-2H9l-2 2c-2 3-5 2-5-2C3 9 4 6 7 6Z" fill="currentColor" opacity=".2" /><path d="M7 9v6m-3-3h6" /><circle cx="16" cy="10" r="1.5" fill="currentColor" stroke="none" /><circle cx="19" cy="13" r="1.5" fill="currentColor" stroke="none" /></template>

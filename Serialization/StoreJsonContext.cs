@@ -23,4 +23,5 @@ namespace fyserver.Serialization;
 [JsonSerializable(typeof(List<Medkit>))]
 [JsonSerializable(typeof(List<Item>))]
 [JsonSerializable(typeof(Dictionary<string, int>))]
+[JsonSerializable(typeof(string))]
 public partial class StoreJsonContext : JsonSerializerContext;

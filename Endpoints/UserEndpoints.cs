@@ -9,7 +9,7 @@ public static class UserEndpoints
     public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         // 2. 配置和基本信息
-        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig) =>
+        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig, AppDataStoreService appData) =>
         {
             string addressHttp = options.GetAddressHttpR();
             User? user;
@@ -90,7 +90,7 @@ public static class UserEndpoints
                     false,
                     114514,
                     "Skirmish #91",
-                    File.Exists("./config/current_mini_sit_n_go.json") ? File.ReadAllText("./config/current_mini_sit_n_go.json") : "",
+                    appData.Get("session:mini-sit-n-go") ?? "",
                     "2026-03-27T12:00:00.000000Z"
                 ),
                 DailymissionsUrl: $"{addressHttp}/players/{user.Id}/dailymissions",

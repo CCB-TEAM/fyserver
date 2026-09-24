@@ -4,6 +4,7 @@ using System.Net;
 using fyserver.Models;
 using fyserver.Serialization;
 using fyserver.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace fyserver.Endpoints;
 
@@ -127,7 +128,7 @@ public static class AdminApiEndpoints
             var actor = (AdminAccount)context.Items["adminActor"]!;
             return ToResult(accounts.ChangeOwnPassword(actor, body["currentPassword"]?.GetValue<string>(), body["newPassword"]?.GetValue<string>()));
         });
-        api.MapPost("/me/avatar", async (HttpContext context, AdminAccountService accounts) =>
+        api.MapPost("/me/avatar", async (HttpContext context, AdminAccountService accounts, AppDataStoreService appData) =>
         {
             const int maxBytes = 1_500_000;
             if (context.Request.ContentLength > maxBytes + 32_768) return SystemSettingsError("头像文件超过 1.5 MB", 413);
@@ -145,10 +146,8 @@ public static class AdminApiEndpoints
             var width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(image.AsSpan(16, 4));
             var height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(image.AsSpan(20, 4));
             if (width is < 64 or > 1024 || height != width) return SystemSettingsError("头像必须为 1:1 正方形，边长为 64–1024 像素");
-            var folder = Path.Combine("wwwroot", "admin-ui", "uploads", "admin-avatars");
-            Directory.CreateDirectory(folder);
             var filename = Guid.NewGuid().ToString("N") + ".png";
-            await File.WriteAllBytesAsync(Path.Combine(folder, filename), image, context.RequestAborted);
+            appData.Set("asset:admin:admin-avatars/" + filename, Convert.ToBase64String(image));
             var avatarUrl = "/admin-ui/uploads/admin-avatars/" + filename;
             var actor = (AdminAccount)context.Items["adminActor"]!;
             if (!accounts.UpdateOwnAvatar(actor, avatarUrl)) return Results.NotFound();
@@ -228,7 +227,7 @@ public static class AdminApiEndpoints
         api.MapPost("/store/reload", (StoreConfigService store) =>
         {
             store.Reload();
-            return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "商店配置已重新加载（config/store.json）" }.ToJsonString(), "application/json");
+            return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "商店配置已从数据库重新加载" }.ToJsonString(), "application/json");
         });
 
         // ---------------------------------------------------------- 兑换码（参考 NestJS /admin/redeem）
@@ -272,6 +271,35 @@ public static class AdminApiEndpoints
         {
             var result = redeemCodes.Delete(code);
             return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
+        });
+
+        // ---------------------------------------------------------- Patch Pak 管理
+        api.MapGet("/patch-paks", (PatchPakService paks) => Results.Text(new JsonObject
+        {
+            ["algorithm"] = "SHA-256",
+            ["patches"] = new JsonArray(paks.List().Select(item => (JsonNode)PatchPakJson(item)).ToArray())
+        }.ToJsonString(), "application/json"));
+        api.MapPost("/patch-paks", async (HttpContext context, PatchPakService paks) =>
+        {
+            const long maxRequestBytes = PatchPakService.MaxPakSize + 1024 * 1024;
+            if (context.Request.ContentLength > maxRequestBytes) return SystemSettingsError("Pak 文件不能超过 128 MB", 413);
+            if (!context.Request.HasFormContentType) return SystemSettingsError("请使用 multipart/form-data 上传 Pak 文件");
+            IFormCollection form;
+            try { form = await context.Request.ReadFormAsync(context.RequestAborted); }
+            catch (InvalidDataException) { return SystemSettingsError("上传请求无效或超过 128 MB", 413); }
+            var file = form.Files.GetFile("pak");
+            if (file == null) return SystemSettingsError("请选择 .pak 文件");
+            if (file.Length <= 0 || file.Length > PatchPakService.MaxPakSize) return SystemSettingsError("Pak 文件必须大于 0 且不超过 128 MB", 413);
+            await using var input = file.OpenReadStream();
+            var (item, error) = await paks.UploadAsync(file.FileName, form["version"].ToString(), form["description"].ToString(), input, file.Length, context.RequestAborted);
+            if (item == null) return SystemSettingsError(error, error.Contains("不超过") ? 413 : 400);
+            return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "Pak 已保存并发布", ["patch"] = PatchPakJson(item) }.ToJsonString(), "application/json", statusCode: 201);
+        }).WithMetadata(new RequestSizeLimitAttribute(PatchPakService.MaxPakSize + 1024 * 1024),
+            new RequestFormLimitsAttribute { MultipartBodyLengthLimit = PatchPakService.MaxPakSize + 1024 * 1024 });
+        api.MapDelete("/patch-paks/{id}", (string id, PatchPakService paks) =>
+        {
+            var removed = paks.Delete(id);
+            return Results.Text(new JsonObject { ["ok"] = removed, ["message"] = removed ? "Pak 已删除" : "Pak 不存在" }.ToJsonString(), "application/json", statusCode: removed ? 200 : 404);
         });
 
         // ---------------------------------------------------------- 玩家数据库初始化
@@ -332,6 +360,7 @@ public static class AdminApiEndpoints
             var result = await users.ConfigureAsync(settings, context.RequestAborted);
             if (result.Ok)
             {
+                accounts.ReloadFromStore();
                 try { await matchHistory.InitializeAsync(context.RequestAborted); }
                 catch (Exception ex) { return JsonResult(false, "玩家数据库已连接，但对局历史表初始化失败：" + ex.GetBaseException().Message, 500); }
             }
@@ -344,7 +373,7 @@ public static class AdminApiEndpoints
             return Results.Text(new JsonObject
             {
                 ["ok"] = true,
-                ["path"] = "config/store.json",
+                ["storage"] = "database",
                 ["config"] = StoreConfigNode(store.GetStoreConfig())
             }.ToJsonString(), "application/json");
         });
@@ -439,7 +468,7 @@ public static class AdminApiEndpoints
         api.MapGet("/audit-logs", (AdminAuditLogService audit) =>
             Results.Text(new JsonObject { ["entries"] = audit.Recent() }.ToJsonString(), "application/json"));
 
-        // 宿主网络地址保存在 setting.json。保存不修改正在运行的监听器，重启后生效。
+        // 宿主网络地址保存在数据库。保存不修改正在运行的监听器，重启后生效。
         api.MapGet("/system-settings/match-retention", (MatchHistoryService history) =>
         {
             var settings = history.GetRetentionSettings();
@@ -471,13 +500,13 @@ public static class AdminApiEndpoints
             return Results.Text("{\"ok\":true,\"message\":\"对局保留策略已保存，每周按 UTC 计划清理\"}", "application/json");
         });
 
-        api.MapGet("/system-settings", (ServerOptions active) =>
+        api.MapGet("/system-settings", (ServerOptions active, AppDataStoreService appData) =>
         {
             try
             {
                 lock (SystemSettingsLock)
                 {
-                    var saved = JsonNode.Parse(File.ReadAllText("setting.json")) as JsonObject ?? new JsonObject();
+                    var saved = JsonNode.Parse(appData.Get("server:settings") ?? JsonSerializer.Serialize(active, ConfigJsonContext.Default.ServerOptions)) as JsonObject ?? new JsonObject();
                     var listenPort = (int?)saved["portHttp"] ?? active.portHttp;
                     var publicPort = (int?)saved["publicPortHttp"];
                     if (publicPort is <= 0) publicPort = null;
@@ -502,13 +531,13 @@ public static class AdminApiEndpoints
                     return Results.Text(payload.ToJsonString(), "application/json");
                 }
             }
-            catch (Exception ex) when (ex is IOException or JsonException)
+            catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or System.Data.Common.DbException)
             {
-                return Results.Text(new JsonObject { ["message"] = "读取 setting.json 失败：" + ex.Message }.ToJsonString(), "application/json", statusCode: 500);
+                return Results.Text(new JsonObject { ["message"] = "读取数据库设置失败：" + ex.Message }.ToJsonString(), "application/json", statusCode: 500);
             }
         });
 
-        api.MapPut("/system-settings", async (HttpContext context) =>
+        api.MapPut("/system-settings", async (HttpContext context, AppDataStoreService appData, ServerOptions active) =>
         {
             if (context.Request.ContentLength > 4096) return Results.StatusCode(413);
             var body = await ReadJsonBody(context);
@@ -537,32 +566,24 @@ public static class AdminApiEndpoints
             {
                 lock (SystemSettingsLock)
                 {
-                    const string path = "setting.json";
-                    var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
-                    if (root == null) return SystemSettingsError("setting.json 根节点必须是对象");
+                    var root = JsonNode.Parse(appData.Get("server:settings") ?? JsonSerializer.Serialize(active, ConfigJsonContext.Default.ServerOptions)) as JsonObject;
+                    if (root == null) return SystemSettingsError("服务器设置数据格式无效");
                     root["listenIp"] = listenIp;
                     root["portHttp"] = listenPort;
                     root["ip"] = publicIp;
                     root["publicPortHttp"] = publicPort is null ? null : JsonValue.Create(publicPort.Value);
                     root["publicScheme"] = publicScheme;
-                    var temp = path + ".tmp";
-                    try
-                    {
-                        File.WriteAllText(temp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-                        File.Copy(path, path + ".bak", true);
-                        File.Move(temp, path, true);
-                    }
-                    finally { if (File.Exists(temp)) File.Delete(temp); }
+                    appData.Set("server:settings", root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
                 }
-                return Results.Text("{\"ok\":true,\"message\":\"已保存到 setting.json；重启服务器后生效\",\"restartRequired\":true}", "application/json");
+                return Results.Text("{\"ok\":true,\"message\":\"已保存到数据库；重启服务器后生效\",\"restartRequired\":true}", "application/json");
             }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or InvalidOperationException or System.Data.Common.DbException)
             {
-                return SystemSettingsError("保存 setting.json 失败：" + ex.Message, 500);
+                return SystemSettingsError("保存服务器设置到数据库失败：" + ex.Message, 500);
             }
         });
 
-        // 游戏客户端 /session 的 server_options（不是监听端口等宿主 setting.json）。
+        // 游戏客户端 /session 的 server_options（与监听端口等宿主网络设置分开存储）。
         api.MapGet("/server-config", (ClientServerConfigService config) =>
         {
             JsonNode schema;
@@ -1106,7 +1127,7 @@ public static class AdminApiEndpoints
             return ToResult(entries.SetFrontpagePublished(id, published));
         });
 
-        api.MapPost("/content/frontpage/upload-image", async (HttpContext context, ServerOptions options) =>
+        api.MapPost("/content/frontpage/upload-image", async (HttpContext context, ServerOptions options, AppDataStoreService appData) =>
         {
             const int maxBytes = 5 * 1024 * 1024;
             if (context.Request.ContentLength > maxBytes + 16_384)
@@ -1126,15 +1147,13 @@ public static class AdminApiEndpoints
                 if (bytes.Length > maxBytes) return SystemSettingsError("图片不能超过 5 MB", 413);
                 var extension = ImageExtension(bytes);
                 if (extension == null) return SystemSettingsError("只支持 PNG、JPEG、WebP 和 GIF 位图");
-                var directory = Path.Combine("wwwroot", "admin-ui", "uploads");
-                Directory.CreateDirectory(directory);
                 var filename = Guid.NewGuid().ToString("N") + extension;
-                await File.WriteAllBytesAsync(Path.Combine(directory, filename), bytes, context.RequestAborted);
+                appData.Set("asset:admin:" + filename, Convert.ToBase64String(bytes));
                 return Results.Text(new JsonObject { ["ok"] = true, ["url"] = options.GetAddressHttpR() + "/admin-ui/uploads/" + filename }.ToJsonString(), "application/json");
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Data.Common.DbException)
             {
-                return SystemSettingsError("图片保存失败：" + ex.Message, 500);
+                return SystemSettingsError("图片保存到数据库失败：" + ex.Message, 500);
             }
         });
 
@@ -1155,6 +1174,14 @@ public static class AdminApiEndpoints
     // ---------------------------------------------------------------- 辅助
 
     private static JsonObject Queue(string name, int count) => new() { ["name"] = name, ["count"] = count };
+
+    private static JsonObject PatchPakJson(PatchPakInfo item) => new()
+    {
+        ["id"] = item.Id, ["fileName"] = item.FileName, ["version"] = item.Version,
+        ["description"] = item.Description, ["size"] = item.Size, ["sha256"] = item.Sha256,
+        ["createdAt"] = item.CreatedAt.ToString("O"),
+        ["downloadUrl"] = "/patch-paks/" + item.Id + "/download"
+    };
 
     private static IResult ToResult((bool ok, string message) result) =>
         Results.Text(new JsonObject { ["ok"] = result.ok, ["message"] = result.message }.ToJsonString(), "application/json");
@@ -1314,7 +1341,7 @@ public static class AdminApiEndpoints
         "application/json", statusCode: status);
 }
 
-/// <summary>三类内容配置的键与文件路径（静态后台接口共用）。</summary>
+/// <summary>三类内容配置的数据库键（静态后台接口共用）。</summary>
 internal static class ContentKinds
 {
     public sealed record Kind(string Key, string Path);

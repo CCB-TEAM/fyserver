@@ -6,7 +6,7 @@ const Admin = window.Admin;
   await Admin.mount('accounts','后台账号详情');
   const id=new URLSearchParams(location.search).get('id');if(!id){Admin.banner('账号 ID 无效','err');return}
   const $=name=>document.getElementById(name);
-  const labels={players:'玩家管理',content:'内容管理',matches:'对局与队列管理',serverConfig:'服务器配置',systemSettings:'系统设置',permissions:'权限管理'};
+  const labels={players:'玩家管理',content:'内容管理',matches:'对局与队列管理',serverConfig:'服务器配置',systemSettings:'系统设置',patchPaks:'Patch Pak 管理',permissions:'权限管理'};
   const fmt=value=>value?new Date(value).toLocaleString():'—';
   const kv=rows=>rows.map(([key,value])=>'<dt>'+Admin.esc(key)+'</dt><dd>'+Admin.esc(value)+'</dd>').join('');
   const self=await Admin.api('/session');let account;

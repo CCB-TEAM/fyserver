@@ -59,7 +59,7 @@ A simple game server written in C# using .NET 10.0.
 
 - .NET 10 / ASP.NET Core（minimal API）
 - Vue 3 + Vite 8（后台界面；ASP.NET Core 托管构建后的静态资源）
-- FASTER（`Microsoft.FASTER.Core`）—— 用户数据持久化（`user:username:*` / `user:id:*` 双索引）
+- FASTER（`Microsoft.FASTER.Core`）—— 本地模式数据库（玩家索引及统一应用数据键值）
 - System.Text.Json **全量源生成**（`FyJsonContext` / `ConfigJsonContext` / `StoreJsonContext`），零反射，NativeAOT 兼容
 - 消息编解码为**纯 C# 实现**（Base64 + XOR、查表密钥），无任何原生 DLL 依赖
 
@@ -70,9 +70,15 @@ dotnet build FYServer.slnx
 dotnet run --project fyserver.csproj
 ```
 
+### 持久化数据
+
+玩家选择的数据库是运行数据的来源：MySQL/PostgreSQL 会自动创建 `fy_app_data` 表，并与玩家、对局历史表共用；本地 FASTER 模式把同类数据保存在 FASTER KV 中。商店、首页/乱斗/淘汰赛内容、后台账户与审计记录、兑换码、客户端 `server_options`、服务器网络设置、对局保留策略、已上传的后台图片，以及 FASTER 模式的对局历史均使用该存储。启动或首次配置数据库时，旧版 JSON/JSONL 文件及上传图片会自动导入一次；导入后旧文件只作为回滚备份，不再作为运行时数据源。
+
+数据库连接信息和加密密钥仍保存在 `data/user-database.json` 与 `data/user-database.key`，因为服务器必须先读取它们才能连接数据库；静态游戏库和服务器选项说明元数据也仍随发行包保留。网络设置的数据库版本在数据库连接成功后覆盖本地 `setting.json` 引导值。
+
 `dotnet build` 和 `dotnet publish` 会先在 `AdminUi/` 执行 Vue/Vite 构建，再将生成文件作为 ASP.NET 静态资源复制到输出目录。首次构建需要 Node.js 和 npm，依赖由 `npm ci` 安装。若只修改后台页面，可在 `AdminUi/` 中运行 `npm run build`；Vue 组件和页面逻辑位于 `AdminUi/src/`，`wwwroot/admin-ui/` 是生成结果。前端开发服务器可用 `npm run dev` 启动，默认监听 `127.0.0.1:5173`，并将 `/admin/api` 代理至仓库当前使用的 `127.0.0.1:1145`。如果后端端口不同，可设置 `FYSERVER_DEV_ORIGIN`，例如 `http://127.0.0.1:5231`。
 
-- HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成。
+- HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；首次启动可由 `setting.json` 提供监听参数，完成数据库配置后以数据库中的系统设置为准。
 - 后台位于同一 HTTP 端口的 `/admin-ui/`。首次启动需在服务器本机创建 Owner 账户，之后本机和远程访问都必须登录；后台接口不再接受 `adminApiKey` 作为账号权限的替代凭据。
 - 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
 - 后台/无控制台环境下自动进入非交互模式，保持进程存活
@@ -183,12 +189,12 @@ fyserver/
 | `POST` | `/admin/api/accounts/{id}/reset-password` | 重置后台账号密码 |
 | `GET` | `/admin/api/audit-logs` | 读取最近的后台操作审计 |
 | `GET` | `/admin/api/server-config` | 读取客户端 `/session` 的 `server_options` 模板 |
-| `PUT` | `/admin/api/server-config` | 校验并保存模板，自动备份 `.bak`，下次客户端登录生效 |
+| `PUT` | `/admin/api/server-config` | 校验并保存模板到数据库，下次客户端登录生效 |
 | `PUT` | `/admin/api/server-config/item` | 新增或更新单项配置及自定义注释 |
 | `DELETE` | `/admin/api/server-config/item/{key}` | 删除单项配置（`websocketurl` 除外） |
 | `PUT` | `/admin/api/server-config/item/{key}/enabled` | 设置单项发送开关；关闭不删除配置值 |
 | `GET` | `/admin/api/system-settings` | 读取监听及对外地址的当前运行值和已保存值 |
-| `PUT` | `/admin/api/system-settings` | 校验并保存网络地址至 `setting.json`，备份 `.bak`，重启后生效 |
+| `PUT` | `/admin/api/system-settings` | 校验并保存网络地址到数据库，重启后生效 |
 | `GET` | `/admin/api/stats` | 概览：用户/在线/对局/队列统计与运行信息 |
 | `GET` | `/admin/api/users` | 用户列表（支持 `?q=` 搜索） |
 | `GET` | `/admin/api/users/{id}` | 用户详情（含卡组与进行中对局） |
@@ -201,20 +207,25 @@ fyserver/
 | `GET` | `/admin/api/matches` | 进行中的真人对局与各匹配队列 |
 | `POST` | `/admin/api/matches/{id}/remove` | 强制移除一条对局 |
 | `POST` | `/admin/api/queues/clear` | 清空全部匹配队列 |
-| `POST` | `/admin/api/store/reload` | 热重载 `config/store.json` |
+| `POST` | `/admin/api/store/reload` | 从数据库热重载商店配置 |
+| `GET` | `/admin/api/patch-paks` | 后台 Patch Pak 列表与 SHA-256 |
+| `POST` | `/admin/api/patch-paks` | 上传并发布 Pak（multipart 字段 `pak`、`version`、`description`；需要 Patch Pak 管理权限，单文件最大 128 MB） |
+| `DELETE` | `/admin/api/patch-paks/{id}` | 删除 Pak（需要 Patch Pak 管理权限） |
+| `GET` | `/patch-paks` | 启动器公开更新清单，包含文件名、版本、大小、SHA-256 和下载地址 |
+| `GET` | `/patch-paks/{id}/download` | 下载 Pak 二进制；响应带 SHA-256 ETag 并支持 Range 请求 |
 | `GET` | `/admin/api/content/{frontpage\|skirmish\|knockout}` | 内容条目列表 |
 | `GET` | `/admin/api/content/{kind}/{id}` | 读取单条（含完整 JSON） |
 | `POST` | `/admin/api/content/{kind}` | 新增条目（body: `name` / `startDate` / `endDate` / `raw`） |
 | `POST` | `/admin/api/content/{kind}/{id}` | 更新条目 |
 | `DELETE` | `/admin/api/content/{kind}/{id}` | 删除条目 |
 | `GET` | `/admin/api/content/{kind}/export` | 导出原始配置 JSON |
-| `POST` | `/admin/api/content/{kind}/import` | 导入并校验完整 JSON，备份旧文件 |
+| `POST` | `/admin/api/content/{kind}/import` | 导入并校验完整 JSON，写入数据库 |
 | `PUT` | `/admin/api/content/frontpage/{id}/published` | 快捷发布或下线首页内容 |
 # 对局观战与回放
 
-对局起始信息、已接受的动作和结束结果会写入配置的玩家数据库。MySQL/PostgreSQL 模式使用 `fy_match_history` 与 `fy_match_events` 表；本地 FASTER 模式使用 `data/match-history/` 下的原子 JSON 文档。PostgreSQL 模式启动或首次配置数据库时会自动创建表和索引。对局 ID 会同时避开仍在运行的对局和已归档历史 ID。
+对局起始信息、已接受的动作和结束结果会写入配置的玩家数据库。MySQL/PostgreSQL 模式使用 `fy_match_history` 与 `fy_match_events` 表；本地 FASTER 模式使用 `match:document:*` 键。MySQL/PostgreSQL 模式启动或首次配置数据库时会自动创建表和索引。对局 ID 会同时避开仍在运行的对局和已归档历史 ID。
 
-对局 ID 为随机六位数字（100000–999998），创建时检查运行中对局和已持久化历史记录以避免复用；它不是递增序号。后台“对局监控”页只显示实时对局与匹配队列；“对局管理”页可按状态、玩家名称或 ID 筛选和分页浏览持久化对局，查看开局快照及分页动作，并删除单条已结束/已中止记录。FASTER 本地玩家库模式同样支持观战与回放：实时观战从运行时对局读取，回放快照/动作从 `data/match-history/` 读取。
+对局 ID 为随机六位数字（100000–999998），创建时检查运行中对局和已持久化历史记录以避免复用；它不是递增序号。后台“对局监控”页只显示实时对局与匹配队列；“对局管理”页可按状态、玩家名称或 ID 筛选和分页浏览持久化对局，查看开局快照及分页动作，并删除单条已结束/已中止记录。FASTER 本地玩家库模式同样支持观战与回放：实时观战从运行时对局读取，回放快照/动作从 FASTER KV 读取。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -243,7 +254,7 @@ fyserver/
 
 入口：直接访问 `/admin-ui/` 即可（会 302 到 `index.html`；`/admin-ui/login` 同理）。注：旧的 Razor 后台地址 `/admin/*` 已随 Razor 移除而失效（404）。
 
-鉴权：第一次启动时，控制台会打印初始化地址；必须从服务器本机在 `/admin-ui/login.html` 创建 Owner 账户。旧版单管理员账户会自动迁移为 Owner，并保留 `.bak` 备份。密码以 PBKDF2-SHA256 派生哈希保存于 `data/admin-auth.json`，不会保存明文。初始化后本机与远程均须登录；会话使用 HttpOnly、SameSite=Strict 的 7 天签名 Cookie。Owner 可在“后台用户”中创建账号及配置玩家、内容、对局、服务器配置、系统设置和权限管理权限。新账号默认只读；后台写操作记录到 `data/admin-audit.jsonl`，登录成功和失败记录到 `data/admin-logins.jsonl`。后台用户列表按最近两分钟有效会话活动显示在线状态；账号详情、操作历史、登录与 IP 历史分别位于独立页面。`setting.json` 的 `adminApiKey` 仅为旧配置字段，后台接口不再使用它。
+鉴权：第一次启动时，控制台会打印初始化地址；必须从服务器本机在 `/admin-ui/login.html` 创建 Owner 账户。旧版单管理员账户会自动迁移为 Owner。密码以 PBKDF2-SHA256 派生哈希保存在已选数据库中，不会保存明文。初始化后本机与远程均须登录；会话使用 HttpOnly、SameSite=Strict 的 7 天签名 Cookie。Owner 可在“后台用户”中创建账号及配置玩家、内容、对局、服务器配置、系统设置和权限管理权限。新账号默认只读；后台操作、登录成功和失败记录均保存在已选数据库中。后台用户列表按最近两分钟有效会话活动显示在线状态；账号详情、操作历史、登录与 IP 历史分别位于独立页面。`setting.json` 的 `adminApiKey` 仅为旧配置字段，后台接口不再使用它。
 
 | 页面 | 说明 |
 |---|---|
@@ -260,11 +271,11 @@ fyserver/
 | `/admin-ui/account-logins.html` | 指定后台账号的登录与 IP 历史 |
 | `/admin-ui/login`（等价 `/admin-ui/login.html`） | 首次创建管理员 / 管理员账户登录 |
 
-服务器配置值保存在 `config/serverOptions.json`，发送开关保存在 `config/serverOptions.flags.json`，自定义注释保存在 `config/serverOptions.comments.json`。镜像原始说明由 `config/serverOptions.schema.json` 提供；自定义注释只影响后台展示，不会进入游戏客户端的 `server_options`。镜像页面截断的六项默认值以禁用的占位值保留，填入完整值后才能启用。
+服务器配置值、发送开关和自定义注释保存在数据库。镜像原始说明由随发行包提供的 `config/serverOptions.schema.json` 提供；自定义注释只影响后台展示，不会进入游戏客户端的 `server_options`。镜像页面截断的六项默认值以禁用的占位值保留，填入完整值后才能启用。
 
-宿主网络设置独立保存在 `setting.json`：`listenIp`/`portHttp` 控制实际监听，`ip`/`publicPortHttp`/`publicScheme` 控制返回给客户端的 HTTP 与 WebSocket 地址。对外端口可留空以省略 URL 端口；`publicScheme` 可选 `http` 或 `https`，HTTPS 会对应生成 WSS 地址。默认监听 `0.0.0.0`，默认对外 IP 为 `127.0.0.1`。后台保存不会中断当前连接，重启后生效；HTTPS 需由本机 Kestrel 或反向代理实际提供 TLS，后台设置只控制通告给客户端的 URL。
+宿主网络设置保存于数据库，`setting.json` 仅作数据库连接前的引导回退值：`listenIp`/`portHttp` 控制实际监听，`ip`/`publicPortHttp`/`publicScheme` 控制返回给客户端的 HTTP 与 WebSocket 地址。对外端口可留空以省略 URL 端口；`publicScheme` 可选 `http` 或 `https`，HTTPS 会对应生成 WSS 地址。默认监听 `0.0.0.0`，默认对外 IP 为 `127.0.0.1`。后台保存不会中断当前连接，重启后生效；HTTPS 需由本机 Kestrel 或反向代理实际提供 TLS，后台设置只控制通告给客户端的 URL。
 
-内容配置落盘：`config/frontpage.json` 保持客户端原生的 `elements`/`targeted` 和 camelCase 字段；`config/skirmish.json`、`config/knockout.json` 使用 `entries` 数组。后台支持导入/导出、日历、状态筛选、定时发布和快捷发布开关；frontpage 的常用字段可通过表单编辑，图片可填写图床 URL 或上传 PNG/JPEG/WebP/GIF（每张最多 5 MB，存于 `wwwroot/admin-ui/uploads/`）。乱斗表单参考镜像后台，支持多语言说明、奖励、基础规则、黑名单、随机牌组、卡牌数量限制与主要回合/部署效果。完整 JSON 编辑仍保留，未被表单修改的字段原样保留，保存前备份 `.bak`。`/fp/` 仅下发生效且已发布的普通条目。镜像的定向规则引擎尚未接入，因此定向条目虽可编辑保存，但不会下发给玩家。首页预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564）。
+内容配置保存在数据库，frontpage 保持客户端原生的 `elements`/`targeted` 和 camelCase 字段；乱斗与淘汰赛使用 `entries` 数组。后台支持导入/导出、日历、状态筛选、定时发布和快捷发布开关；frontpage 的常用字段可通过表单编辑，图片可填写图床 URL 或上传 PNG/JPEG/WebP/GIF（每张最多 5 MB，作为数据库资产提供）。乱斗表单参考镜像后台，支持多语言说明、奖励、基础规则、黑名单、随机牌组、卡牌数量限制与主要回合/部署效果。完整 JSON 编辑仍保留，未被表单修改的字段原样保留。`/fp/` 仅下发生效且已发布的普通条目。镜像的定向规则引擎尚未接入，因此定向条目虽可编辑保存，但不会下发给玩家。首页预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564）。
 
 后台操作复用与游戏 API 相同的服务层（`AdminUserService`）：封禁、踢出、删除都会向目标玩家的 WebSocket 发送 `channel: "disconnect"` 后关闭连接。
 # WebSocket

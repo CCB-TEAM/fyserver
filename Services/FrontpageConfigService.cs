@@ -11,16 +11,16 @@ namespace fyserver.Services;
 public class FrontpageConfigService
 {
     public const string ConfigPath = "./config/frontpage.json";
-    private const string BackupPath = "./config/frontpage.json.bak";
+    private readonly AppDataStoreService _appData;
+
+    public FrontpageConfigService(AppDataStoreService appData) => _appData = appData;
 
     private static readonly JsonSerializerOptions IndentedOptions = new() { WriteIndented = true };
 
     /// <summary>读取原始 JSON 文本；文件不存在时返回空对象。</summary>
     public string ReadRaw()
     {
-        if (!File.Exists(ConfigPath))
-            return "{ }";
-        return File.ReadAllText(ConfigPath);
+        return _appData.Get("content:frontpage") ?? "{ \"elements\": [], \"targeted\": [] }";
     }
 
     /// <summary>保存 JSON 文本，保存前校验格式并备份原文件。</summary>
@@ -42,19 +42,14 @@ public class FrontpageConfigService
         if (node == null)
             return (false, "JSON 根节点为空，未保存");
 
-        if (File.Exists(ConfigPath))
+        try
         {
-            try
-            {
-                File.Copy(ConfigPath, BackupPath, overwrite: true);
-            }
-            catch (IOException)
-            {
-                // 备份失败不阻塞保存
-            }
+            _appData.Set("content:frontpage", node.ToJsonString(IndentedOptions));
+            return (true, $"已保存到数据库（{DateTime.Now:HH:mm:ss}）");
         }
-
-        File.WriteAllText(ConfigPath, node.ToJsonString(IndentedOptions));
-        return (true, $"已保存（{DateTime.Now:HH:mm:ss}），原文件备份为 {BackupPath}");
+        catch (Exception ex) when (ex is InvalidOperationException or System.Data.Common.DbException or IOException)
+        {
+            return (false, $"保存到数据库失败：{ex.Message}");
+        }
     }
 }

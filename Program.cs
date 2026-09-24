@@ -21,34 +21,39 @@ serverOptions.ReadFromFile(); // 读 ./setting.json；不存在则生成默认�
 
 FasterKvService? fasterKv = null;
 var userDatabaseConfiguration = new UserDatabaseConfigurationService();
-var users = new UserStoreService(() => fasterKv ??= new FasterKvService(), userDatabaseConfiguration);
+var appData = new AppDataStoreService(() => fasterKv ??= new FasterKvService());
+var users = new UserStoreService(() => fasterKv ??= new FasterKvService(), userDatabaseConfiguration, appData);
 users.TryInitializeConfiguredAsync().GetAwaiter().GetResult();
+if (appData.IsReady && appData.Get("server:settings") is { } savedServerSettings)
+    serverOptions.ReadFromJson(savedServerSettings);
 var codec = new CodecService();
 var playerLibrary = new PlayerLibraryService();
 playerLibrary.InitLibrary("./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");
-var storeConfig = new StoreConfigService();
-var redeemCodes = new RedeemCodeService();
+var storeConfig = new StoreConfigService(appData);
+var redeemCodes = new RedeemCodeService(appData);
 var webSocketHub = new WebSocketHubService();
 var auth = new AuthService(users, codec);
-var matchHistory = new MatchHistoryService(userDatabaseConfiguration);
+var matchHistory = new MatchHistoryService(userDatabaseConfiguration, appData);
 try { await matchHistory.InitializeAsync(); }
 catch (Exception ex) { Console.WriteLine($"对局历史数据库初始化失败：{ex.GetBaseException().Message}"); }
 var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions, matchHistory);
 
 // ==================== 后台（静态页 /admin-ui 的数据层）服务 ====================
 var adminUsers = new AdminUserService(users, webSocketHub);
-var frontpage = new FrontpageConfigService();
-var contentEntries = new ContentEntriesService();
+var frontpage = new FrontpageConfigService(appData);
+var contentEntries = new ContentEntriesService(appData);
 var serverMetrics = new ServerMetricsService();
-var adminAccount = new AdminAccountService();
-var adminAudit = new AdminAuditLogService();
-var clientServerConfig = new ClientServerConfigService();
+var adminAccount = new AdminAccountService(appData);
+var adminAudit = new AdminAuditLogService(appData);
+var clientServerConfig = new ClientServerConfigService(appData);
+var patchPaks = new PatchPakService(appData);
 
 void RegisterSharedServices(IServiceCollection services)
 {
     services.AddSingleton(serverOptions);
     services.AddSingleton(users);
     services.AddSingleton(userDatabaseConfiguration);
+    services.AddSingleton(appData);
     services.AddSingleton(codec);
     services.AddSingleton(playerLibrary);
     services.AddSingleton(storeConfig);
@@ -64,6 +69,7 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(adminAccount);
     services.AddSingleton(adminAudit);
     services.AddSingleton(clientServerConfig);
+    services.AddSingleton(patchPaks);
 }
 
 // ============ HTTP host（含 WebSocket 端点，共用同一端口） ============
@@ -123,6 +129,40 @@ httpApp.MapLobbyEndpoints();
 httpApp.MapMatchEndpoints();
 httpApp.MapMatchHistoryEndpoints();
 httpApp.MapAdminApiEndpoints();
+httpApp.MapGet("/patch-paks", (ServerOptions options, PatchPakService paks) =>
+{
+    var baseUrl = options.GetAddressHttpR().TrimEnd('/');
+    var patches = new System.Text.Json.Nodes.JsonArray(paks.List().Select(item => (System.Text.Json.Nodes.JsonNode)new System.Text.Json.Nodes.JsonObject
+    {
+        ["id"] = item.Id, ["fileName"] = item.FileName, ["version"] = item.Version,
+        ["description"] = item.Description, ["size"] = item.Size, ["sha256"] = item.Sha256,
+        ["createdAt"] = item.CreatedAt.ToString("O"), ["downloadUrl"] = baseUrl + "/patch-paks/" + item.Id + "/download"
+    }).ToArray());
+    return Results.Text(new System.Text.Json.Nodes.JsonObject { ["algorithm"] = "SHA-256", ["patches"] = patches }.ToJsonString(), "application/json");
+});
+httpApp.MapGet("/patch-paks/{id}/download", (string id, PatchPakService paks) =>
+{
+    if (id.Length != 32 || id.Any(c => !char.IsAsciiHexDigit(c))) return Results.NotFound();
+    var item = paks.List().FirstOrDefault(candidate => candidate.Id == id);
+    var bytes = item == null ? null : paks.Read(id);
+    if (item == null || bytes == null) return Results.NotFound();
+    return Results.File(bytes, "application/octet-stream", item.FileName, lastModified: item.CreatedAt,
+        entityTag: new Microsoft.Net.Http.Headers.EntityTagHeaderValue("\"" + item.Sha256 + "\""), enableRangeProcessing: true);
+});
+httpApp.MapGet("/admin-ui/uploads/{**assetPath}", (string assetPath, AppDataStoreService data) =>
+{
+    var relative = assetPath.Replace('\\', '/');
+    if (relative.Split('/').Any(segment => segment is "" or "." or "..")) return Results.NotFound();
+    var encoded = data.Get("asset:admin:" + relative);
+    if (encoded == null) return Results.NotFound();
+    try
+    {
+        var extension = Path.GetExtension(relative).ToLowerInvariant();
+        var contentType = extension switch { ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".webp" => "image/webp", ".gif" => "image/gif", _ => "application/octet-stream" };
+        return Results.File(Convert.FromBase64String(encoded), contentType);
+    }
+    catch (FormatException) { return Results.NotFound(); }
+});
 // 后台入口别名：/admin-ui/ → index.html、/admin-ui/login → login.html
 httpApp.UseMiddleware<AdminUiEntryMiddleware>();
 // 静态资源（wwwroot/admin-ui）：CreateSlimBuilder 默认未启用静态文件中间件

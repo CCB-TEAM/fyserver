@@ -21,21 +21,36 @@ public sealed class AdminAccount
     public string? LastLoginIp { get; set; }
 }
 
-/// <summary>后台多账号、权限及签名会话；兼容旧单账号文件并将其迁移为 owner。</summary>
+/// <summary>后台多账号、权限及签名会话，持久化到已选数据库。</summary>
 public sealed class AdminAccountService
 {
     public const string CookieName = "fyserver_admin_session";
-    public static readonly string[] AvailablePermissions = ["players", "content", "matches", "serverConfig", "systemSettings", "permissions"];
-    private const string AccountPath = "./data/admin-auth.json";
+    public static readonly string[] AvailablePermissions = ["players", "content", "matches", "serverConfig", "systemSettings", "patchPaks", "permissions"];
+    private const string AccountKey = "admin:accounts";
     private const int Iterations = 210_000;
     private readonly object _gate = new();
+    private readonly AppDataStoreService _appData;
     private readonly List<AdminAccount> _accounts = [];
     private readonly Dictionary<string, SessionPresence> _presence = new(StringComparer.Ordinal);
     private byte[] _sessionSecret = RandomNumberGenerator.GetBytes(32);
     private bool _loadFailed;
     private sealed record SessionPresence(string AccountId, int Version, DateTime SeenAt, DateTime ExpiresAt);
 
-    public AdminAccountService() => Load();
+    public AdminAccountService(AppDataStoreService appData)
+    {
+        _appData = appData;
+        Load();
+    }
+
+    public void ReloadFromStore()
+    {
+        lock (_gate)
+        {
+            _accounts.Clear();
+            _loadFailed = false;
+            Load();
+        }
+    }
     public bool IsInitialized { get { lock (_gate) return _accounts.Any(a => a.IsOwner); } }
 
     public (bool Ok, string Message) Initialize(string? username, string? password)
@@ -44,7 +59,8 @@ public sealed class AdminAccountService
         if (validation != null) return (false, validation);
         lock (_gate)
         {
-            if (_loadFailed) return (false, "管理员账户文件读取失败，请先修复 data/admin-auth.json");
+            if (_loadFailed) return (false, "管理员账户数据库读取失败，请检查数据库连接和数据格式");
+            if (!_appData.IsReady) return (false, "请先完成数据库配置");
             if (_accounts.Count != 0) return (false, "管理员账户已经初始化");
             _accounts.Add(NewAccount(username!.Trim(), password!, true, []));
             Save();
@@ -326,15 +342,17 @@ public sealed class AdminAccountService
 
     private void Load()
     {
-        if (!File.Exists(AccountPath)) return;
+        if (!_appData.IsReady) return;
         try
         {
-            var json = JsonNode.Parse(File.ReadAllText(AccountPath))?.AsObject();
+            var stored = _appData.Get(AccountKey);
+            if (string.IsNullOrWhiteSpace(stored)) return;
+            var json = JsonNode.Parse(stored)?.AsObject();
             if (json == null) return;
-            _sessionSecret = Convert.FromBase64String(json["sessionSecret"]?.GetValue<string>() ?? "");
-            if (_sessionSecret.Length < 32) throw new InvalidDataException("会话密钥无效");
             if (json["accounts"] is JsonArray accounts)
             {
+                _sessionSecret = Convert.FromBase64String(json["sessionSecret"]?.GetValue<string>() ?? "");
+                if (_sessionSecret.Length < 32) throw new InvalidDataException("会话密钥无效");
                 foreach (var node in accounts.OfType<JsonObject>())
                     _accounts.Add(new AdminAccount
                     {
@@ -357,7 +375,6 @@ public sealed class AdminAccountService
             }
             else if (json["passwordHash"] != null)
             {
-                if (!File.Exists(AccountPath + ".bak")) File.Copy(AccountPath, AccountPath + ".bak");
                 _accounts.Add(new AdminAccount
                 {
                     Username = json["username"]?.GetValue<string>() ?? "",
@@ -379,7 +396,6 @@ public sealed class AdminAccountService
 
     private void Save()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(AccountPath)!);
         var accounts = new JsonArray();
         foreach (var a in _accounts)
         {
@@ -397,8 +413,6 @@ public sealed class AdminAccountService
             });
         }
         var json = new JsonObject { ["version"] = 2, ["sessionSecret"] = Convert.ToBase64String(_sessionSecret), ["accounts"] = accounts };
-        var temp = AccountPath + ".tmp";
-        File.WriteAllText(temp, json.ToJsonString(new() { WriteIndented = true }));
-        File.Move(temp, AccountPath, true);
+        _appData.Set(AccountKey, json.ToJsonString(new() { WriteIndented = true }));
     }
 }

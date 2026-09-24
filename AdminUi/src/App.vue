@@ -16,6 +16,7 @@ const links = [
   ['content', 'content', '内容配置', '运营'],
   ['store', 'store', '商店', '运营'],
   ['redeem', 'redeem', '兑换码', '运营'],
+  ['patch-paks', 'package', 'Patch Pak', '运营'],
   ['server-config', 'settings', '服务器设置', '系统'],
   ['system-settings', 'cpu', '系统设置', '系统'],
   ['accounts', 'users', '后台用户', '系统'],
@@ -31,7 +32,8 @@ const dark = ref(localStorage.getItem('fyserver.admin.dark') === '1');
 const theme = ref(window.Admin.readTheme());
 const brandTitle = computed(() => theme.value.title || 'FYServer');
 const brandSubtitle = computed(() => theme.value.subtitle || 'SERVER CONTROL CENTER');
-const visibleLinks = computed(() => links.filter(x => x[0] !== 'accounts' || permissions.value.includes('permissions')));
+const linkPermissions = { users: 'players', matches: 'matches', 'match-management': 'matches', content: 'content', store: 'content', redeem: 'content', 'patch-paks': 'patchPaks', 'server-config': 'serverConfig', 'system-settings': 'systemSettings', accounts: 'permissions' };
+const visibleLinks = computed(() => links.filter(x => !linkPermissions[x[0]] || permissions.value.includes(linkPermissions[x[0]])));
 let heartbeat;
 let permissionNotified = false;
 
@@ -49,7 +51,7 @@ async function session() {
     username.value = s.username || '管理员';
     avatarUrl.value = s.avatarUrl || '';
     permissions.value = s.permissions || [];
-    const required = { users: 'players', matches: 'matches', content: 'content', store: 'content', redeem: 'content', 'server-config': 'serverConfig', 'system-settings': 'systemSettings', accounts: 'permissions' }[active];
+    const required = linkPermissions[active];
     if (required && !permissions.value.includes(required) && !permissionNotified && document.getElementById('banner-host')) {
       permissionNotified = true;
       window.Admin.banner('当前账号对此页面只有查看权限，修改操作会被服务器拒绝。', 'info');

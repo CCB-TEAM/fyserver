@@ -5,15 +5,17 @@ using fyserver.Models;
 namespace fyserver.Services;
 
 /// <summary>
-/// 兑换码存储与并发领取。兑换码使用单独 JSON 文件，便于部署、备份和后台编辑，
-/// 数据格式与 NestJS 的 LevelDB 记录保持一致。
+/// 兑换码存储与并发领取。数据保存在所选的玩家数据库中。
 /// </summary>
 public sealed class RedeemCodeService
 {
-    private const string StorePath = "./data/redeem-codes.json";
+    private const string StoreKey = "redeem:codes";
+    private readonly AppDataStoreService _appData;
     private readonly object _gate = new();
     private readonly SemaphoreSlim _claimGate = new(1, 1);
     private List<RedeemCode>? _codes;
+
+    public RedeemCodeService(AppDataStoreService appData) => _appData = appData;
 
     public static readonly string[] SupportedItemTypes =
     ["diamonds", "gold", "pack", "card", "draft", "medkit", "prop", "alt_art", "avatar", "cardback", "emote", "token", "deck"];
@@ -182,8 +184,13 @@ public sealed class RedeemCodeService
         _codes = [];
         try
         {
-            if (!File.Exists(StorePath)) return _codes;
-            if (JsonNode.Parse(File.ReadAllText(StorePath)) is not JsonArray array) return _codes;
+            var raw = _appData.Get(StoreKey);
+            if (raw == null)
+            {
+                _appData.Set(StoreKey, "[]");
+                return _codes;
+            }
+            if (JsonNode.Parse(raw) is not JsonArray array) return _codes;
             foreach (var node in array.OfType<JsonObject>())
             {
                 var code = new RedeemCode
@@ -206,11 +213,7 @@ public sealed class RedeemCodeService
 
     private void SaveLocked()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(StorePath)!);
-        var temp = StorePath + ".tmp";
-        File.WriteAllText(temp, new JsonArray(LoadLocked().Select(x => ToJson(x)).ToArray()).ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        if (File.Exists(StorePath)) File.Copy(StorePath, StorePath + ".bak", true);
-        File.Move(temp, StorePath, true);
+        _appData.Set(StoreKey, new JsonArray(LoadLocked().Select(x => ToJson(x)).ToArray()).ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static bool IsValid(RedeemCode code) => !DateTimeOffset.TryParse(code.ExpiresAt, out var expires) || expires > DateTimeOffset.UtcNow;

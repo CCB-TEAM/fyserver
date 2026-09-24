@@ -54,10 +54,8 @@ public static class Command
                             TempWriteLine("已全量保存。");
                             break;
                         case "clearusers":
-                            if (File.Exists("./YCDR"))
-                                File.Delete("./YCDR");
                             users.ClearAll();
-                            TempWriteLine("所有用户数据已清除。");
+                            TempWriteLine("所有玩家记录已清除；后台、商店和内容配置保留。");
                             break;
                         case "help":
                             TempWriteLine("可用命令：reloadstore, clearusers, help, savedbfo, savedbss, exit, exitall");

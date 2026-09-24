@@ -12,6 +12,7 @@ public sealed class ClientServerConfigService
     private const string SchemaPath = "./config/serverOptions.schema.json";
     private const string FlagsPath = "./config/serverOptions.flags.json";
     private const string CommentsPath = "./config/serverOptions.comments.json";
+    private readonly AppDataStoreService _appData;
     private static readonly Regex KeyPattern = new("^[A-Za-z0-9_]+$", RegexOptions.CultureInvariant);
     private static readonly HashSet<string> IncompleteMirrorDefaults = new(StringComparer.Ordinal)
     {
@@ -19,9 +20,11 @@ public sealed class ClientServerConfigService
     };
     private readonly object _gate = new();
 
+    public ClientServerConfigService(AppDataStoreService appData) => _appData = appData;
+
     public string ReadTemplate()
     {
-        lock (_gate) return File.Exists(ConfigPath) ? File.ReadAllText(ConfigPath) : "{}";
+        lock (_gate) return _appData.Get("client:server-options") ?? "{}";
     }
 
     /// <summary>读取来自 qa-1939api-mirror 的配置类型、默认值和说明元数据。</summary>
@@ -46,7 +49,7 @@ public sealed class ClientServerConfigService
     {
         try
         {
-            if (File.Exists(CommentsPath) && JsonNode.Parse(File.ReadAllText(CommentsPath)) is JsonObject saved)
+            if (_appData.Get("client:comments") is { } raw && JsonNode.Parse(raw) is JsonObject saved)
                 return saved;
         }
         catch (JsonException) { }
@@ -57,7 +60,7 @@ public sealed class ClientServerConfigService
     {
         try
         {
-            if (File.Exists(FlagsPath) && JsonNode.Parse(File.ReadAllText(FlagsPath)) is JsonObject saved)
+            if (_appData.Get("client:flags") is { } raw && JsonNode.Parse(raw) is JsonObject saved)
                 return saved;
         }
         catch (JsonException) { }
@@ -71,7 +74,7 @@ public sealed class ClientServerConfigService
     {
         lock (_gate)
         {
-            var source = JsonNode.Parse(File.Exists(ConfigPath) ? File.ReadAllText(ConfigPath) : "{}") as JsonObject ?? new JsonObject();
+            var source = JsonNode.Parse(_appData.Get("client:server-options") ?? "{}") as JsonObject ?? new JsonObject();
             var flags = ReadFlagsUnsafe();
             var root = new JsonObject();
             foreach (var item in source)
@@ -169,7 +172,7 @@ public sealed class ClientServerConfigService
     {
         try
         {
-            if (File.Exists(ConfigPath) && JsonNode.Parse(File.ReadAllText(ConfigPath)) is JsonObject root)
+            if (_appData.Get("client:server-options") is { } raw && JsonNode.Parse(raw) is JsonObject root)
                 return root;
         }
         catch (JsonException) { }
@@ -215,44 +218,29 @@ public sealed class ClientServerConfigService
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
-            var temp = ConfigPath + ".tmp";
-            File.WriteAllText(temp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            if (File.Exists(ConfigPath)) File.Copy(ConfigPath, ConfigPath + ".bak", true);
-            File.Move(temp, ConfigPath, true);
-            return (true, "已保存；客户端下次登录时生效，原文件已备份为 .bak");
+            _appData.Set("client:server-options", root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            return (true, "已保存到数据库；客户端下次登录时生效");
         }
-        catch (IOException ex) { return (false, $"写入失败：{ex.Message}"); }
-        catch (UnauthorizedAccessException ex) { return (false, $"无写入权限：{ex.Message}"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Data.Common.DbException) { return (false, $"数据库写入失败：{ex.Message}"); }
     }
 
     private (bool Ok, string Message) WriteFlagsUnsafe(JsonObject flags)
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FlagsPath)!);
-            var temp = FlagsPath + ".tmp";
-            File.WriteAllText(temp, flags.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            if (File.Exists(FlagsPath)) File.Copy(FlagsPath, FlagsPath + ".bak", true);
-            File.Move(temp, FlagsPath, true);
-            return (true, "发送开关已保存；客户端下次登录时生效");
+            _appData.Set("client:flags", flags.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            return (true, "发送开关已保存到数据库；客户端下次登录时生效");
         }
-        catch (IOException ex) { return (false, $"写入失败：{ex.Message}"); }
-        catch (UnauthorizedAccessException ex) { return (false, $"无写入权限：{ex.Message}"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Data.Common.DbException) { return (false, $"数据库写入失败：{ex.Message}"); }
     }
 
     private (bool Ok, string Message) WriteCommentsUnsafe(JsonObject comments)
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(CommentsPath)!);
-            var temp = CommentsPath + ".tmp";
-            File.WriteAllText(temp, comments.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            if (File.Exists(CommentsPath)) File.Copy(CommentsPath, CommentsPath + ".bak", true);
-            File.Move(temp, CommentsPath, true);
-            return (true, "注释已保存");
+            _appData.Set("client:comments", comments.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            return (true, "注释已保存到数据库");
         }
-        catch (IOException ex) { return (false, $"注释写入失败：{ex.Message}"); }
-        catch (UnauthorizedAccessException ex) { return (false, $"注释无写入权限：{ex.Message}"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Data.Common.DbException) { return (false, $"数据库写入失败：{ex.Message}"); }
     }
 }

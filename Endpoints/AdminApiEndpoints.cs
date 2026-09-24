@@ -500,6 +500,47 @@ public static class AdminApiEndpoints
             return Results.Text("{\"ok\":true,\"message\":\"对局保留策略已保存，每周按 UTC 计划清理\"}", "application/json");
         });
 
+        // 卡牌目录存于所选玩家数据库；JSON 种子只在数据库中尚无目录时导入一次。
+        api.MapGet("/cards", (HttpContext context, CardCatalogService catalog) =>
+        {
+            var query = context.Request.Query;
+            int? ReadOptionalInt(string key) => int.TryParse(query[key], out var value) ? value : null;
+            var page = int.TryParse(query["page"], out var parsedPage) ? parsedPage : 1;
+            var pageSize = int.TryParse(query["pageSize"], out var parsedSize) ? parsedSize : 50;
+            return Results.Text(catalog.Query(query["q"], query["cardSet"], query["type"], ReadOptionalInt("minKredits"),
+                ReadOptionalInt("maxKredits"), page, pageSize).ToJsonString(), "application/json");
+        });
+
+        api.MapPut("/cards/defaults", async (HttpContext context, CardCatalogService catalog) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var count = AsInt(body["count"]);
+            var result = catalog.AddFilteredCardsToDefaults(body["q"]?.GetValue<string>(), body["cardSet"]?.GetValue<string>(),
+                body["type"]?.GetValue<string>(), body["minKredits"] == null ? null : AsInt(body["minKredits"]),
+                body["maxKredits"] == null ? null : AsInt(body["maxKredits"]), count);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message, ["added"] = result.Added }.ToJsonString(),
+                "application/json", statusCode: result.Ok ? 200 : 400);
+        });
+
+        api.MapPut("/cards/{id}", async (string id, HttpContext context, CardCatalogService catalog) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var result = catalog.UpdateCardMetadata(id, body);
+            return ToResult(result);
+        });
+
+        api.MapGet("/system-settings/player-library", (CardCatalogService catalog) =>
+            Results.Text(catalog.GetInitialLibraryPolicy().ToJsonString(), "application/json"));
+
+        api.MapPut("/system-settings/player-library", async (HttpContext context, CardCatalogService catalog) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            return ToResult(catalog.SaveInitialLibraryPolicy(body));
+        });
+
         api.MapGet("/system-settings", (ServerOptions active, AppDataStoreService appData) =>
         {
             try

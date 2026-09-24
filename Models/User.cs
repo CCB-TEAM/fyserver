@@ -36,8 +36,6 @@ public class User
         Locale = "zh-Hans";
         Tag = 0;
         Banned = false;
-        UserCards.Cards.AddRange(DefaultCards());
-        UserCards.Cards.AddRange(DefaultWildcards());
     }
 
     public User(int id, string userName) : this()
@@ -49,8 +47,6 @@ public class User
         Locale = "zh-Hans";
         Tag = 0;
         Banned = false;
-        UserCards.Cards.AddRange(DefaultCards());
-        UserCards.Cards.AddRange(DefaultWildcards());
     }
 
     public int Id { get; set; }
@@ -104,22 +100,6 @@ public class User
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-    private static List<UserCard> DefaultCards() =>
-    [
-        new("card_location_stalingrad", 1, 0, 0, 0),
-        new("card_location_changchun", 1, 0, 0, 0),
-        new("card_location_cherbourg", 1, 0, 0, 0),
-        new("card_location_london", 1, 0, 0, 0),
-        new("card_location_berlin", 1, 0, 0, 0)
-    ];
-
-    private static List<UserCard> DefaultWildcards() =>
-    [
-        new("card_wildcard_standard", 0, 0, 0, 0),
-        new("card_wildcard_limited", 0, 0, 0, 0),
-        new("card_wildcard_special", 0, 0, 0, 0),
-        new("card_wildcard_elite", 0, 0, 0, 0)
-    ];
 }
 
 public sealed class UserCardCollection

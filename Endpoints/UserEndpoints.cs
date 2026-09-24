@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using fyserver.Models;
 using fyserver.Serialization;
 using fyserver.Services;
@@ -9,33 +11,48 @@ public static class UserEndpoints
     public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         // 2. 配置和基本信息
-        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig, AppDataStoreService appData) =>
+        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig, AppDataStoreService appData, PlayerLoginAccountService playerLoginAccounts) =>
         {
             string addressHttp = options.GetAddressHttpR();
             User? user;
-            try
+            var loginIdentity = session.Username;
+            if (!string.IsNullOrWhiteSpace(session.AccountLinking))
             {
-                user = await users.GetByUserNameAsync(session.Username);
-                Console.WriteLine($"Find user: {session.Username}");
-            }
-            catch (Exception)
-            {
-                user = null;
-            }
-
-            if (user == null)
-            {
-                Console.WriteLine("未找到");
                 try
                 {
-                    user = await users.CreateUserAsync(session.Username);
-                    Console.WriteLine($"Created new user: {session.Username}");
+                    using var linking = JsonDocument.Parse(session.AccountLinking);
+                    var linkedUsername = linking.RootElement.TryGetProperty("username", out var nameNode) ? nameNode.GetString() ?? "" : "";
+                    var linkedPassword = linking.RootElement.TryGetProperty("password", out var passwordNode) ? passwordNode.GetString() ?? "" : "";
+                    if (!playerLoginAccounts.TryAuthenticate(linkedUsername, linkedPassword, out var linkedPlayerId, out var canonicalUsername))
+                        return InvalidCredentials();
+                    user = await users.GetByIdAsync(linkedPlayerId);
+                    if (user == null) return InvalidCredentials();
+                    loginIdentity = "linker:" + canonicalUsername;
                 }
-                catch (Exception ex)
+                catch (JsonException) { return InvalidCredentials(); }
+            }
+            else
+            {
+                try
                 {
-                    Console.WriteLine(ex.InnerException?.Message);
-                    // 用户已存在或其他错误
-                    return Results.BadRequest(ex.Message);
+                    user = await users.GetByUserNameAsync(session.Username);
+                    Console.WriteLine($"Find user: {session.Username}");
+                }
+                catch (Exception) { user = null; }
+
+                if (user == null)
+                {
+                    Console.WriteLine("未找到");
+                    try
+                    {
+                        user = await users.CreateUserAsync(session.Username);
+                        Console.WriteLine($"Created new user: {session.Username}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex.InnerException?.Message);
+                        return Results.BadRequest(ex.Message);
+                    }
                 }
             }
 
@@ -62,6 +79,8 @@ public static class UserEndpoints
 
             user = await users.WithUserLockAsync(user.Id, async current =>
             {
+                if (loginIdentity.StartsWith("linker:", StringComparison.OrdinalIgnoreCase))
+                    current.LinkerAccount = loginIdentity[7..];
                 current.LastLoginAt = DateTime.UtcNow;
                 var remoteIp = context.Connection.RemoteIpAddress;
                 current.LastLoginIp = remoteIp == null ? "" : remoteIp.IsIPv4MappedToIPv6 ? remoteIp.MapToIPv4().ToString() : remoteIp.ToString();
@@ -131,7 +150,7 @@ public static class UserEndpoints
                 JapanLevelClaimed: 500,
                 JapanXp: 0,
                 Jti: "114514",
-                Jwt: $"{codec.Encode(session.Username, 114)}",
+                Jwt: $"{codec.Encode(loginIdentity, 114)}",
                 LastCrateClaimedDate: "2025-07-02T11:24:15.567042Z",
                 LastDailyMissionCancel: null,
                 LastDailyMissionRenewal: "2025-07-05T15:21:43.653915Z",
@@ -196,27 +215,69 @@ public static class UserEndpoints
             return Results.Ok(response);
         });
 
-        app.MapGet("/", async (HttpContext context, UserStoreService users, CodecService codec, ServerOptions options) =>
+        app.MapPut("/session", async (HttpContext context, AuthService auth, UserStoreService users, PlayerLoginAccountService playerLoginAccounts) =>
         {
-            var auth = context.Request.Headers.Authorization.FirstOrDefault();
-            // Console.WriteLine(auth);
-            if (string.IsNullOrEmpty(auth))
+            JsonObject? body;
+            try { body = JsonNode.Parse(await new StreamReader(context.Request.Body).ReadToEndAsync(context.RequestAborted)) as JsonObject; }
+            catch (JsonException) { body = null; }
+            if (body == null) return Results.Text("LINK:USER_NOT_FOUND", "text/plain");
+
+            var action = body["action"]?.GetValue<string>() ?? "";
+            var username = body["linker_username"]?.GetValue<string>() ?? "";
+            var password = body["linker_password"]?.GetValue<string>() ?? "";
+            var user = await auth.GetUserFromAuthAsync(context);
+            if (action == "create_new_link")
             {
-                auth = "JWT 1939Mother";
+                if (user == null) return Results.Text("CREATE:USER_ALREADY_LINKED", "text/plain");
+                var createResult = await users.WithUserLockAsync<string>(user.Id, async current =>
+                {
+                    var result = playerLoginAccounts.CreateLink(current, username, password);
+                    if (result == "CREATE:OK") await users.SaveUserAsync(current);
+                    return result;
+                });
+                return Results.Text(createResult ?? "CREATE:USER_ALREADY_LINKED", "text/plain");
+            }
+
+            var isLinkLogin = string.IsNullOrEmpty(action) || action is "link" or "login" or "connect" or "connect_to_link" or "connect_to_linker" or "linker_login" or "link_two_accounts" ||
+                              !string.IsNullOrEmpty(username) || !string.IsNullOrEmpty(password);
+            if (!isLinkLogin) return Results.Text("LINK:USER_NOT_FOUND", "text/plain");
+            if (user == null) return Results.Text(playerLoginAccounts.VerifyLink(null, username, password, out _), "text/plain");
+            var linkResultLocked = await users.WithUserLockAsync<string>(user.Id, async current =>
+            {
+                var result = playerLoginAccounts.VerifyLink(current, username, password, out var linkedName);
+                if (result == "LINK:OK" && linkedName != null)
+                {
+                    current.LinkerAccount = linkedName;
+                    await users.SaveUserAsync(current);
+                }
+                return result;
+            });
+            return Results.Text(linkResultLocked ?? "LINK:USER_NOT_FOUND", "text/plain");
+        });
+
+        app.MapGet("/", async (HttpContext context, UserStoreService users, AuthService authService, CodecService codec, ServerOptions options) =>
+        {
+            var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+            // Console.WriteLine(authHeader);
+            if (string.IsNullOrEmpty(authHeader))
+            {
+                authHeader = "JWT 1939Mother";
             }
 
             string userName = "1939Mother";
             try
             {
-                userName = codec.Decode(auth["JWT ".Length..], out _);
+                userName = codec.Decode(authHeader["JWT ".Length..], out _);
             }
             catch
             {
-                if (auth is not "JWT 1939Mother")
+                if (authHeader is not "JWT 1939Mother")
                     return Results.BadRequest("Invalid Authorization header");
             }
 
-            User? user = await users.GetByUserNameAsync(userName);
+            User? user = await authService.GetUserByIdentityAsync(userName);
+            if (user == null && userName.StartsWith("linker:", StringComparison.OrdinalIgnoreCase))
+                return InvalidCredentials();
             if (user == null)
                 try
                 {
@@ -289,4 +350,12 @@ public static class UserEndpoints
             ));
         return Task.FromResult(config1);
     }
+
+    private static IResult InvalidCredentials() => Results.Text(
+        new JsonObject
+        {
+            ["error"] = new JsonObject { ["code"] = "user_error", ["description"] = "wrong password" },
+            ["message"] = "Forbidden",
+            ["status_code"] = 403
+        }.ToJsonString(), "application/json", statusCode: StatusCodes.Status403Forbidden);
 }

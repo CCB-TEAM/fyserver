@@ -10,12 +10,14 @@ public class AuthService
 {
     private readonly UserStoreService _users;
     private readonly CodecService _codec;
+    private readonly PlayerLoginAccountService _playerAccounts;
     private const string SchemePrefix = "JWT ";
 
-    public AuthService(UserStoreService users, CodecService codec)
+    public AuthService(UserStoreService users, CodecService codec, PlayerLoginAccountService playerAccounts)
     {
         _users = users;
         _codec = codec;
+        _playerAccounts = playerAccounts;
     }
 
     public async Task<int> GetPlayerIdFromAuthAsync(HttpContext context)
@@ -48,7 +50,7 @@ public class AuthService
         if (string.IsNullOrWhiteSpace(userName))
             return null;
 
-        var user = await _users.GetByUserNameAsync(userName);
+        var user = await GetUserByIdentityAsync(userName);
         if (user?.Banned == true)
         {
             if (user.IsBanActive(DateTime.UtcNow)) return null;
@@ -61,5 +63,13 @@ public class AuthService
             Console.WriteLine($"Authorization header found: {userName} (id={user.Id})");
 
         return user;
+    }
+
+    public Task<User?> GetUserByIdentityAsync(string identity)
+    {
+        if (_playerAccounts.TryGetPlayerId(identity, out var linkedId)) return _users.GetByIdAsync(linkedId);
+        // Never reinterpret an invalid linked-account identity as a device username.
+        if (identity.StartsWith("linker:", StringComparison.OrdinalIgnoreCase)) return Task.FromResult<User?>(null);
+        return _users.GetByUserNameAsync(identity);
     }
 }

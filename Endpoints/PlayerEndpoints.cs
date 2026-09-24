@@ -51,6 +51,25 @@ public static class PlayerEndpoints
             return user == null ? Results.NotFound() : Results.Json(user.Packs, FyJsonContext.Default.ListPlayerPack);
         });
 
+        app.MapPut("/players/{id:int}/packs", async (int id, HttpContext context, AuthService auth, UserStoreService users, PlayerCardService cards) =>
+        {
+            if (await auth.GetPlayerIdFromAuthAsync(context) != id) return Results.Unauthorized();
+            var body = await ReadBodyAsync(context);
+            if (body == null || !TryInt(body["id"], out var packId)) return Failure("Invalid pack id");
+            var result = await users.WithUserLockAsync<IResult>(id, async user =>
+            {
+                try
+                {
+                    var response = cards.OpenPack(user, packId);
+                    await users.SaveUserAsync(user);
+                    users.RecordIncremental();
+                    return Json(response);
+                }
+                catch (CardOperationException ex) { return Failure(ex.Message); }
+            });
+            return result ?? Results.NotFound();
+        });
+
         // 客户端改名接口；内部 UserName 是登录索引，改名只更新公开昵称与 Tag。
         app.MapMethods("/players/{id:int}", new[] { "PUT", "POST" },
             (int id, HttpContext context, AuthService auth, UserStoreService users) =>
@@ -95,17 +114,41 @@ public static class PlayerEndpoints
         app.MapMethods("/players/notifications/{id}", new[] { "PUT", "DELETE" }, (string id) => Results.Ok(new EmptyResponseDto()));
 
         // 卡牌目录（保留旧 /library 路由）；用户拥有卡牌见 /librarynew。
-        app.MapGet("/players/{id}/library", (string id, PlayerLibraryService playerLibrary) =>
-            Results.Ok(playerLibrary.Library));
+        app.MapGet("/players/{id}/library", (string id, CardCatalogService catalog) =>
+            Results.Text(catalog.BuildClientLibrary().ToJsonString(), "application/json"));
 
         // 用户卡牌收藏：对齐 NestJS 的 /players/:id/librarynew。
-        app.MapGet("/players/{id}/librarynew", async (string id, UserStoreService users) =>
+        app.MapGet("/players/{id}/librarynew", async (string id, HttpContext context, AuthService auth, UserStoreService users) =>
         {
             if (!int.TryParse(id, out var userId) || userId <= 0) return Results.BadRequest();
+            if (await auth.GetPlayerIdFromAuthAsync(context) != userId) return Results.Unauthorized();
             var user = await users.GetByIdAsync(userId);
             if (user == null) return Results.NotFound();
             EnsureUserData(user);
             return Results.Json(user.UserCards, FyJsonContext.Default.UserCardCollection);
+        });
+
+        app.MapPut("/players/{id:int}/library", async (int id, HttpContext context, AuthService auth, UserStoreService users, PlayerCardService cards) =>
+        {
+            if (await auth.GetPlayerIdFromAuthAsync(context) != id) return Results.Unauthorized();
+            var body = await ReadBodyAsync(context);
+            if (body == null) return Failure("Invalid JSON");
+            if (!TryString(body["action"], out var action) || action != "create_card_from_wildcard") return Failure("Unsupported library action");
+            if (!TryString(body["value"], out var value)) return Failure("Invalid wildcard craft value");
+            var parts = value.Split(';', 2);
+            if (parts.Length != 2) return Failure("Invalid wildcard craft value");
+            var result = await users.WithUserLockAsync<IResult>(id, async user =>
+            {
+                try
+                {
+                    var response = cards.CraftFromWildcard(user, parts[0], parts[1]);
+                    await users.SaveUserAsync(user);
+                    users.RecordIncremental();
+                    return Json(response);
+                }
+                catch (CardOperationException ex) { return Failure(ex.Message); }
+            });
+            return result ?? Results.NotFound();
         });
 
         // 物品装备

@@ -25,6 +25,13 @@
       <label class="field"><span>清理小时（UTC）</span><input id="cleanup-hour" type="number" min="0" max="23" required></label>
     </div><div class="btn-row"><button class="btn" id="retention-save" type="submit">保存保留策略</button></div></form>
   </section>
+  <section class="card"><h2>新玩家卡牌初始化</h2><p class="muted">设置只对之后创建的新玩家生效，不会改动现有玩家收藏。卡牌列表和默认数量可在“卡牌列表”页面管理。</p>
+    <form id="player-library-form"><div class="form-grid">
+      <label class="field"><span>新玩家卡牌模式</span><select id="new-player-card-mode"><option value="selected">发放指定默认卡牌</option><option value="all">发放全部当前卡牌（每张 4 张）</option></select><small>全卡模式按当前卡牌目录初始化每张卡 4 张；万能卡仍单独管理。</small></label>
+      <label class="field"><span>全闪卡初始化</span><select id="new-player-all-gold"><option value="false">关闭：发放普通卡</option><option value="true">开启：发放闪卡</option></select><small>控制新玩家初始收藏的卡牌计入普通数量或闪卡数量；不影响开包规则。</small></label>
+    </div><div class="btn-row"><button class="btn" id="player-library-save" type="submit">保存新玩家卡牌设置</button></div></form>
+    <div id="default-library-card-list" class="table-wrap" style="margin-top:18px"></div>
+  </section>
 </main>
 </template>
 <script setup>

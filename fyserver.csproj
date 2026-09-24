@@ -46,6 +46,10 @@
 
   <ItemGroup>
     <Content Remove="deckCodeIDsTable2.json" />
+    <Content Update="cards-from-fmodel.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

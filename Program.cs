@@ -22,17 +22,21 @@ serverOptions.ReadFromFile(); // 读 ./setting.json；不存在则生成默认�
 FasterKvService? fasterKv = null;
 var userDatabaseConfiguration = new UserDatabaseConfigurationService();
 var appData = new AppDataStoreService(() => fasterKv ??= new FasterKvService());
-var users = new UserStoreService(() => fasterKv ??= new FasterKvService(), userDatabaseConfiguration, appData);
+var cardCatalog = new CardCatalogService(appData);
+var users = new UserStoreService(() => fasterKv ??= new FasterKvService(), userDatabaseConfiguration, appData, cardCatalog);
 users.TryInitializeConfiguredAsync().GetAwaiter().GetResult();
+if (users.IsReady) cardCatalog.EnsureInitialized();
 if (appData.IsReady && appData.Get("server:settings") is { } savedServerSettings)
     serverOptions.ReadFromJson(savedServerSettings);
 var codec = new CodecService();
 var playerLibrary = new PlayerLibraryService();
 playerLibrary.InitLibrary("./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");
+var playerCards = new PlayerCardService(cardCatalog);
 var storeConfig = new StoreConfigService(appData);
 var redeemCodes = new RedeemCodeService(appData);
 var webSocketHub = new WebSocketHubService();
-var auth = new AuthService(users, codec);
+var playerLoginAccounts = new PlayerLoginAccountService(appData);
+var auth = new AuthService(users, codec, playerLoginAccounts);
 var matchHistory = new MatchHistoryService(userDatabaseConfiguration, appData);
 try { await matchHistory.InitializeAsync(); }
 catch (Exception ex) { Console.WriteLine($"对局历史数据库初始化失败：{ex.GetBaseException().Message}"); }
@@ -54,12 +58,15 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(users);
     services.AddSingleton(userDatabaseConfiguration);
     services.AddSingleton(appData);
+    services.AddSingleton(cardCatalog);
     services.AddSingleton(codec);
     services.AddSingleton(playerLibrary);
+    services.AddSingleton(playerCards);
     services.AddSingleton(storeConfig);
     services.AddSingleton(redeemCodes);
     services.AddSingleton(webSocketHub);
     services.AddSingleton(auth);
+    services.AddSingleton(playerLoginAccounts);
     services.AddSingleton(matches);
     services.AddSingleton(matchHistory);
     services.AddSingleton(adminUsers);

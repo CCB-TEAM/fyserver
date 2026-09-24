@@ -9,6 +9,7 @@ public sealed class UserStoreService
     private readonly Func<FasterKvService> _localDatabaseFactory;
     private readonly UserDatabaseConfigurationService _configuration;
     private readonly AppDataStoreService _appData;
+    private readonly CardCatalogService _cardCatalog;
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _userLocks = new();
     private readonly SemaphoreSlim _createLock = new(1, 1);
     private readonly SemaphoreSlim _identityLock = new(1, 1);
@@ -19,11 +20,12 @@ public sealed class UserStoreService
     public string? Provider => _backend?.Provider;
     public string? LastInitializationError { get; private set; }
 
-    public UserStoreService(Func<FasterKvService> localDatabaseFactory, UserDatabaseConfigurationService configuration, AppDataStoreService appData)
+    public UserStoreService(Func<FasterKvService> localDatabaseFactory, UserDatabaseConfigurationService configuration, AppDataStoreService appData, CardCatalogService cardCatalog)
     {
         _localDatabaseFactory = localDatabaseFactory;
         _configuration = configuration;
         _appData = appData;
+        _cardCatalog = cardCatalog;
     }
 
     public async Task TryInitializeConfiguredAsync(CancellationToken cancellationToken = default)
@@ -92,6 +94,7 @@ public sealed class UserStoreService
             var user = new User(userName);
             do { user.Id = Random.Shared.Next(100000, 1000000); }
             while (await GetByIdAsync(user.Id) != null);
+            _cardCatalog.ApplyInitialCollection(user);
             await SavePlayerIdentityAsync(user, user.Name);
             return user;
         }

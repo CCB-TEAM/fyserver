@@ -20,6 +20,7 @@ const links = [
   ['patch-paks', 'package', 'Patch Pak', '运营'],
   ['server-config', 'settings', '服务器设置', '系统'],
   ['system-settings', 'cpu', '系统设置', '系统'],
+  ['player-cards', 'cards', '新玩家卡牌', '系统'],
   ['accounts', 'users', '后台用户', '系统'],
   ['profile', 'users', '个人主页', '系统'],
 ];
@@ -33,7 +34,7 @@ const dark = ref(localStorage.getItem('fyserver.admin.dark') === '1');
 const theme = ref(window.Admin.readTheme());
 const brandTitle = computed(() => theme.value.title || 'FYServer');
 const brandSubtitle = computed(() => theme.value.subtitle || 'SERVER CONTROL CENTER');
-const linkPermissions = { users: 'players', cards: 'systemSettings', matches: 'matches', 'match-management': 'matches', content: 'content', store: 'content', redeem: 'content', 'patch-paks': 'patchPaks', 'server-config': 'serverConfig', 'system-settings': 'systemSettings', accounts: 'permissions' };
+const linkPermissions = { users: 'players', cards: 'systemSettings', 'player-cards': 'systemSettings', matches: 'matches', 'match-management': 'matches', content: 'content', store: 'content', redeem: 'content', 'patch-paks': 'patchPaks', 'server-config': 'serverConfig', 'system-settings': 'systemSettings', accounts: 'permissions' };
 const visibleLinks = computed(() => links.filter(x => !linkPermissions[x[0]] || permissions.value.includes(linkPermissions[x[0]])));
 let heartbeat;
 let permissionNotified = false;

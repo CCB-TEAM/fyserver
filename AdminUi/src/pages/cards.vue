@@ -1,7 +1,7 @@
 <template>
 <main class="page">
   <div id="banner-host"></div>
-  <div class="page-head"><p class="dashboard-eyebrow">CARD CATALOG</p><h1>卡牌列表</h1><p>管理服务器卡牌元数据，并将筛选结果批量设为新玩家默认卡牌。Location 会按卡牌类型禁止开包与万能卡合成。</p></div>
+  <div class="page-head"><p class="dashboard-eyebrow">CARD CATALOG</p><h1>卡牌列表</h1><p>查找并维护服务器卡牌元数据。Location 卡不能通过开包或万能卡合成获得。</p></div>
   <section class="card">
     <div class="form-grid card-filters">
       <label class="field"><span>搜索卡牌名称 / ID</span><input id="card-q" type="search" placeholder="输入卡牌名称或 ID"></label>
@@ -11,11 +11,6 @@
       <label class="field"><span>Kredits 最高</span><input id="card-max-kredits" type="number" min="0" max="100" placeholder="不限"></label>
     </div>
     <div class="btn-row"><button class="btn btn--outline" id="card-search" type="button">筛选</button><span class="muted" id="card-count"></span></div>
-  </section>
-  <section class="card">
-    <h2>批量加入新玩家默认卡牌</h2>
-    <p class="muted">会将当前筛选命中的所有卡牌加入默认名单；已存在的卡牌数量会被替换为下方数量。Location 可以作为默认卡发放，但不能通过开包或万能卡合成获得。</p>
-    <div class="btn-row"><label class="field" style="margin:0;max-width:220px"><span>每张卡的数量</span><input id="default-card-count" type="number" min="1" max="1000" value="1"></label><button class="btn" id="add-filtered-defaults" type="button">加入全部筛选结果</button></div>
   </section>
   <section class="card">
     <div class="table-wrap"><table class="md-table"><thead><tr><th>卡牌 ID / 名称</th><th>卡组</th><th>类型</th><th>Kredits</th><th>稀有度</th><th>阵营</th><th>卡包资格</th><th>操作</th></tr></thead><tbody id="card-rows"></tbody></table></div>

@@ -38,30 +38,6 @@ const Admin = window.Admin;
     $('cleanup-hour').value = d.cleanupHourUtc;
   }
 
-  let initialLibrary = { mode: 'selected', allGold: false, defaultCards: [] };
-  async function loadPlayerLibrary() {
-    const d = await Admin.api('/system-settings/player-library');
-    if (!d || !Array.isArray(d.defaultCards)) { Admin.banner(d?.message || '读取新玩家卡牌设置失败', 'err'); return; }
-    initialLibrary = d;
-    $('new-player-card-mode').value = d.mode || 'selected';
-    $('new-player-all-gold').value = String(!!d.allGold);
-    renderDefaultCards();
-  }
-  function renderDefaultCards() {
-    const rows = initialLibrary.defaultCards || [];
-    $('default-library-card-list').innerHTML = '<table class="md-table"><thead><tr><th>卡牌</th><th>卡组</th><th>类型</th><th>Kredits</th><th>数量</th><th>操作</th></tr></thead><tbody>' +
-      (rows.length ? rows.map((card, index) => '<tr><td><strong>' + Admin.esc(card.name || card.cardId) + '</strong><br><small class="muted mono">' + Admin.esc(card.cardId) + '</small></td><td>' + Admin.esc(card.cardSet || '—') + '</td><td>' + Admin.esc(card.type || '—') + '</td><td>' + Admin.esc(card.kredits ?? '—') + '</td><td><input type="number" min="1" max="1000" value="' + Number(card.count || 1) + '" data-default-count="' + index + '" aria-label="默认数量"></td><td><button type="button" class="btn btn--outline btn--small" data-remove-default="' + index + '">移除</button></td></tr>').join('') : '<tr><td colspan="6" class="muted">尚未配置默认卡牌，可到“卡牌列表”中筛选并批量加入。</td></tr>') +
-      '</tbody></table>';
-    document.querySelectorAll('[data-default-count]').forEach(input => input.onchange = () => {
-      const item = initialLibrary.defaultCards[Number(input.dataset.defaultCount)];
-      if (item) item.count = Number(input.value);
-    });
-    document.querySelectorAll('[data-remove-default]').forEach(button => button.onclick = () => {
-      initialLibrary.defaultCards.splice(Number(button.dataset.removeDefault), 1);
-      renderDefaultCards();
-    });
-  }
-
   $('reload').onclick = loadNetwork;
   $('settings-form').onsubmit = async e => {
     e.preventDefault();
@@ -87,17 +63,5 @@ const Admin = window.Admin;
     } finally { $('retention-save').disabled = false; }
   };
 
-  $('player-library-form').onsubmit = async e => {
-    e.preventDefault();
-    const defaultCards = (initialLibrary.defaultCards || []).map(card => ({ cardId: card.cardId, count: Number(card.count) }));
-    const body = { mode: $('new-player-card-mode').value, allGold: $('new-player-all-gold').value === 'true', defaultCards };
-    $('player-library-save').disabled = true;
-    try {
-      const result = await Admin.api('/system-settings/player-library', { method: 'PUT', body });
-      Admin.banner(result?.message || '保存失败', result?.ok ? 'ok' : 'err');
-      if (result?.ok) await loadPlayerLibrary();
-    } finally { $('player-library-save').disabled = false; }
-  };
-
-  await Promise.all([loadNetwork(), loadRetention(), loadPlayerLibrary()]);
+  await Promise.all([loadNetwork(), loadRetention()]);
 })();

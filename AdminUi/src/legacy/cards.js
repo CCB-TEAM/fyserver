@@ -62,14 +62,6 @@ const Admin = window.Admin;
   $('card-q').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); page = 1; load(); } };
   $('card-prev').onclick = () => { page--; load(); };
   $('card-next').onclick = () => { page++; load(); };
-  $('add-filtered-defaults').onclick = async () => {
-    if (!total) return Admin.banner('当前筛选没有卡牌。', 'info');
-    const count = Number($('default-card-count').value);
-    if (!Number.isInteger(count) || count < 1 || count > 1000) return Admin.banner('卡牌数量必须在 1 到 1000 之间。', 'err');
-    if (!confirm('将当前筛选命中的全部 ' + total + ' 张卡牌加入新玩家默认卡牌，每张 ' + count + ' 张？已配置的数量会被替换。')) return;
-    const result = await Admin.api('/cards/defaults', { method: 'PUT', body: { ...filters(), count } });
-    Admin.banner(result?.message || '操作失败', result?.ok ? 'ok' : 'err');
-  };
   $('save-card').onclick = async () => {
     if (!currentCard) return;
     const value = $('edit-kredits').value.trim();

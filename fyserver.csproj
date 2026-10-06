@@ -5,8 +5,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>fyserver.ico</ApplicationIcon>
-    <!-- SPDX：AGPL-3.0-or-later。注意 LICENSE 仅覆盖本项目源代码，库内游戏数据与美术资源归 1939 Games，见 README 第三方权利声明。 -->
-    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <!-- 自定义非商业许可证，没有 SPDX 标识，所以用 PackageLicenseFile 而不是 PackageLicenseExpression（后者只接受 SPDX ID）。注意 LICENSE 仅覆盖本项目源代码，库内游戏数据与美术资源归 1939 Games，见 README 第三方权利声明。 -->
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <Copyright>Copyright (C) 2026 CCB-TEAM</Copyright>
     <!-- 反射 JSON 序列化关闭：全部走源生成上下文（FyJsonContext / ConfigJsonContext / StoreJsonContext），NativeAOT 兼容 -->
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
@@ -25,6 +25,11 @@
   <PropertyGroup>
     <NoWarn>$(NoWarn);IL2026;IL2104;IL3053;IL3050</NoWarn>
   </PropertyGroup>
+
+  <!-- PackageLicenseFile 要求许可证文件本身随包发布，否则 dotnet pack 会报 NU5034。 -->
+  <ItemGroup>
+    <None Include="LICENSE" Pack="true" PackagePath="" />
+  </ItemGroup>
 
   <ItemGroup>
     <Compile Remove="faster-log\**" />

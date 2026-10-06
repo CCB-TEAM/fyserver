@@ -2,7 +2,7 @@
   "name": "fyserver-admin-ui",
   "private": true,
   "type": "module",
-  "license": "AGPL-3.0-or-later",
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",

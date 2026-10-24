@@ -2,7 +2,7 @@
   "name": "fyserver-admin-ui",
   "private": true,
   "type": "module",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",

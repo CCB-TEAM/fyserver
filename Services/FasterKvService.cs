@@ -1,49 +1,32 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using FASTER.core;
 using fyserver.Serialization;
 
 namespace fyserver.Services;
 
-/// <summary>
-/// 本地玩家存储：内存索引（key → JSON）+ 原子 JSON 快照持久化。
-///
-/// 早期实现把持久化交给 FASTER 的 <c>TakeFullCheckpointAsync</c>，但该路径在
-/// ASP.NET 宿主里永远等不到设备 I/O 完成（检查点状态机停在刷盘阶段：只有
-/// <c>index-checkpoints/&lt;guid&gt;/ht.dat.0</c> 被创建、始终 0 字节，hlog 也不增长），
-/// 于是任何调用 <c>RecordIncremental()</c> 的接口——改名、卡组保存、兑换码领取、
-/// 后台改钱包——都会无限挂起，进程退出时的检查点也会卡住，账号因此不落盘。
-///
-/// 现在读写只操作内存索引，持久化改为把索引整体写成 JSON 快照（临时文件 +
-/// File.Replace 原子替换，并保留上一版为 .bak）。旧的 faster-log 检查点仍会在启动时
-/// 尝试一次性导入，导入成功后同样写入快照，之后不再依赖 FASTER 的检查点机制。
-/// </summary>
+/// <summary>FASTER KV 持久化封装。值为 JSON 字符串。</summary>
 public class FasterKvService : IDisposable
 {
+    private FasterKV<string, string> _fasterKv;
+    private ClientSession<string, string, string, string, Empty, IFunctions<string, string, string, string, Empty>> _session;
     private const string LogDirectory = "./faster-log";
-    private const string SnapshotFileName = "users.snapshot.json";
-
     private readonly bool _verboseLogging;
     private CheckpointType _checkpointType = CheckpointType.FoldOver;
-    private readonly object _sync = new();
-    private readonly string _stateDirectory;
 
-    // 内存索引：key -> JSON。所有读写都走这里，绝不触发设备 I/O。
+    /// <summary>本次启动是否从既有检查点恢复出了数据。</summary>
+    public bool RecoveredFromCheckpoint { get; private set; }
+    private bool _disposed;
+    private readonly object _sync = new();
+    private readonly string _logDirectory;
+
+    // 内存索引：key -> JSON。FASTER 在托管 API 下不易全量迭代，
+    // 用镜像索引支撑 GetKeysByPrefix/GetAllByPrefix（管理端点使用）。
     private readonly ConcurrentDictionary<string, string> _index = new();
 
-    /// <summary>本次启动是否从既有持久化数据（快照或旧检查点）恢复出了内容。</summary>
-    public bool RecoveredFromCheckpoint { get; private set; }
-
-    private bool _disposed;
-
-    // 自上次成功写快照以来是否发生过写入，避免重复写同一份内容。
-    private volatile bool _dirty;
-
-    private string SnapshotPath => Path.Combine(_stateDirectory, SnapshotFileName);
-    private string SnapshotBackupPath => SnapshotPath + ".bak";
-
-    // System.Text.Json 序列化：走 StoreJsonContext（源生成，保持 PascalCase 存储格式，NativeAOT 兼容）
+    // System.Text.Json 序列化：FASTER 存储走 StoreJsonContext（源生成，保持 PascalCase 存储格式）
     private static JsonTypeInfo<T> GetStoreTypeInfo<T>() where T : class =>
         StoreJsonContext.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
         ?? throw new InvalidOperationException($"类型 {typeof(T).FullName} 未注册到 StoreJsonContext，无法序列化存储");
@@ -52,298 +35,302 @@ public class FasterKvService : IDisposable
     {
         _verboseLogging = verboseLogging;
         _checkpointType = checkpointType;
-        _stateDirectory = logDirectory;
+        _logDirectory = logDirectory;
 
-        try { Directory.CreateDirectory(_stateDirectory); }
-        catch (Exception ex) { Console.WriteLine($"本地存储：无法创建目录 {_stateDirectory}：{ex.GetBaseException().Message}"); }
+        _fasterKv = CreateStore();
 
-        var fromSnapshot = TryLoadSnapshot();
-        var fromLegacy = !fromSnapshot && TryImportLegacyCheckpoint();
-        RecoveredFromCheckpoint = fromSnapshot || fromLegacy;
+        // 不再依赖 ./YCDR 标志文件判断有没有历史数据：每次启动都直接尝试恢复
+        // 最后一次检查点，没有可用检查点时按全新存储启动。
+        RecoveredFromCheckpoint = TryRecover();
+
+        _session = _fasterKv.NewSession(new SimpleFunctions<string, string, Empty>());
     }
 
-    // ---------------------------------------------------------------- 读写
+    /// <summary>按当前存储目录构建一个全新的 FasterKV 实例（不创建 session）。</summary>
+    private FasterKV<string, string> CreateStore()
+    {
+        if (!Directory.Exists(_logDirectory))
+            Directory.CreateDirectory(_logDirectory);
+
+        return new FasterKV<string, string>(
+            size: 1L << 15, // 32768 条记录的哈希表
+            logSettings: new LogSettings
+            {
+                LogDevice = Devices.CreateLogDevice(Path.Combine(_logDirectory, "hlog.log")),
+                ObjectLogDevice = Devices.CreateLogDevice(Path.Combine(_logDirectory, "hlog.obj.log")),
+                PageSizeBits = 12, // 4KB 页面
+                MemorySizeBits = 20 // 1MB 内存
+            },
+            checkpointSettings: new CheckpointSettings
+            {
+                CheckpointDir = _logDirectory,
+                RemoveOutdated = true
+            }
+        );
+    }
+
+    /// <summary>丢弃当前存储并重建为空库。session 由调用方负责，这里不创建。</summary>
+    private void RecreateStore()
+    {
+        try { _fasterKv?.Dispose(); } catch { }
+        _index.Clear();
+        if (Directory.Exists(_logDirectory))
+            Directory.Delete(_logDirectory, true);
+        _fasterKv = CreateStore();
+    }
 
     // 存储值 (同步)
     public void Put<T>(string key, T value) where T : class
     {
-        var json = JsonSerializer.Serialize(value, GetStoreTypeInfo<T>());
-        _index[key] = json;
-        _dirty = true;
-        if (_verboseLogging)
-            Console.WriteLine($"Put: key={key}, size={json.Length} bytes");
+        lock (_sync)
+        {
+            var jsonString = JsonSerializer.Serialize(value, GetStoreTypeInfo<T>());
+            _session.Upsert(ref key, ref jsonString);
+            _session.CompletePending(true);
+            _index[key] = jsonString;
+            if (_verboseLogging)
+                Console.WriteLine($"Put: key={key}, size={jsonString.Length} bytes");
+        }
     }
 
     // 获取值
     public T? Get<T>(string key) where T : class
     {
-        if (!_index.TryGetValue(key, out var json) || string.IsNullOrEmpty(json))
+        lock (_sync)
         {
             if (_verboseLogging)
+                Console.WriteLine($"Get<{typeof(T).Name}>: Looking for key={key}");
+
+            string output = default!;
+            var status = _session.Read(ref key, ref output);
+            _session.CompletePending(true);
+
+            if (!string.IsNullOrEmpty(output))
+            {
+                if (_verboseLogging)
+                    Console.WriteLine($"Get<{typeof(T).Name}>: key={key}, size={output.Length} bytes");
+                return JsonSerializer.Deserialize(output, GetStoreTypeInfo<T>());
+            }
+
+            if (_verboseLogging)
                 Console.WriteLine($"Get<{typeof(T).Name}>: key={key} not found");
+
             return default;
         }
-        if (_verboseLogging)
-            Console.WriteLine($"Get<{typeof(T).Name}>: key={key}, size={json.Length} bytes");
-        return JsonSerializer.Deserialize(json, GetStoreTypeInfo<T>());
     }
 
     // 删除值 (同步)
     public void Delete(string key)
     {
-        _index.TryRemove(key, out _);
-        _dirty = true;
-        if (_verboseLogging)
-            Console.WriteLine($"Delete: key={key}");
+        lock (_sync)
+        {
+            _session.Delete(ref key);
+            _session.CompletePending(true);
+            _index.TryRemove(key, out _);
+            if (_verboseLogging)
+                Console.WriteLine($"Delete: key={key}");
+        }
     }
 
     // 检查键是否存在 (同步)
-    public bool Exists(string key) => _index.ContainsKey(key);
+    public bool Exists(string key)
+    {
+        lock (_sync)
+        {
+            string output = default!;
+            var status = _session.Read(ref key, ref output);
+            _session.CompletePending(true);
+            return !string.IsNullOrEmpty(output);
+        }
+    }
 
-    public List<string> GetAllKeys() => _index.Keys.ToList();
+    public List<string> GetAllKeys()
+    {
+        lock (_sync)
+        {
+            return _index.Keys.ToList();
+        }
+    }
 
     // 根据前缀获取所有键 (同步)
-    public List<string> GetKeysByPrefix(string prefix) =>
-        _index.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+    public List<string> GetKeysByPrefix(string prefix)
+    {
+        lock (_sync)
+        {
+            return _index.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+        }
+    }
 
     // 根据前缀获取所有值 (同步)
     public List<T> GetAllByPrefix<T>(string prefix) where T : class
     {
-        var result = new List<T>();
-        foreach (var key in GetKeysByPrefix(prefix))
+        lock (_sync)
         {
-            if (!_index.TryGetValue(key, out var json) || string.IsNullOrEmpty(json))
-                continue;
-            var value = JsonSerializer.Deserialize(json, GetStoreTypeInfo<T>());
-            if (value != null)
-                result.Add(value);
+            var result = new List<T>();
+            foreach (var key in GetKeysByPrefix(prefix))
+            {
+                if (_index.TryGetValue(key, out var json) && !string.IsNullOrEmpty(json))
+                {
+                    var value = JsonSerializer.Deserialize(json, GetStoreTypeInfo<T>());
+                    if (value != null)
+                        result.Add(value);
+                }
+            }
+            return result;
         }
-        return result;
     }
 
     // 批量操作 (同步)
     public void Batch<T>(Dictionary<string, T>? puts, List<string>? deletes = null) where T : class
     {
-        if (deletes is { Count: > 0 })
+        lock (_sync)
         {
-            foreach (var key in deletes)
-                _index.TryRemove(key, out _);
-            _dirty = true;
-        }
+            if ((deletes == null || deletes.Count == 0) && (puts == null || puts.Count == 0))
+            {
+                return;
+            }
 
-        if (puts is { Count: > 0 })
-        {
-            foreach (var kvp in puts)
-                _index[kvp.Key] = JsonSerializer.Serialize(kvp.Value, GetStoreTypeInfo<T>());
-            _dirty = true;
-        }
+            if (deletes != null && deletes.Count > 0)
+            {
+                foreach (var key in deletes)
+                {
+                    var keyRef = key;
+                    _session.Delete(ref keyRef);
+                    _index.TryRemove(key, out _);
+                }
+            }
 
-        if (_verboseLogging)
-            Console.WriteLine($"Batch: puts={puts?.Count ?? 0}, deletes={deletes?.Count ?? 0}");
+            if (puts != null && puts.Count > 0)
+            {
+                foreach (var kvp in puts)
+                {
+                    var key = kvp.Key;
+                    var jsonString = JsonSerializer.Serialize(kvp.Value, GetStoreTypeInfo<T>());
+                    _session.Upsert(ref key, ref jsonString);
+                    _index[key] = jsonString;
+                }
+            }
+
+            _session.CompletePending(true);
+
+            if (_verboseLogging)
+            {
+                var putCount = puts?.Count ?? 0;
+                var delCount = deletes?.Count ?? 0;
+                Console.WriteLine($"Batch: puts={putCount}, deletes={delCount}");
+            }
+        }
     }
 
-    // ---------------------------------------------------------------- 持久化
-
     // 创建检查点（快照）
-    public void Checkpoint() => SaveSnapshot(force: true);
+    public void Checkpoint()
+    {
+        lock (_sync)
+        {
+            _fasterKv.TakeFullCheckpointAsync(_checkpointType).GetAwaiter().GetResult();
+            _session.CompletePending(true);
+            if (_verboseLogging)
+                Console.WriteLine("FasterKvService: CompletePending called for checkpoint.");
+        }
+    }
 
     public void Checkpoint(CheckpointType checkpointType)
     {
-        if (_verboseLogging)
-            Console.WriteLine($"本地存储：按 {checkpointType} 语义写快照（实现为全量快照）");
-        SaveSnapshot();
-    }
-
-    public void SetCheckpointType(CheckpointType checkpointType) => _checkpointType = checkpointType;
-
-    /// <summary>把内存索引整体写成 JSON 快照（临时文件 + 原子替换，保留上一版为 .bak）。</summary>
-    public void SaveSnapshot(bool force = false)
-    {
-        if (_disposed) return;
         lock (_sync)
         {
-            // 没有新写入且快照已存在时跳过，避免同一份内容反复落盘。
-            if (!force && !_dirty && File.Exists(SnapshotPath)) return;
-
-            var tmp = SnapshotPath + ".tmp";
-            try
-            {
-                Directory.CreateDirectory(_stateDirectory);
-                using (var stream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024))
-                using (var writer = new Utf8JsonWriter(stream))
-                {
-                    writer.WriteStartObject();
-                    writer.WriteNumber("version", 1);
-                    writer.WriteString("savedAt", DateTime.UtcNow.ToString("O"));
-                    writer.WriteNumber("count", _index.Count);
-                    writer.WriteStartObject("entries");
-                    foreach (var entry in _index)
-                    {
-                        if (string.IsNullOrEmpty(entry.Key)) continue;
-                        writer.WritePropertyName(entry.Key);
-                        // 值本身已是 JSON 文本，直接写入，避免二次转义。
-                        writer.WriteRawValue(entry.Value, skipInputValidation: true);
-                    }
-                    writer.WriteEndObject();
-                    writer.WriteEndObject();
-                }
-
-                if (File.Exists(SnapshotPath))
-                    File.Replace(tmp, SnapshotPath, SnapshotBackupPath, ignoreMetadataErrors: true);
-                else
-                    File.Move(tmp, SnapshotPath);
-
-                _dirty = false;
-                if (_verboseLogging)
-                    Console.WriteLine($"本地存储：快照已写入 {_index.Count} 条记录 → {SnapshotPath}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"本地存储：写入快照失败：{ex.GetBaseException().Message}");
-                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
-            }
+            _fasterKv.TakeFullCheckpointAsync(checkpointType).GetAwaiter().GetResult();
+            _session.CompletePending(true);
+            if (_verboseLogging)
+                Console.WriteLine($"FasterKvService: CompletePending called for checkpoint (type={checkpointType}).");
         }
     }
 
-    /// <summary>重新从磁盘装载（快照优先，其次旧的 faster-log 检查点）。</summary>
+    public void SetCheckpointType(CheckpointType checkpointType)
+    {
+        _checkpointType = checkpointType;
+    }
+
+    // 恢复到最后一次检查点
     public void Recover()
     {
-        _index.Clear();
-        RecoveredFromCheckpoint = TryLoadSnapshot() || TryImportLegacyCheckpoint();
-        _dirty = false;
-    }
-
-    private bool TryLoadSnapshot()
-    {
-        try
+        lock (_sync)
         {
-            if (!File.Exists(SnapshotPath)) return false;
-            using var document = JsonDocument.Parse(File.ReadAllBytes(SnapshotPath));
-            if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
-            if (!document.RootElement.TryGetProperty("entries", out var entries) ||
-                entries.ValueKind != JsonValueKind.Object) return false;
-
-            var loaded = 0;
-            foreach (var property in entries.EnumerateObject())
-            {
-                if (string.IsNullOrEmpty(property.Name)) continue;
-                _index[property.Name] = property.Value.GetRawText();
-                loaded++;
-            }
-            Console.WriteLine($"本地存储：已从快照恢复 {loaded} 条记录");
-            return loaded > 0;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"本地存储：快照读取失败：{ex.GetBaseException().Message}");
-            return false;
+            _fasterKv.Recover();
+            RebuildIndex();
         }
     }
 
     /// <summary>
-    /// 从旧版本的 faster-log 检查点导入一次数据。导入成功后立即落成快照，
-    /// 之后不再使用 FASTER 的检查点机制。
+    /// 启动时无条件尝试恢复最后一次检查点。全新安装没有检查点、或检查点损坏时，
+    /// 回退到空库并返回 false，而不是让进程带着半初始化状态启动。
     /// </summary>
-    private bool TryImportLegacyCheckpoint()
+    private bool TryRecover()
     {
-        if (!Directory.Exists(_stateDirectory)) return false;
         try
         {
-            var hasLegacy = Directory.EnumerateFiles(_stateDirectory, "*", SearchOption.AllDirectories)
-                .Any(path =>
-                {
-                    var name = Path.GetFileName(path);
-                    return name.StartsWith("hlog", StringComparison.OrdinalIgnoreCase) ||
-                           path.Contains("checkpoints", StringComparison.OrdinalIgnoreCase);
-                });
-            if (!hasLegacy) return false;
-
-            // 在临时副本上做恢复：绝对路径打开、RemoveOutdated=false，
-            // 这样即使恢复失败也不会删掉用户目录里的旧检查点文件。
-            var work = Path.Combine(Path.GetTempPath(), "fyserver-legacy-" + Guid.NewGuid().ToString("N"));
-            try
-            {
-                foreach (var file in Directory.EnumerateFiles(_stateDirectory, "*", SearchOption.AllDirectories))
-                {
-                    var destination = Path.Combine(work, Path.GetRelativePath(_stateDirectory, file));
-                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                    File.Copy(file, destination, overwrite: true);
-                }
-
-                using var store = new FasterKV<string, string>(1L << 15, new LogSettings
-                {
-                    LogDevice = Devices.CreateLogDevice(Path.Combine(work, "hlog.log")),
-                    ObjectLogDevice = Devices.CreateLogDevice(Path.Combine(work, "hlog.obj.log")),
-                    PageSizeBits = 12,
-                    MemorySizeBits = 20
-                }, new CheckpointSettings { CheckpointDir = work, RemoveOutdated = false });
-
-                store.Recover();
-                using var iterator = store.Log.Scan(
-                    store.Log.BeginAddress,
-                    store.Log.TailAddress,
-                    ScanBufferingMode.DoublePageBuffering);
-
-                var imported = 0;
-                while (iterator.GetNext(out var recordInfo, out var key, out var value))
-                {
-                    if (recordInfo.Tombstone || recordInfo.Invalid) continue;
-                    if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value)) continue;
-                    _index[key] = value;
-                    imported++;
-                }
-
-                Console.WriteLine($"本地存储：已从旧 faster-log 检查点导入 {imported} 条记录");
-                if (imported == 0) return false;
-                SaveSnapshot();
-                return true;
-            }
-            finally
-            {
-                try { if (Directory.Exists(work)) Directory.Delete(work, true); } catch { }
-            }
+            _fasterKv.Recover();
+            RebuildIndex();
+            return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"本地存储：旧检查点导入跳过（原文件未改动）：{ex.GetBaseException().Message}");
+            Console.WriteLine($"未找到可用的存储检查点，按全新存储启动：{ex.GetBaseException().Message}");
+            RecreateStore();
             return false;
         }
     }
 
-    // 清空数据库
+    private void RebuildIndex()
+    {
+        _index.Clear();
+        using var iterator = _fasterKv.Log.Scan(
+            _fasterKv.Log.BeginAddress,
+            _fasterKv.Log.TailAddress,
+            ScanBufferingMode.DoublePageBuffering);
+
+        while (iterator.GetNext(out var recordInfo, out var key, out var value))
+        {
+            if (recordInfo.Tombstone)
+                _index.TryRemove(key, out _);
+            else if (!recordInfo.Invalid && !string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(value))
+                _index[key] = value;
+        }
+    }
+
+    // 清空数据库 (注意：FASTER 没有直接清空的方法，需要删除日志文件)
     public void Clear()
     {
         lock (_sync)
         {
-            _index.Clear();
-            RecoveredFromCheckpoint = false;
-            _dirty = false;
-            try { if (File.Exists(SnapshotPath)) File.Delete(SnapshotPath); } catch { }
-            try { if (File.Exists(SnapshotBackupPath)) File.Delete(SnapshotBackupPath); } catch { }
-            // 清掉旧 faster-log 检查点，重启后不会再把旧数据导入回来。
-            try
-            {
-                foreach (var path in Directory.EnumerateFiles(_stateDirectory, "*", SearchOption.AllDirectories).ToList())
-                    File.Delete(path);
-                foreach (var dir in Directory.EnumerateDirectories(_stateDirectory).ToList())
-                    Directory.Delete(dir, true);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"本地存储：清理旧检查点失败：{ex.GetBaseException().Message}");
-            }
+            try { _session?.Dispose(); } catch { }
+
+            // RecreateStore 会把检查点文件一并删掉，重启后不会再把旧数据恢复回来。
+            RecreateStore();
+
+            _session = _fasterKv.NewSession(new SimpleFunctions<string, string, Empty>());
 
             if (_verboseLogging)
-                Console.WriteLine("FasterKvService: Clear completed.");
+                Console.WriteLine("FasterKvService: Clear completed and instance recreated.");
         }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
-        // 退出前无条件落盘；旧实现依赖 FASTER 检查点，在宿主里会卡死，导致账号不保存。
-        try { SaveSnapshot(force: true); }
-        catch (Exception ex) { Console.WriteLine($"退出前保存快照失败：{ex.GetBaseException().Message}"); }
+        if (_disposed)
+            return;
         _disposed = true;
+
+        // 退出前无条件落盘。此前依赖 ./YCDR 标志决定是否保存，导致全新安装
+        // 第一次关服不写盘、重启后所有账户丢失。
+        try
+        {
+            Checkpoint(CheckpointType.FoldOver);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"退出前保存检查点失败：{ex.GetBaseException().Message}");
+        }
+        _session?.Dispose();
+        _fasterKv?.Dispose();
     }
 }

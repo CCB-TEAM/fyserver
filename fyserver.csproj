@@ -20,6 +20,15 @@
   <PropertyGroup>
     <EnableAot Condition="'$(EnableAot)' == ''">true</EnableAot>
     <PublishAot>$(EnableAot)</PublishAot>
+    <!--
+      PublishAot=true 时 SDK 会把运行时配置写成 System.Threading.ThreadPool.UseWindowsThreadPool=true，
+      FASTER（Microsoft.FASTER.Core 2.6.5）的设备异步写靠托管线程池的 I/O 完成回调，换到 Windows
+      线程池后回调不再触发：TakeFullCheckpointAsync 永不返回，检查点只留下 0 字节的
+      index-checkpoints/<guid>/ht.dat.0，于是改名 / 卡组保存 / 兑换码领取 / 后台钱包修改全部挂起，
+      退出时的检查点也卡住导致账号不落盘。这里显式固定为托管线程池。
+      （已实测：不设此项时 AOT 与托管构建都会挂；设成 false 后两者都正常，检查点 0.2~0.3 秒完成。）
+    -->
+    <UseWindowsThreadPool>false</UseWindowsThreadPool>
   </PropertyGroup>
 
   <PropertyGroup>

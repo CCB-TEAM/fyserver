@@ -181,6 +181,10 @@ public static class PlayerEndpoints
         var name = requestedName?.Trim() ?? "";
         if (name.Length is < 1 or > 32 || name.Any(char.IsControl))
             return Failure("Player name must be 1–32 characters and contain no control characters");
+        // 占位昵称是客户端判断“还没起名”的标记，不能被当成真实昵称占用，
+        // 否则该账户会一直卡在改名弹窗上。
+        if (string.Equals(name, User.AnonymousName, StringComparison.OrdinalIgnoreCase))
+            return Failure("Player name must be a real name, not the anonymous placeholder");
         var result = await users.WithUserLockAsync<IResult>(id, async user =>
         {
             if (!await users.SavePlayerIdentityAsync(user, name))

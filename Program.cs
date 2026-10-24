@@ -180,8 +180,8 @@ httpApp.Lifetime.ApplicationStopping.Register(() =>
 Console.ForegroundColor = ConsoleColor.Blue;
 Console.WriteLine("正在启动http服务器");
 Console.WriteLine("等待两秒确保初始化成功");
-if (File.Exists("./YCDR"))
-    Console.WriteLine("发现持久化数据，已加载");
+if (fasterKv is { } localStore)
+    Console.WriteLine(localStore.RecoveredFromCheckpoint ? "本地存储：已从检查点恢复" : "本地存储：全新启动（无可用检查点）");
 Console.ForegroundColor = ConsoleColor.White;
 
 _ = httpApp.RunAsync();

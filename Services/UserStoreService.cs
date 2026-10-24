@@ -90,7 +90,9 @@ public sealed class UserStoreService
             var user = new User(userName);
             do { user.Id = Random.Shared.Next(100000, 1000000); }
             while (await GetByIdAsync(user.Id) != null);
-            await SavePlayerIdentityAsync(user, user.Name);
+            // 新建账户只下发占位身份：name = "<anon>"，tag = 0。客户端据此弹出改名框，
+            // 真实昵称与随机 Tag 在改名时由 SavePlayerIdentityAsync 写入。
+            await SaveUserAsync(user);
             return user;
         }
         finally { _createLock.Release(); }

@@ -15,6 +15,12 @@ public static class PlayerRoleCatalog
 /// <summary>玩家账户数据。无参构造是 FASTER 反序列化所必需的。</summary>
 public class User
 {
+    /// <summary>
+    /// 新建账户的占位昵称，配合 Tag = 0。客户端识别到这个昵称就给用户弹出改名框，
+    /// 改名成功后由 SavePlayerIdentityAsync 写入真实昵称和随机 Tag。
+    /// </summary>
+    public const string AnonymousName = "<anon>";
+
     public User()
     {
         // 初始化集合，防止空引用
@@ -32,7 +38,7 @@ public class User
     {
         UserName = userName;
         // 默认值
-        Name = "<anon>";
+        Name = AnonymousName;
         Locale = "zh-Hans";
         Tag = 0;
         Banned = false;
@@ -45,7 +51,7 @@ public class User
         Id = id;
         UserName = userName;
         // 默认值
-        Name = "<anon>";
+        Name = AnonymousName;
         Locale = "zh-Hans";
         Tag = 0;
         Banned = false;

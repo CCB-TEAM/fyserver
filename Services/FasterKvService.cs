@@ -15,8 +15,12 @@ public class FasterKvService : IDisposable
     private const string LogDirectory = "./faster-log";
     private readonly bool _verboseLogging;
     private CheckpointType _checkpointType = CheckpointType.FoldOver;
+
+    /// <summary>本次启动是否从既有检查点恢复出了数据。</summary>
+    public bool RecoveredFromCheckpoint { get; private set; }
     private bool _disposed;
     private readonly object _sync = new();
+    private readonly string _logDirectory;
 
     // 内存索引：key -> JSON。FASTER 在托管 API 下不易全量迭代，
     // 用镜像索引支撑 GetKeysByPrefix/GetAllByPrefix（管理端点使用）。
@@ -27,42 +31,52 @@ public class FasterKvService : IDisposable
         StoreJsonContext.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
         ?? throw new InvalidOperationException($"类型 {typeof(T).FullName} 未注册到 StoreJsonContext，无法序列化存储");
 
-    public FasterKvService(string logDirectory = "./faster-log", bool verboseLogging = false, CheckpointType checkpointType = CheckpointType.FoldOver)
+    public FasterKvService(string logDirectory = LogDirectory, bool verboseLogging = false, CheckpointType checkpointType = CheckpointType.FoldOver)
     {
         _verboseLogging = verboseLogging;
         _checkpointType = checkpointType;
+        _logDirectory = logDirectory;
 
-        // 确保日志目录存在
-        if (!Directory.Exists(logDirectory))
-        {
-            Directory.CreateDirectory(logDirectory);
-        }
+        _fasterKv = CreateStore();
 
-        var logSettings = new LogSettings
-        {
-            LogDevice = Devices.CreateLogDevice(Path.Combine(logDirectory, "hlog.log")),
-            ObjectLogDevice = Devices.CreateLogDevice(Path.Combine(logDirectory, "hlog.obj.log")),
-            PageSizeBits = 12, // 4KB 页面
-            MemorySizeBits = 20 // 1MB 内存
-        };
+        // 不再依赖 ./YCDR 标志文件判断有没有历史数据：每次启动都直接尝试恢复
+        // 最后一次检查点，没有可用检查点时按全新存储启动。
+        RecoveredFromCheckpoint = TryRecover();
 
-        _fasterKv = new FasterKV<string, string>(
-            size: 1L << 15, // 1M 条记录的哈希表
-            logSettings: logSettings,
+        _session = _fasterKv.NewSession(new SimpleFunctions<string, string, Empty>());
+    }
+
+    /// <summary>按当前存储目录构建一个全新的 FasterKV 实例（不创建 session）。</summary>
+    private FasterKV<string, string> CreateStore()
+    {
+        if (!Directory.Exists(_logDirectory))
+            Directory.CreateDirectory(_logDirectory);
+
+        return new FasterKV<string, string>(
+            size: 1L << 15, // 32768 条记录的哈希表
+            logSettings: new LogSettings
+            {
+                LogDevice = Devices.CreateLogDevice(Path.Combine(_logDirectory, "hlog.log")),
+                ObjectLogDevice = Devices.CreateLogDevice(Path.Combine(_logDirectory, "hlog.obj.log")),
+                PageSizeBits = 12, // 4KB 页面
+                MemorySizeBits = 20 // 1MB 内存
+            },
             checkpointSettings: new CheckpointSettings
             {
-                CheckpointDir = logDirectory,
+                CheckpointDir = _logDirectory,
                 RemoveOutdated = true
             }
         );
+    }
 
-        if (File.Exists("./YCDR"))
-        {
-            _fasterKv.Recover();
-            RebuildIndex();
-        }
-
-        _session = _fasterKv.NewSession(new SimpleFunctions<string, string, Empty>());
+    /// <summary>丢弃当前存储并重建为空库。session 由调用方负责，这里不创建。</summary>
+    private void RecreateStore()
+    {
+        try { _fasterKv?.Dispose(); } catch { }
+        _index.Clear();
+        if (Directory.Exists(_logDirectory))
+            Directory.Delete(_logDirectory, true);
+        _fasterKv = CreateStore();
     }
 
     // 存储值 (同步)
@@ -217,8 +231,6 @@ public class FasterKvService : IDisposable
             _session.CompletePending(true);
             if (_verboseLogging)
                 Console.WriteLine("FasterKvService: CompletePending called for checkpoint.");
-            if (!File.Exists("./YCDR"))
-                File.Create("./YCDR").Dispose();
         }
     }
 
@@ -230,9 +242,6 @@ public class FasterKvService : IDisposable
             _session.CompletePending(true);
             if (_verboseLogging)
                 Console.WriteLine($"FasterKvService: CompletePending called for checkpoint (type={checkpointType}).");
-            // 统一写 YCDR 标志：增量/全量检查点后重启都能 Recover
-            if (!File.Exists("./YCDR"))
-                File.Create("./YCDR").Dispose();
         }
     }
 
@@ -248,6 +257,26 @@ public class FasterKvService : IDisposable
         {
             _fasterKv.Recover();
             RebuildIndex();
+        }
+    }
+
+    /// <summary>
+    /// 启动时无条件尝试恢复最后一次检查点。全新安装没有检查点、或检查点损坏时，
+    /// 回退到空库并返回 false，而不是让进程带着半初始化状态启动。
+    /// </summary>
+    private bool TryRecover()
+    {
+        try
+        {
+            _fasterKv.Recover();
+            RebuildIndex();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"未找到可用的存储检查点，按全新存储启动：{ex.GetBaseException().Message}");
+            RecreateStore();
+            return false;
         }
     }
 
@@ -273,44 +302,10 @@ public class FasterKvService : IDisposable
     {
         lock (_sync)
         {
-            try
-            {
-                _session?.Dispose();
-            }
-            catch { }
+            try { _session?.Dispose(); } catch { }
 
-            try
-            {
-                _fasterKv?.Dispose();
-            }
-            catch { }
-
-            _index.Clear();
-
-            if (Directory.Exists(LogDirectory))
-            {
-                Directory.Delete(LogDirectory, true);
-            }
-
-            Directory.CreateDirectory(LogDirectory);
-
-            var logSettings = new LogSettings
-            {
-                LogDevice = Devices.CreateLogDevice(Path.Combine(LogDirectory, "hlog.log")),
-                ObjectLogDevice = Devices.CreateLogDevice(Path.Combine(LogDirectory, "hlog.obj.log")),
-                PageSizeBits = 12,
-                MemorySizeBits = 20
-            };
-
-            _fasterKv = new FasterKV<string, string>(
-                size: 1L << 20,
-                logSettings: logSettings,
-                checkpointSettings: new CheckpointSettings
-                {
-                    CheckpointDir = LogDirectory,
-                    RemoveOutdated = true
-                }
-            );
+            // RecreateStore 会把检查点文件一并删掉，重启后不会再把旧数据恢复回来。
+            RecreateStore();
 
             _session = _fasterKv.NewSession(new SimpleFunctions<string, string, Empty>());
 
@@ -325,8 +320,16 @@ public class FasterKvService : IDisposable
             return;
         _disposed = true;
 
-        if (File.Exists("./YCDR"))
+        // 退出前无条件落盘。此前依赖 ./YCDR 标志决定是否保存，导致全新安装
+        // 第一次关服不写盘、重启后所有账户丢失。
+        try
+        {
             Checkpoint(CheckpointType.FoldOver);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"退出前保存检查点失败：{ex.GetBaseException().Message}");
+        }
         _session?.Dispose();
         _fasterKv?.Dispose();
     }

@@ -39,23 +39,14 @@ public static class Command
                             TempWriteLine("清空。");
                             break;
                         case "savedbfo":
-                            if (File.Exists("./YCDR"))
-                            {
-                                users.RecordIncremental();
-                                TempWriteLine("已增量保存。");
-                            }
-                            else
-                            {
-                                TempWriteLine("未曾全量保存过, 请调用savedbss进行一次全量保存");
-                            }
+                            users.RecordIncremental();
+                            TempWriteLine("已增量保存。");
                             break;
                         case "savedbss":
                             users.RecordFull();
                             TempWriteLine("已全量保存。");
                             break;
                         case "clearusers":
-                            if (File.Exists("./YCDR"))
-                                File.Delete("./YCDR");
                             users.ClearAll();
                             TempWriteLine("所有用户数据已清除。");
                             break;

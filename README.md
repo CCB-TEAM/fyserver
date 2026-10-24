@@ -62,7 +62,7 @@ MIT 是宽松的开源许可：允许使用、修改、分发、**商业使用**
 
 - .NET 10 / ASP.NET Core（minimal API）
 - Vue 3 + Vite 8（后台界面；ASP.NET Core 托管构建后的静态资源）
-- FASTER（`Microsoft.FASTER.Core`）—— 用户数据持久化（`user:username:*` / `user:id:*` 双索引）
+- 本地存储 —— 内存索引（`user:username:*` / `user:id:*` 双索引）+ 原子 JSON 快照持久化（`faster-log/users.snapshot.json`，写入用临时文件 + `File.Replace`，保留上一版为 `.bak`）；`Microsoft.FASTER.Core` 只用于启动时一次性导入旧版 `faster-log` 检查点
 - System.Text.Json **全量源生成**（`FyJsonContext` / `ConfigJsonContext` / `StoreJsonContext`），零反射，NativeAOT 兼容
 - 消息编解码为**纯 C# 实现**（Base64 + XOR、查表密钥），无任何原生 DLL 依赖
 
@@ -215,10 +215,9 @@ fyserver/
 | `PUT` | `/admin/api/content/frontpage/{id}/published` | 快捷发布或下线首页内容 |
 # 对局观战与回放
 
-对局起始信息、已接受的动作和结束结果会写入配置的玩家数据库。MySQL/PostgreSQL 模式使用 `fy_match_history` 与 `fy_match_events` 表；本地 FASTER 模式使用 `data/match-history/` 下的原子 JSON 文档。PostgreSQL 模式启动或首次配置数据库时会自动创建表和索引。对局 ID 会同时避开仍在运行的对局和已归档历史 ID。
+对局起始信息、已接受的动作和结束结果会写入配置的玩家数据库。MySQL/PostgreSQL 模式使用 `fy_match_history` 与 `fy_match_events` 表；本地存储模式使用 `data/match-history/` 下的原子 JSON 文档。PostgreSQL 模式启动或首次配置数据库时会自动创建表和索引。对局 ID 会同时避开仍在运行的对局和已归档历史 ID。
 
 对局 ID 为随机六位数字（100000–999998），创建时检查运行中对局和已持久化历史记录以避免复用；它不是递增序号。后台“对局监控”页只显示实时对局与匹配队列；“对局管理”页可按状态、玩家名称或 ID 筛选和分页浏览持久化对局，查看开局快照及分页动作，并删除单条已结束/已中止记录。FASTER 本地玩家库模式同样支持观战与回放：实时观战从运行时对局读取，回放快照/动作从 `data/match-history/` 读取。
-
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/admin/api/matches/history/storage` | 持久化记录数、动作数与数据体积 |

@@ -72,7 +72,9 @@ public record SessionResponse(
     string PacksUrl,
     int PlayerId,
     string PlayerName,
-    string PlayerTag,
+    // 客户端按整数解析 player_tag，与 set-name 响应的 ["player_tag"] 保持一致。
+    // 四位补零由客户端自行格式化，服务端不再下发 "0000" 这类字符串。
+    int PlayerTag,
     List<object> Rewards,
     string SeasonEnd,
     int SeasonWins,

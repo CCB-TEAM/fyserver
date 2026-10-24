@@ -157,7 +157,7 @@ public static class UserEndpoints
                 PacksUrl: $"{addressHttp}/players/{user.Id}/packs",
                 PlayerId: user.Id,
                 PlayerName: user.Name,
-                PlayerTag: user.Tag.ToString("D4"),
+                PlayerTag: user.Tag,
                 Rewards: new List<object>(),
                 SeasonEnd: "2025-08-01T00:00:00Z",
                 SeasonWins: user.Wins,

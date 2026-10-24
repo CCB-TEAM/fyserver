@@ -246,9 +246,9 @@ public class FasterKvService : IDisposable
     /// </summary>
     private bool TryImportLegacyCheckpoint()
     {
+        if (!Directory.Exists(_stateDirectory)) return false;
         try
         {
-            if (!Directory.Exists(_stateDirectory)) return false;
             var hasLegacy = Directory.EnumerateFiles(_stateDirectory, "*", SearchOption.AllDirectories)
                 .Any(path =>
                 {
@@ -258,37 +258,54 @@ public class FasterKvService : IDisposable
                 });
             if (!hasLegacy) return false;
 
-            using var store = new FasterKV<string, string>(1L << 15, new LogSettings
+            // 在临时副本上做恢复：绝对路径打开、RemoveOutdated=false，
+            // 这样即使恢复失败也不会删掉用户目录里的旧检查点文件。
+            var work = Path.Combine(Path.GetTempPath(), "fyserver-legacy-" + Guid.NewGuid().ToString("N"));
+            try
             {
-                LogDevice = Devices.CreateLogDevice(Path.Combine(_stateDirectory, "hlog.log")),
-                ObjectLogDevice = Devices.CreateLogDevice(Path.Combine(_stateDirectory, "hlog.obj.log")),
-                PageSizeBits = 12,
-                MemorySizeBits = 20
-            }, new CheckpointSettings { CheckpointDir = _stateDirectory, RemoveOutdated = true });
+                foreach (var file in Directory.EnumerateFiles(_stateDirectory, "*", SearchOption.AllDirectories))
+                {
+                    var destination = Path.Combine(work, Path.GetRelativePath(_stateDirectory, file));
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                    File.Copy(file, destination, overwrite: true);
+                }
 
-            store.Recover();
-            using var iterator = store.Log.Scan(
-                store.Log.BeginAddress,
-                store.Log.TailAddress,
-                ScanBufferingMode.DoublePageBuffering);
+                using var store = new FasterKV<string, string>(1L << 15, new LogSettings
+                {
+                    LogDevice = Devices.CreateLogDevice(Path.Combine(work, "hlog.log")),
+                    ObjectLogDevice = Devices.CreateLogDevice(Path.Combine(work, "hlog.obj.log")),
+                    PageSizeBits = 12,
+                    MemorySizeBits = 20
+                }, new CheckpointSettings { CheckpointDir = work, RemoveOutdated = false });
 
-            var imported = 0;
-            while (iterator.GetNext(out var recordInfo, out var key, out var value))
-            {
-                if (recordInfo.Tombstone || recordInfo.Invalid) continue;
-                if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value)) continue;
-                _index[key] = value;
-                imported++;
+                store.Recover();
+                using var iterator = store.Log.Scan(
+                    store.Log.BeginAddress,
+                    store.Log.TailAddress,
+                    ScanBufferingMode.DoublePageBuffering);
+
+                var imported = 0;
+                while (iterator.GetNext(out var recordInfo, out var key, out var value))
+                {
+                    if (recordInfo.Tombstone || recordInfo.Invalid) continue;
+                    if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value)) continue;
+                    _index[key] = value;
+                    imported++;
+                }
+
+                Console.WriteLine($"本地存储：已从旧 faster-log 检查点导入 {imported} 条记录");
+                if (imported == 0) return false;
+                SaveSnapshot();
+                return true;
             }
-
-            Console.WriteLine($"本地存储：已从旧 faster-log 检查点导入 {imported} 条记录");
-            if (imported == 0) return false;
-            SaveSnapshot();
-            return true;
+            finally
+            {
+                try { if (Directory.Exists(work)) Directory.Delete(work, true); } catch { }
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"本地存储：旧检查点导入跳过：{ex.GetBaseException().Message}");
+            Console.WriteLine($"本地存储：旧检查点导入跳过（原文件未改动）：{ex.GetBaseException().Message}");
             return false;
         }
     }

@@ -277,6 +277,17 @@ public static class AdminApiEndpoints
         // ---------------------------------------------------------- 模组索引管理
         api.MapGet("/mods", (ModIndexService mods) =>
             Results.Text(new JsonObject { ["mods"] = new JsonArray(mods.List(includeHidden: true).Select(m => (JsonNode?)m).ToArray()) }.ToJsonString(), "application/json"));
+        // 模组文件对象存储（S3 兼容 / Cloudflare R2）配置；读取时不返回密钥。
+        api.MapGet("/mods/storage", (ModStorageService storage) =>
+            Results.Text(storage.PublicConfig().ToJsonString(), "application/json"));
+        api.MapPost("/mods/storage", async (HttpContext context, ModStorageService storage) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var result = storage.Save(body);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message, ["config"] = storage.PublicConfig() }.ToJsonString(),
+                "application/json", statusCode: result.Ok ? 200 : 400);
+        });
         api.MapDelete("/mods/{id}", (string id, ModIndexService mods) =>
         {
             var result = mods.Delete(id, null);

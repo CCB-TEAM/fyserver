@@ -179,6 +179,7 @@ fyserver/
 | `GET` | `/mods/{id}` | 获取单个模组的 manifest |
 | `GET` | `/mods/{id}/icon` | 获取模组图标 |
 | `GET` | `/mods/{id}/download` | 下载模组：返回 manifest（含 base64 图标 `icon`）与 Pak 下载直链 `downloadUrl`，并累计下载次数 |
+| `POST` | `/mods/upload-url` | 获取对象存储（R2）的预签名上传链接（需玩家 `Authorization`，需后台已配置存储） |
 | `POST` | `/mods` | 上传或更新模组信息（需玩家 `Authorization`）。同一 id 只能由原上传者更新 |
 | `DELETE` | `/mods/{id}` | 删除自己上传的模组（需玩家 `Authorization`） |
 
@@ -199,6 +200,15 @@ fyserver/
 - `icon`：PNG / JPEG / WebP，base64 或 data URL，最大 512 KB；新模组必填，更新时可省略以保留原图标。
 - `downloadUrl`：必须是公网 http(s) 直链（内网地址会被拒绝）。服务端只检查链接可访问，不检查文件格式，Pak 合法性由客户端负责。Pak 最大 1 GB。
 - `sha256`：必填。保存后服务端会在后台完整下载一次 Pak（同一时间只校验一个）计算 SHA-256，manifest 的 `hashStatus` 依次为 `pending` → `verified` / `mismatch` / `failed`；`mismatch` 的模组不会对玩家显示。启动器下载后也应自行用 `sha256` 校验文件。
+
+### 使用 Cloudflare R2 托管模组文件
+
+服务器带宽不足时，可以把 Pak 放到 Cloudflare R2（或任意 S3 兼容存储），文件流量不经过本服务器：
+
+1. 在 Cloudflare 创建 R2 存储桶，绑定自定义域名作为公开下载地址，并创建只授权该存储桶的“对象读和写”API 令牌。
+2. 在后台“模组索引”页面填写 S3 端点（`https://<账号ID>.r2.cloudflarestorage.com`）、存储桶、Access Key ID、Secret Access Key 和公开下载域名并启用。配置保存在 `data/mod-storage.json`，修改需要系统设置权限。
+3. 启动器上传流程：`POST /mods/upload-url`（`{"id","sha256","size"}`）→ 用返回的 `uploadUrl` 直接 `PUT` Pak 文件（15 分钟内有效）→ `POST /mods` 时省略 `downloadUrl`，服务端自动使用 `mods/<id>/<sha256>.pak` 的公开地址。
+4. 更换文件或删除模组时，服务端会删除存储桶中不再使用的旧文件。
 
 后台“模组索引”页面（`/admin-ui/mods.html`，需要内容权限）可查看全部模组、重新检查直链、隐藏/显示和删除模组。
 

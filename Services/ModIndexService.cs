@@ -27,8 +27,11 @@ public sealed partial class ModIndexService
     // 同一时间只校验一个 Pak，避免占满服务器下行带宽。
     private readonly SemaphoreSlim _hashGate = new(1, 1);
 
-    public ModIndexService()
+    private readonly ModStorageService _storage;
+
+    public ModIndexService(ModStorageService storage)
     {
+        _storage = storage;
         var handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = true,
@@ -132,14 +135,17 @@ public sealed partial class ModIndexService
         var url = body["downloadUrl"]?.GetValue<string>()?.Trim();
         var iconBase64 = body["icon"]?.GetValue<string>()?.Trim();
         var sha256 = body["sha256"]?.GetValue<string>()?.Trim().ToLowerInvariant();
+        if (sha256 == null || !Sha256Regex().IsMatch(sha256))
+            return (false, 400, "sha256 必须是 64 位十六进制字符串（Pak 文件的 SHA-256）", null);
+        // 未提供 downloadUrl 时，视为已通过 /mods/upload-url 上传到对象存储，按 id + sha256 推出公开地址。
+        if (string.IsNullOrEmpty(url) && _storage.IsEnabled && IsValidId(id))
+            url = _storage.PublicUrl(ModStorageService.ObjectKey(id!, sha256));
 
         if (!IsValidId(id)) return (false, 400, "模组 id 只能包含小写字母、数字、下划线、点和连字符，长度 3-64", null);
         if (string.IsNullOrWhiteSpace(name) || name.Length > MaxNameLength) return (false, 400, $"模组名称不能为空且不超过 {MaxNameLength} 个字符", null);
         if (description.Length > MaxDescriptionLength) return (false, 400, $"模组简介不能超过 {MaxDescriptionLength} 个字符", null);
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             return (false, 400, "下载直链必须是 http 或 https 地址", null);
-        if (sha256 == null || !Sha256Regex().IsMatch(sha256))
-            return (false, 400, "sha256 必须是 64 位十六进制字符串（Pak 文件的 SHA-256）", null);
 
         JsonObject? existing;
         lock (_gate) existing = ReadManifestLocked(id!);
@@ -214,6 +220,9 @@ public sealed partial class ModIndexService
             }
             WriteManifestLocked(id!, manifest);
             if (hashChanged) StartHashVerification(id!);
+            // 更换了文件：删除对象存储里不再使用的旧文件。
+            if (previousUrl != null && previousUrl != uri!.ToString() && _storage.KeyFromPublicUrl(previousUrl) is { } oldKey)
+                _ = _storage.DeleteObjectAsync(oldKey);
             return (true, existing == null ? 201 : 200, existing == null ? "模组已上传" : "模组已更新", manifest);
         }
     }
@@ -228,8 +237,43 @@ public sealed partial class ModIndexService
             if (requesterId != null && manifest["uploaderId"]?.GetValue<int>() != requesterId)
                 return (false, "只能删除自己上传的模组");
             Directory.Delete(Path.Combine(Root, id), true);
+            if (_storage.KeyFromPublicUrl(manifest["downloadUrl"]?.GetValue<string>()) is { } key)
+                _ = _storage.DeleteObjectAsync(key);
             return (true, "模组已删除");
         }
+    }
+
+    /// <summary>
+    /// 为启动器签发对象存储的预签名上传链接（PUT，15 分钟有效）。
+    /// 上传完成后，启动器调用 POST /mods 并省略 downloadUrl 即可登记。
+    /// </summary>
+    public (bool Ok, int Status, string Message, JsonObject? Result) CreateUploadUrl(int uploaderId, JsonObject body)
+    {
+        if (!_storage.IsEnabled) return (false, 503, "服务器未配置模组文件存储，请使用自己的下载直链", null);
+        var id = body["id"] is JsonValue idValue && idValue.TryGetValue<string>(out var rawId) ? rawId.Trim().ToLowerInvariant() : null;
+        var sha256 = body["sha256"] is JsonValue shaValue && shaValue.TryGetValue<string>(out var rawSha) ? rawSha.Trim().ToLowerInvariant() : null;
+        var size = body["size"] is JsonValue sizeValue && sizeValue.TryGetValue<long>(out var rawSize) ? rawSize : -1;
+        if (!IsValidId(id)) return (false, 400, "模组 id 只能包含小写字母、数字、下划线、点和连字符，长度 3-64", null);
+        if (sha256 == null || !Sha256Regex().IsMatch(sha256))
+            return (false, 400, "sha256 必须是 64 位十六进制字符串（Pak 文件的 SHA-256）", null);
+        if (size <= 0) return (false, 400, "size 必须是 Pak 文件的字节数", null);
+        if (size > MaxPakBytes) return (false, 413, $"Pak 文件超过 {MaxPakBytes / 1024 / 1024} MB 上限", null);
+        lock (_gate)
+        {
+            var existing = ReadManifestLocked(id!);
+            if (existing != null && existing["uploaderId"]?.GetValue<int>() != uploaderId)
+                return (false, 403, "该模组 id 已被其他用户占用", null);
+        }
+        var key = ModStorageService.ObjectKey(id!, sha256);
+        var (uploadUrl, expiresAt) = _storage.PresignPut(key);
+        return (true, 200, "ok", new JsonObject
+        {
+            ["ok"] = true,
+            ["method"] = "PUT",
+            ["uploadUrl"] = uploadUrl,
+            ["expiresAt"] = expiresAt.ToString("O"),
+            ["downloadUrl"] = _storage.PublicUrl(key)
+        });
     }
 
     public (bool Ok, string Message) SetHidden(string id, bool hidden)

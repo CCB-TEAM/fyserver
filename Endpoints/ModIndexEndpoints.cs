@@ -90,6 +90,20 @@ public static class ModIndexEndpoints
             catch (FormatException) { return Fail(400, "字段类型不正确"); }
         });
 
+        // 获取对象存储的预签名上传链接：启动器用返回的 uploadUrl 直接 PUT Pak 文件，再调用 POST /mods（可省略 downloadUrl）。
+        mods.MapPost("/upload-url", async (HttpContext context, AuthService auth, ModIndexService index) =>
+        {
+            var player = await auth.GetUserFromAuthAsync(context);
+            if (player == null)
+                return Json(new JsonObject { ["message"] = "Authorization required" }, 401);
+            JsonObject? body;
+            try { body = await JsonNode.ParseAsync(context.Request.Body, cancellationToken: context.RequestAborted) as JsonObject; }
+            catch (JsonException) { body = null; }
+            if (body == null) return Fail(400, "请求体不是合法的 JSON 对象");
+            var result = index.CreateUploadUrl(player.Id, body);
+            return result.Result != null ? Json(result.Result) : Fail(result.Status, result.Message);
+        });
+
         mods.MapDelete("/{id}", async (string id, HttpContext context, AuthService auth, ModIndexService index) =>
         {
             var player = await auth.GetUserFromAuthAsync(context);

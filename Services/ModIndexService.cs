@@ -25,6 +25,10 @@ public sealed partial class ModIndexService
     private const int MaxRejectReasonLength = 500;
 
     private readonly object _gate = new();
+    // 下载计数防刷：同一 IP 对同一模组 24 小时内只计一次（仅内存，重启后清空）。
+    private readonly Dictionary<(string Id, string Ip), DateTime> _recentDownloads = new();
+    private static readonly TimeSpan DownloadDedupWindow = TimeSpan.FromHours(24);
+    public const int LikeWeight = 10;
 
     [GeneratedRegex("^[a-z0-9][a-z0-9_.-]{2,63}$")]
     private static partial Regex ModIdRegex();
@@ -47,11 +51,57 @@ public sealed partial class ModIndexService
         }
     }
 
-    /// <summary>对玩家可见：已有通过审核的版本，且未被管理员隐藏。按发布时间从新到旧。</summary>
-    public List<JsonObject> ListPublic() => List()
-        .Where(IsPublic)
-        .OrderByDescending(m => Str(m["published"]?["approvedAt"]) ?? "")
-        .ToList();
+    /// <summary>
+    /// 对玩家可见的模组（已通过审核且未隐藏），支持搜索、排序与 id 过滤。
+    /// sort：latest（按通过时间，默认）、hot（下载数 + 点赞数 × 10）、downloads、likes。
+    /// </summary>
+    public List<JsonObject> ListPublic(string? query = null, string sort = "latest",
+        IReadOnlyCollection<string>? onlyIds = null, IReadOnlyCollection<string>? excludeIds = null)
+    {
+        IEnumerable<JsonObject> mods = List().Where(IsPublic);
+        if (onlyIds != null) mods = mods.Where(m => onlyIds.Contains(Str(m["id"]) ?? ""));
+        if (excludeIds != null) mods = mods.Where(m => !excludeIds.Contains(Str(m["id"]) ?? ""));
+        var q = query?.Trim();
+        if (!string.IsNullOrEmpty(q))
+            mods = mods.Where(m => new[]
+            {
+                Str(m["id"]), Str(m["ownerName"]), Str(m["published"]?["name"]), Str(m["published"]?["description"])
+            }.Any(text => text != null && text.Contains(q, StringComparison.OrdinalIgnoreCase)));
+
+        string Latest(JsonObject m) => Str(m["published"]?["approvedAt"]) ?? "";
+        return (sort switch
+        {
+            "hot" => mods.OrderByDescending(m => (Long(m["downloads"]) ?? 0) + LikeCount(m) * LikeWeight).ThenByDescending(Latest),
+            "downloads" => mods.OrderByDescending(m => Long(m["downloads"]) ?? 0).ThenByDescending(Latest),
+            "likes" => mods.OrderByDescending(LikeCount).ThenByDescending(Latest),
+            _ => mods.OrderByDescending(Latest)
+        }).ToList();
+    }
+
+    public static int LikeCount(JsonObject manifest) => manifest["likedBy"] is JsonArray a ? a.Count : 0;
+
+    public static bool LikedBy(JsonObject manifest, int accountId) =>
+        manifest["likedBy"] is JsonArray a && a.Any(n => Int(n) == accountId);
+
+    /// <summary>点赞或取消点赞（幂等），只能对已发布的模组操作。返回最新点赞数。</summary>
+    public (bool Ok, int Status, string Message, int Likes, bool Liked) SetLike(string id, int accountId, bool like)
+    {
+        lock (_gate)
+        {
+            var manifest = IsValidId(id) ? ReadManifestLocked(id) : null;
+            if (manifest == null || !IsPublic(manifest)) return (false, 404, "模组不存在", 0, false);
+            var likedBy = manifest["likedBy"] as JsonArray ?? new JsonArray();
+            var ids = likedBy.Select(Int).Where(x => x != null).Select(x => x!.Value).ToList();
+            var changed = like ? !ids.Contains(accountId) : ids.Contains(accountId);
+            if (changed)
+            {
+                if (like) ids.Add(accountId); else ids.Remove(accountId);
+                manifest["likedBy"] = new JsonArray(ids.Select(x => (JsonNode?)x).ToArray());
+                WriteManifestLocked(id, manifest);
+            }
+            return (true, 200, like ? "已点赞" : "已取消点赞", ids.Count, like);
+        }
+    }
 
     public static bool IsPublic(JsonObject manifest) =>
         manifest["published"] is JsonObject && !Bool(manifest["hidden"]);
@@ -83,10 +133,17 @@ public sealed partial class ModIndexService
         }
     }
 
-    public void RecordDownload(string id)
+    public void RecordDownload(string id, string ip)
     {
         lock (_gate)
         {
+            var now = DateTime.UtcNow;
+            if (_recentDownloads.TryGetValue((id, ip), out var last) && now - last < DownloadDedupWindow) return;
+            _recentDownloads[(id, ip)] = now;
+            if (_recentDownloads.Count > 50_000)
+                foreach (var key in _recentDownloads.Where(kv => now - kv.Value >= DownloadDedupWindow).Select(kv => kv.Key).ToList())
+                    _recentDownloads.Remove(key);
+
             var manifest = ReadManifestLocked(id);
             if (manifest == null) return;
             manifest["downloads"] = (Long(manifest["downloads"]) ?? 0) + 1;
@@ -291,7 +348,7 @@ public sealed partial class ModIndexService
 
     // ------------------------------------------------------------------ 输出
     /// <summary>玩家接口用的已发布版本 manifest；withIcon 时附带 base64 图标。</summary>
-    public JsonObject? ToPublic(JsonObject manifest, bool withIcon)
+    public JsonObject? ToPublic(JsonObject manifest, bool withIcon, int? viewerId = null)
     {
         if (manifest["published"] is not JsonObject p) return null;
         var id = Str(manifest["id"])!;
@@ -306,11 +363,13 @@ public sealed partial class ModIndexService
             ["fileSize"] = p["fileSize"]?.DeepClone(),
             ["uploaderName"] = manifest["ownerName"]?.DeepClone(),
             ["downloads"] = manifest["downloads"]?.DeepClone(),
+            ["likes"] = LikeCount(manifest),
             ["createdAt"] = manifest["createdAt"]?.DeepClone(),
             ["updatedAt"] = p["approvedAt"]?.DeepClone(),
             ["iconUrl"] = "/mods/" + id + "/icon",
             ["iconContentType"] = p["iconContentType"]?.DeepClone()
         };
+        if (viewerId != null) json["liked"] = LikedBy(manifest, viewerId.Value);
         if (withIcon && GetIcon(id, pending: false) is { } icon) json["icon"] = Convert.ToBase64String(icon.Data);
         return json;
     }
@@ -325,6 +384,7 @@ public sealed partial class ModIndexService
             ["id"] = manifest["id"]?.DeepClone(),
             ["hidden"] = manifest["hidden"]?.DeepClone(),
             ["downloads"] = manifest["downloads"]?.DeepClone(),
+            ["likes"] = LikeCount(manifest),
             ["published"] = published == null ? null : new JsonObject
             {
                 ["name"] = published["name"]?.DeepClone(),

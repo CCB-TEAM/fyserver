@@ -75,7 +75,7 @@ onMounted(async () => { if (await Admin.ensureAuth()) await load(); });
       <div v-if="!visibleMods.length" class="empty">{{ view === 'pending' ? '没有待审核的提交' : '暂无模组' }}</div>
       <article v-for="m in visibleMods" :key="m.id" class="card" style="margin-top:12px">
         <div class="panel-head">
-          <div><h2 class="mono">{{ m.id }}</h2><p class="muted">上传者 {{ m.ownerName }}（启动器账号 #{{ m.ownerId }}）· 创建于 {{ time(m.createdAt) }} · 下载 {{ m.downloads || 0 }} 次</p></div>
+          <div><h2 class="mono">{{ m.id }}</h2><p class="muted">上传者 {{ m.ownerName }}（启动器账号 #{{ m.ownerId }}）· 创建于 {{ time(m.createdAt) }} · 下载 {{ m.downloads || 0 }} 次 · 点赞 {{ (m.likedBy || []).length }}</p></div>
           <span class="chip" :class="status(m)[1]">{{ status(m)[0] }}</span>
         </div>
         <div class="table-wrap"><table class="md-table">

@@ -68,7 +68,7 @@ public static class LauncherEndpoints
     /// 取 X-Forwarded-For 最右侧的地址，即代理实际看到的客户端地址。
     /// 只信任来自回环地址的转发头，外部请求伪造的 X-Forwarded-For 不会生效。
     /// </summary>
-    private static string ClientIp(HttpContext context)
+    internal static string ClientIp(HttpContext context)
     {
         var remote = context.Connection.RemoteIpAddress;
         if (remote == null) return "unknown";

@@ -189,11 +189,12 @@ fyserver/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/mods?offset=0&limit=10` | 分页获取已发布的模组（按通过时间从新到旧，不含已隐藏的模组）。`limit` 默认 10，最大 50 |
+| `GET` | `/mods?offset=0&limit=10` | 分页获取已发布的模组（不含已隐藏的模组）。`limit` 默认 10，最大 50；`q` 搜索名称/简介/id/上传者；`sort` 为 `latest`（默认）、`hot`（下载数 + 点赞数 × 10）、`downloads`、`likes`；`ids` / `exclude` 为逗号分隔的 id，只看或排除这些模组（各最多 200 个） |
 | `GET` | `/mods/{id}` | 获取单个已发布模组的 manifest |
 | `GET` | `/mods/{id}/icon` | 获取模组图标 |
 | `GET` | `/mods/{id}/download` | 下载模组：返回 manifest（含 base64 图标 `icon`）与 Pak 下载直链 `downloadUrl`，并累计下载次数 |
 | `POST` | `/mods` | 提交新模组或更新（需启动器登录），进入待审核，返回 202。同一 id 只能由原上传者提交 |
+| `POST` / `DELETE` | `/mods/{id}/like` | 点赞 / 取消点赞（需启动器登录，幂等），返回 `likes` 与 `liked` |
 | `GET` | `/mods/mine` | 查看自己的模组与最近一次提交的审核状态、驳回理由（需启动器登录） |
 | `DELETE` | `/mods/{id}` | 删除自己的模组并释放 id（需启动器登录） |
 
@@ -214,6 +215,7 @@ fyserver/
 
 - `id`：内部模组 id，小写字母、数字、`_`、`.`、`-`，长度 3-64（`mine` 为保留字）。
 - `icon`：PNG / JPEG / WebP，base64 或 data URL，最大 512 KB；首次提交必填，更新时可省略以沿用当前图标。
+- 模组数据包含 `likes`（点赞数）；请求带有效启动器 token 时还包含 `liked`。`/download` 的下载计数同一 IP 对同一模组 24 小时内只计一次。
 - `version`、`description`、`fileSize` 可选；`sha256` 必填，启动器下载后用它校验文件。
 
 审核规则：

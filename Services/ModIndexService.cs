@@ -17,7 +17,6 @@ public sealed partial class ModIndexService
     private const int MaxIconBytes = 512 * 1024;
     private const int MaxNameLength = 64;
     private const int MaxDescriptionLength = 2000;
-    private const uint PakMagic = 0x5A6F12E1;
     /// <summary>服务端下载校验 sha256 的最大文件大小；超过的 Pak 拒绝登记。</summary>
     public const long MaxPakBytes = 1024L * 1024 * 1024;
     private static readonly string[] AllowedIconTypes = ["image/png", "image/jpeg", "image/webp"];
@@ -161,7 +160,7 @@ public sealed partial class ModIndexService
             return (false, 400, "新模组必须提供图标（icon，base64 或 data URL）", null);
         }
 
-        var check = await CheckPakUrlAsync(uri!, token);
+        var check = await CheckLinkAsync(uri!, token);
         if (!check.Ok) return (false, 422, "下载链接检查未通过：" + check.Message, null);
         if (check.Size > MaxPakBytes)
             return (false, 422, $"Pak 文件超过 {MaxPakBytes / 1024 / 1024} MB 上限", null);
@@ -190,7 +189,7 @@ public sealed partial class ModIndexService
             manifest["description"] = description;
             manifest["downloadUrl"] = uri!.ToString();
             manifest["fileSize"] = check.Size;
-            manifest["pakVersion"] = check.PakVersion;
+            manifest.Remove("pakVersion");
             manifest["linkCheckedAt"] = now;
             manifest["linkValid"] = true;
             manifest["linkMessage"] = "";
@@ -252,8 +251,8 @@ public sealed partial class ModIndexService
         var manifest = Get(id);
         if (manifest == null) return (false, "模组不存在", null);
         var check = Uri.TryCreate(manifest["downloadUrl"]?.GetValue<string>(), UriKind.Absolute, out var uri)
-            ? await CheckPakUrlAsync(uri, token)
-            : (Ok: false, Message: "下载链接无效", Size: 0L, PakVersion: 0);
+            ? await CheckLinkAsync(uri, token)
+            : (Ok: false, Message: "下载链接无效", Size: 0L);
         lock (_gate)
         {
             manifest = ReadManifestLocked(id);
@@ -261,7 +260,7 @@ public sealed partial class ModIndexService
             manifest["linkValid"] = check.Ok;
             manifest["linkCheckedAt"] = DateTime.UtcNow.ToString("O");
             manifest["linkMessage"] = check.Ok ? "" : check.Message;
-            if (check.Ok) { manifest["fileSize"] = check.Size; manifest["pakVersion"] = check.PakVersion; }
+            if (check.Ok) manifest["fileSize"] = check.Size;
             if (check.Ok)
             {
                 manifest["hashStatus"] = "pending";
@@ -269,7 +268,7 @@ public sealed partial class ModIndexService
             }
             WriteManifestLocked(id, manifest);
             if (check.Ok) StartHashVerification(id);
-            return (check.Ok, check.Ok ? "下载链接有效且文件为 Pak，已开始重新校验 sha256" : "下载链接检查未通过：" + check.Message, manifest);
+            return (check.Ok, check.Ok ? "下载链接有效，已开始重新校验 sha256" : "下载链接检查未通过：" + check.Message, manifest);
         }
     }
 
@@ -343,55 +342,35 @@ public sealed partial class ModIndexService
                 StartHashVerification(manifest["id"]!.GetValue<string>());
     }
 
-    // ------------------------------------------------------------------ 链接与 Pak 检查
+    // ------------------------------------------------------------------ 链接检查
     /// <summary>
-    /// 只用 Range 请求读取文件末尾，不下载整个文件：确认链接可访问、服务器支持 Range，
-    /// 且文件尾部带有 Unreal Pak 页脚魔数（0x5A6F12E1）。zip 等压缩包不会通过。
+    /// 只检查下载链接可访问：发送 GET 并只读响应头，不下载文件内容，也不检查文件格式
+    /// （Pak 合法性由客户端负责）。能拿到大小时一并返回（Content-Range 或 Content-Length）。
     /// </summary>
-    public async Task<(bool Ok, string Message, long Size, int PakVersion)> CheckPakUrlAsync(Uri uri, CancellationToken token)
+    public async Task<(bool Ok, string Message, long Size)> CheckLinkAsync(Uri uri, CancellationToken token)
     {
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(null, 1024);
+            // 请求第一个字节：支持 Range 的服务器只回 1 字节，并在 Content-Range 中给出总大小。
+            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 0);
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
             if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
-                return (false, "文件为空或太小，不是有效的 Pak", 0, 0);
+                return (false, "文件为空", 0);
             if (!response.IsSuccessStatusCode)
-                return (false, $"链接无法访问（HTTP {(int)response.StatusCode}）", 0, 0);
-            if (response.StatusCode != HttpStatusCode.PartialContent)
-                return (false, "下载服务器不支持 Range 请求，无法在不下载整个文件的情况下检查 Pak", 0, 0);
-            var total = response.Content.Headers.ContentRange?.Length;
-            if (total is null or < 44) return (false, "无法确定文件大小，或文件太小不是有效的 Pak", 0, 0);
-
-            await using var stream = await response.Content.ReadAsStreamAsync(token);
-            var tail = new byte[1024];
-            var read = 0;
-            while (read < tail.Length)
-            {
-                var n = await stream.ReadAsync(tail.AsMemory(read), token);
-                if (n == 0) break;
-                read += n;
-            }
-            if (read < 44) return (false, "文件太小，不是有效的 Pak", 0, 0);
-
-            // 页脚内 Magic 后紧跟 4 字节版本号；从尾部向前查找，取最靠后的有效魔数。
-            for (var i = read - 8; i >= 0; i--)
-            {
-                if (BitConverter.ToUInt32(tail, i) != PakMagic) continue;
-                var version = BitConverter.ToInt32(tail, i + 4);
-                if (version is < 1 or > 32) continue;
-                return (true, "ok", total.Value, version);
-            }
-            return (false, "文件不是纯 Pak（未找到 Pak 页脚魔数）。压缩包或其他类型的文件不被接受", total.Value, 0);
+                return (false, $"链接无法访问（HTTP {(int)response.StatusCode}）", 0);
+            var size = response.StatusCode == HttpStatusCode.PartialContent
+                ? response.Content.Headers.ContentRange?.Length ?? 0
+                : response.Content.Headers.ContentLength ?? 0;
+            return (true, "ok", size);
         }
         catch (TaskCanceledException) when (!token.IsCancellationRequested)
         {
-            return (false, "访问下载链接超时", 0, 0);
+            return (false, "访问下载链接超时", 0);
         }
         catch (HttpRequestException ex)
         {
-            return (false, "无法访问下载链接：" + ex.Message, 0, 0);
+            return (false, "无法访问下载链接：" + ex.Message, 0);
         }
     }
 

@@ -197,7 +197,7 @@ fyserver/
 
 - `id`：内部模组 id，小写字母、数字、`_`、`.`、`-`，长度 3-64。
 - `icon`：PNG / JPEG / WebP，base64 或 data URL，最大 512 KB；新模组必填，更新时可省略以保留原图标。
-- `downloadUrl`：必须是公网 http(s) 直链（内网地址会被拒绝），下载服务器需支持 Range 请求。服务端只读取文件末尾 1 KB，检查链接可访问且文件带有 Unreal Pak 页脚魔数，zip 等压缩包会被拒绝。Pak 最大 1 GB。
+- `downloadUrl`：必须是公网 http(s) 直链（内网地址会被拒绝）。服务端只检查链接可访问，不检查文件格式，Pak 合法性由客户端负责。Pak 最大 1 GB。
 - `sha256`：必填。保存后服务端会在后台完整下载一次 Pak（同一时间只校验一个）计算 SHA-256，manifest 的 `hashStatus` 依次为 `pending` → `verified` / `mismatch` / `failed`；`mismatch` 的模组不会对玩家显示。启动器下载后也应自行用 `sha256` 校验文件。
 
 后台“模组索引”页面（`/admin-ui/mods.html`，需要内容权限）可查看全部模组、重新检查直链、隐藏/显示和删除模组。

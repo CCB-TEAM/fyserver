@@ -28,8 +28,7 @@ var playerLibrary = new PlayerLibraryService();
 playerLibrary.InitLibrary("./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");
 var storeConfig = new StoreConfigService();
 var redeemCodes = new RedeemCodeService();
-var modStorage = new ModStorageService();
-var modIndex = new ModIndexService(modStorage);
+var modIndex = new ModIndexService();
 modIndex.ResumePendingVerifications();
 var webSocketHub = new WebSocketHubService();
 var auth = new AuthService(users, codec);
@@ -57,7 +56,6 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(storeConfig);
     services.AddSingleton(redeemCodes);
     services.AddSingleton(modIndex);
-    services.AddSingleton(modStorage);
     services.AddSingleton(webSocketHub);
     services.AddSingleton(auth);
     services.AddSingleton(matches);

@@ -274,6 +274,28 @@ public static class AdminApiEndpoints
             return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
         });
 
+        // ---------------------------------------------------------- 模组索引管理
+        api.MapGet("/mods", (ModIndexService mods) =>
+            Results.Text(new JsonObject { ["mods"] = new JsonArray(mods.List(includeHidden: true).Select(m => (JsonNode?)m).ToArray()) }.ToJsonString(), "application/json"));
+        api.MapDelete("/mods/{id}", (string id, ModIndexService mods) =>
+        {
+            var result = mods.Delete(id, null);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
+        });
+        api.MapPost("/mods/{id}/hidden", async (string id, HttpContext context, ModIndexService mods) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var result = mods.SetHidden(id, body["hidden"]?.GetValue<bool>() ?? true);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
+        });
+        api.MapPost("/mods/{id}/recheck", async (string id, HttpContext context, ModIndexService mods) =>
+        {
+            var result = await mods.RecheckAsync(id, context.RequestAborted);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message, ["mod"] = result.Manifest }.ToJsonString(), "application/json",
+                statusCode: result.Manifest == null ? 404 : 200);
+        });
+
         // ---------------------------------------------------------- 玩家数据库初始化
         api.MapGet("/database", (UserDatabaseConfigurationService configuration, UserStoreService users) =>
         {

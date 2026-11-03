@@ -169,6 +169,37 @@ fyserver/
 | `GET` | `/matches/v2/{id}/mulligan/{location}` | 获取指定侧调度结果 |
 | `GET` | `/matches/v2/{id}/post` | 结算并离开对局 |
 
+## 模组索引
+
+服务端只保存模组的 manifest 与图标（`data/mods/<id>/`），Pak 文件由上传者提供的下载直链托管。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/mods` | 获取模组列表（不含已隐藏的模组） |
+| `GET` | `/mods/{id}` | 获取单个模组的 manifest |
+| `GET` | `/mods/{id}/icon` | 获取模组图标 |
+| `GET` | `/mods/{id}/download` | 下载模组：返回 manifest（含 base64 图标 `icon`）与 Pak 下载直链 `downloadUrl`，并累计下载次数 |
+| `POST` | `/mods` | 上传或更新模组信息（需玩家 `Authorization`）。同一 id 只能由原上传者更新 |
+| `DELETE` | `/mods/{id}` | 删除自己上传的模组（需玩家 `Authorization`） |
+
+`POST /mods` 请求体：
+
+```json
+{
+  "id": "my-mod",
+  "name": "模组名称",
+  "description": "模组简介",
+  "downloadUrl": "https://example.com/MyMod_P.pak",
+  "icon": "data:image/png;base64,..."
+}
+```
+
+- `id`：内部模组 id，小写字母、数字、`_`、`.`、`-`，长度 3-64。
+- `icon`：PNG / JPEG / WebP，base64 或 data URL，最大 512 KB；新模组必填，更新时可省略以保留原图标。
+- `downloadUrl`：必须是公网 http(s) 直链（内网地址会被拒绝），下载服务器需支持 Range 请求。服务端只读取文件末尾 1 KB，检查链接可访问且文件带有 Unreal Pak 页脚魔数，zip 等压缩包会被拒绝。
+
+后台“模组索引”页面（`/admin-ui/mods.html`，需要内容权限）可查看全部模组、重新检查直链、隐藏/显示和删除模组。
+
 ## 管理接口
 
 > 管理接口已内置账号权限保护：首次设置仅允许从本机完成，之后所有 `/admin/api/*` 写操作都需要对应后台账号权限和登录 Cookie；`X-Admin-Key` 不再绕过权限。仍建议不要将管理接口直接暴露到公网。

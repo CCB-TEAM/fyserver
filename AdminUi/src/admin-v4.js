@@ -19,6 +19,7 @@ const items=[
   ['content','/admin-ui/content.html','content','内容配置','运营'],
   ['store','/admin-ui/store.html','store','商店','运营'],
   ['redeem','/admin-ui/redeem.html','redeem','兑换码','运营'],
+  ['mods','/admin-ui/mods.html','content','模组索引','运营'],
   ['server-config','/admin-ui/server-config.html','settings','服务器设置','系统'],
   ['system-settings','/admin-ui/system-settings.html','cpu','系统设置','系统'],
   ['accounts','/admin-ui/accounts.html','users','后台用户','系统'],
@@ -61,7 +62,7 @@ function mount(active,title){
       const link=document.querySelector('.side-link[href="/admin-ui/accounts.html"]');
       if(link)link.remove();
     }
-    const required={users:'players',matches:'matches',content:'content',store:'content',redeem:'content','server-config':'serverConfig','system-settings':'systemSettings',accounts:'permissions'}[active];
+    const required={users:'players',matches:'matches',content:'content',store:'content',redeem:'content',mods:'content','server-config':'serverConfig','system-settings':'systemSettings',accounts:'permissions'}[active];
     if(required&&!(s.permissions||[]).includes(required)){
       const h=document.getElementById('banner-host');
       if(h)h.innerHTML='<div class="banner banner--info">当前账号对此页面只有查看权限，修改操作会被服务器拒绝。</div>';

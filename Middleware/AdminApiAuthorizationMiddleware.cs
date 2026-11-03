@@ -75,6 +75,7 @@ public sealed class AdminApiAuthorizationMiddleware
         if (local.StartsWith("/content", StringComparison.OrdinalIgnoreCase) || local.StartsWith("/store", StringComparison.OrdinalIgnoreCase)) return "content";
         if (local.StartsWith("/redeem", StringComparison.OrdinalIgnoreCase)) return "content";
         if (local.StartsWith("/mods", StringComparison.OrdinalIgnoreCase)) return "content";
+        if (local.StartsWith("/launcher", StringComparison.OrdinalIgnoreCase)) return "players";
         if (local.StartsWith("/matches", StringComparison.OrdinalIgnoreCase) || local.StartsWith("/queues", StringComparison.OrdinalIgnoreCase)) return "matches";
         if (local.StartsWith("/server-config", StringComparison.OrdinalIgnoreCase)) return "serverConfig";
         if (local.StartsWith("/system-settings", StringComparison.OrdinalIgnoreCase)) return "systemSettings";

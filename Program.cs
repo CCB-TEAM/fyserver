@@ -29,7 +29,7 @@ playerLibrary.InitLibrary("./library/deckCodeIDsTable2.json", "./library/emojiLi
 var storeConfig = new StoreConfigService();
 var redeemCodes = new RedeemCodeService();
 var modIndex = new ModIndexService();
-modIndex.ResumePendingVerifications();
+var launcherAccounts = new LauncherAccountService();
 var webSocketHub = new WebSocketHubService();
 var auth = new AuthService(users, codec);
 var matchHistory = new MatchHistoryService(userDatabaseConfiguration);
@@ -56,6 +56,7 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(storeConfig);
     services.AddSingleton(redeemCodes);
     services.AddSingleton(modIndex);
+    services.AddSingleton(launcherAccounts);
     services.AddSingleton(webSocketHub);
     services.AddSingleton(auth);
     services.AddSingleton(matches);
@@ -122,6 +123,7 @@ httpApp.MapUserEndpoints();
 httpApp.MapPlayerEndpoints();
 httpApp.MapRedeemEndpoints();
 httpApp.MapModIndexEndpoints();
+httpApp.MapLauncherEndpoints();
 httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();
 httpApp.MapMatchEndpoints();

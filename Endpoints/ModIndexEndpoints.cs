@@ -5,11 +5,15 @@ using fyserver.Services;
 namespace fyserver.Endpoints;
 
 /// <summary>
-/// 游戏侧/第三方工具使用的模组索引接口。
-/// 列表、详情、图标、下载无需登录；上传、更新、删除需要玩家登录（Authorization 头，与其它游戏接口相同）。
+/// 模组索引接口（审核制）。列表、详情、图标、下载无需登录，只返回已通过审核且未隐藏的版本；
+/// 提交、查看自己的模组、删除需要启动器账号登录（Authorization: Bearer &lt;token&gt;，见 /launcher/login）。
 /// </summary>
 public static class ModIndexEndpoints
 {
+    private const int DefaultPageSize = 10;
+    private const int MaxPageSize = 50;
+    private const int MaxBodyBytes = 2 * 1024 * 1024;
+
     public static IEndpointRouteBuilder MapModIndexEndpoints(this IEndpointRouteBuilder app)
     {
         var mods = app.MapGroup("/mods");
@@ -19,13 +23,11 @@ public static class ModIndexEndpoints
         {
             var offset = ParseInt(context.Request.Query["offset"], 0);
             var limit = ParseInt(context.Request.Query["limit"], DefaultPageSize);
-            if (offset < 0) return Fail(400, "offset 不能小于 0");
+            if (offset < 0) return Fail(400, "offset 必须是不小于 0 的整数");
             if (limit < 1 || limit > MaxPageSize) return Fail(400, $"limit 必须在 1 到 {MaxPageSize} 之间");
 
-            var all = index.List(includeHidden: false);
-            var items = all.Skip(offset).Take(limit)
-                .Select(m => index.ToPublic(m["id"]!.GetValue<string>(), false, IconUrl(m["id"]!.GetValue<string>())).Json)
-                .Select(j => (JsonNode?)j).ToArray();
+            var all = index.ListPublic();
+            var items = all.Skip(offset).Take(limit).Select(m => (JsonNode?)index.ToPublic(m, false)).ToArray();
             return Json(new JsonObject
             {
                 ["total"] = all.Count,
@@ -35,23 +37,28 @@ public static class ModIndexEndpoints
             });
         });
 
-        mods.MapGet("/{id}", (string id, ModIndexService index) =>
+        // 当前启动器账号上传的全部模组（含待审核、被驳回的提交）。
+        mods.MapGet("/mine", (HttpContext context, LauncherAccountService accounts, ModIndexService index) =>
         {
-            if (!IsVisible(index, id)) return NotFound();
-            return Json(index.ToPublic(id, false, IconUrl(id)).Json);
+            var account = accounts.Authenticate(context);
+            if (account == null) return Unauthorized();
+            var items = index.ListOwnedBy(account.Id).Select(m => (JsonNode?)ModIndexService.ToOwnerView(m)).ToArray();
+            return Json(new JsonObject { ["mods"] = new JsonArray(items) });
         });
+
+        mods.MapGet("/{id}", (string id, ModIndexService index) =>
+            Visible(index, id) is { } m ? Json(index.ToPublic(m, false)!) : NotFound());
 
         mods.MapGet("/{id}/icon", (string id, ModIndexService index) =>
-        {
-            if (!IsVisible(index, id) || index.GetIcon(id) is not { } icon) return NotFound();
-            return Results.File(icon.Data, icon.ContentType);
-        });
+            Visible(index, id) != null && index.GetIcon(id, pending: false) is { } icon
+                ? Results.File(icon.Data, icon.ContentType)
+                : NotFound());
 
-        // 下载：返回 manifest（含 base64 图标）以及上传者提供的 Pak 下载直链。
+        // 下载：返回已发布版本的 manifest（含 base64 图标）以及 Pak 下载直链，并计入下载次数。
         mods.MapGet("/{id}/download", (string id, ModIndexService index) =>
         {
-            if (!IsVisible(index, id)) return NotFound();
-            var (json, _) = index.ToPublic(id, true, IconUrl(id));
+            if (Visible(index, id) is not { } m) return NotFound();
+            var json = index.ToPublic(m, true)!;
             index.RecordDownload(id);
             return Json(new JsonObject
             {
@@ -60,62 +67,64 @@ public static class ModIndexEndpoints
             });
         });
 
-        // 上传/更新模组信息。同一 id 只能由原上传者更新。
-        mods.MapPost("/", async (HttpContext context, AuthService auth, ModIndexService index) =>
+        // 提交新模组或更新（同一 id 只能由原上传者提交），进入待审核。
+        mods.MapPost("/", async (HttpContext context, LauncherAccountService accounts, ModIndexService index) =>
         {
-            var player = await auth.GetUserFromAuthAsync(context);
-            if (player == null)
-                return Json(new JsonObject { ["message"] = "Authorization required" }, 401);
-
-            JsonObject? body;
-            try
-            {
-                using var reader = new StreamReader(context.Request.Body);
-                var text = await reader.ReadToEndAsync(context.RequestAborted);
-                if (text.Length > 1024 * 1024 * 2) return Fail(413, "请求体过大");
-                body = JsonNode.Parse(text) as JsonObject;
-            }
-            catch (JsonException) { body = null; }
-            if (body == null) return Fail(400, "请求体不是合法的 JSON 对象");
-
-            try
-            {
-                var result = await index.UpsertAsync(player.Id, string.IsNullOrWhiteSpace(player.Name) ? "player" + player.Id : player.Name, body, context.RequestAborted);
-                var response = new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message };
-                if (result.Manifest != null)
-                    response["mod"] = index.ToPublic(result.Manifest["id"]!.GetValue<string>(), false, IconUrl(result.Manifest["id"]!.GetValue<string>())).Json;
-                return Json(response, result.Status);
-            }
-            catch (InvalidOperationException) { return Fail(400, "字段类型不正确"); }
-            catch (FormatException) { return Fail(400, "字段类型不正确"); }
+            var account = accounts.Authenticate(context);
+            if (account == null) return Unauthorized();
+            var (body, error) = await ReadBody(context);
+            if (body == null) return error!;
+            var result = index.Submit(account.Id, account.Username, body);
+            var response = new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message };
+            if (result.Manifest != null) response["mod"] = ModIndexService.ToOwnerView(result.Manifest);
+            return Json(response, result.Status);
         });
 
-        mods.MapDelete("/{id}", async (string id, HttpContext context, AuthService auth, ModIndexService index) =>
+        mods.MapDelete("/{id}", (string id, HttpContext context, LauncherAccountService accounts, ModIndexService index) =>
         {
-            var player = await auth.GetUserFromAuthAsync(context);
-            if (player == null)
-                return Json(new JsonObject { ["message"] = "Authorization required" }, 401);
-            var result = index.Delete(id, player.Id);
-            return Json(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message },
-                result.Ok ? 200 : result.Message.Contains("自己") ? 403 : 404);
+            var account = accounts.Authenticate(context);
+            if (account == null) return Unauthorized();
+            var result = index.DeleteOwned(id, account.Id);
+            return Json(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }, result.Status);
         });
 
         return app;
     }
 
-    private const int DefaultPageSize = 10;
-    private const int MaxPageSize = 50;
+    internal static async Task<(JsonObject? Body, IResult? Error)> ReadBody(HttpContext context)
+    {
+        if (context.Request.ContentLength > MaxBodyBytes) return (null, Fail(413, "请求体过大"));
+        try
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var buffer = new char[8192];
+            var text = new System.Text.StringBuilder();
+            int n;
+            while ((n = await reader.ReadAsync(buffer, context.RequestAborted)) > 0)
+            {
+                text.Append(buffer, 0, n);
+                if (text.Length > MaxBodyBytes) return (null, Fail(413, "请求体过大"));
+            }
+            if (JsonNode.Parse(text.ToString()) is JsonObject o) return (o, null);
+            return (null, Fail(400, "请求体不是合法的 JSON 对象"));
+        }
+        catch (JsonException)
+        {
+            return (null, Fail(400, "请求体不是合法的 JSON 对象"));
+        }
+    }
+
+    private static JsonObject? Visible(ModIndexService index, string id) =>
+        index.Get(id) is { } m && ModIndexService.IsPublic(m) ? m : null;
 
     private static int ParseInt(string? value, int fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : int.TryParse(value, out var n) ? n : -1;
 
-    private static bool IsVisible(ModIndexService index, string id) =>
-        index.Get(id) is { } m && ModIndexService.IsPublic(m);
-
-    private static string IconUrl(string id) => "/mods/" + id + "/icon";
+    internal static IResult Unauthorized() =>
+        Json(new JsonObject { ["ok"] = false, ["message"] = "请先登录启动器账号" }, 401);
     private static IResult NotFound() => Fail(404, "模组不存在");
-    private static IResult Fail(int status, string message) =>
+    internal static IResult Fail(int status, string message) =>
         Json(new JsonObject { ["ok"] = false, ["message"] = message }, status);
-    private static IResult Json(JsonObject body, int status = 200) =>
+    internal static IResult Json(JsonObject body, int status = 200) =>
         Results.Text(body.ToJsonString(), "application/json", statusCode: status);
 }

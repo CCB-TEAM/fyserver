@@ -274,26 +274,94 @@ public static class AdminApiEndpoints
             return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
         });
 
-        // ---------------------------------------------------------- 模组索引管理
+        // ---------------------------------------------------------- 模组索引审核
         api.MapGet("/mods", (ModIndexService mods) =>
-            Results.Text(new JsonObject { ["mods"] = new JsonArray(mods.List(includeHidden: true).Select(m => (JsonNode?)m).ToArray()) }.ToJsonString(), "application/json"));
-        api.MapDelete("/mods/{id}", (string id, ModIndexService mods) =>
         {
-            var result = mods.Delete(id, null);
-            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
+            var list = mods.List()
+                .OrderByDescending(m => m["submission"]?["status"]?.GetValue<string>() == "pending")
+                .ThenByDescending(m => m["submission"]?["submittedAt"]?.GetValue<string>() ?? m["published"]?["approvedAt"]?.GetValue<string>() ?? "")
+                .Select(m => (JsonNode?)m).ToArray();
+            return Results.Text(new JsonObject { ["mods"] = new JsonArray(list) }.ToJsonString(), "application/json");
+        });
+        // 图标预览：which=pending 读待审核提交的图标，否则读已发布版本的图标。
+        api.MapGet("/mods/{id}/icon", (string id, HttpContext context, ModIndexService mods) =>
+            mods.GetIcon(id, context.Request.Query["which"] == "pending") is { } icon
+                ? Results.File(icon.Data, icon.ContentType)
+                : Results.NotFound());
+        api.MapPost("/mods/{id}/approve", (string id, HttpContext context, ModIndexService mods) =>
+        {
+            var actor = (AdminAccount)context.Items["adminActor"]!;
+            var result = mods.Approve(id, actor.Username);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 400);
+        });
+        api.MapPost("/mods/{id}/reject", async (string id, HttpContext context, ModIndexService mods) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var actor = (AdminAccount)context.Items["adminActor"]!;
+            var reason = body["reason"] is JsonValue r && r.TryGetValue<string>(out var text) ? text : null;
+            var result = mods.Reject(id, actor.Username, reason);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 400);
         });
         api.MapPost("/mods/{id}/hidden", async (string id, HttpContext context, ModIndexService mods) =>
         {
             var body = await ReadJsonBody(context);
             if (body == null) return BadJson();
-            var result = mods.SetHidden(id, body["hidden"]?.GetValue<bool>() ?? true);
+            var hidden = body["hidden"] is not JsonValue h || !h.TryGetValue<bool>(out var value) || value;
+            var result = mods.SetHidden(id, hidden);
             return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
         });
-        api.MapPost("/mods/{id}/recheck", async (string id, HttpContext context, ModIndexService mods) =>
+        // 彻底删除：删除已发布版本与所有提交，释放 id。
+        api.MapDelete("/mods/{id}", (string id, ModIndexService mods) =>
         {
-            var result = await mods.RecheckAsync(id, context.RequestAborted);
-            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message, ["mod"] = result.Manifest }.ToJsonString(), "application/json",
-                statusCode: result.Manifest == null ? 404 : 200);
+            var result = mods.Purge(id);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
+        });
+
+        // ---------------------------------------------------------- 启动器账号与邀请码
+        api.MapGet("/launcher/accounts", (LauncherAccountService accounts) =>
+            Results.Text(new JsonObject { ["accounts"] = accounts.ListAccountsJson() }.ToJsonString(), "application/json"));
+        api.MapPost("/launcher/accounts/{id:int}/disabled", async (int id, HttpContext context, LauncherAccountService accounts) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var disabled = body["disabled"] is not JsonValue d || !d.TryGetValue<bool>(out var value) || value;
+            var result = accounts.SetDisabled(id, disabled);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
+        });
+        api.MapPost("/launcher/accounts/{id:int}/reset-password", (int id, LauncherAccountService accounts) =>
+        {
+            var result = accounts.ResetPassword(id);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message, ["temporaryPassword"] = result.TemporaryPassword }.ToJsonString(),
+                "application/json", statusCode: result.Ok ? 200 : 404);
+        });
+        api.MapGet("/launcher/invites", (LauncherAccountService accounts) =>
+            Results.Text(new JsonObject { ["invites"] = accounts.ListInvitesJson() }.ToJsonString(), "application/json"));
+        api.MapPost("/launcher/invites", async (HttpContext context, LauncherAccountService accounts) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var actor = (AdminAccount)context.Items["adminActor"]!;
+            var count = body["count"] is JsonValue c && c.TryGetValue<int>(out var n) ? n : 1;
+            DateTime? expiresAt = null;
+            if (body["expiresAt"] is JsonValue e && e.TryGetValue<string>(out var expiry) && !string.IsNullOrWhiteSpace(expiry))
+            {
+                if (!DateTimeOffset.TryParse(expiry, out var parsed)) return SystemSettingsError("expiresAt 不是有效日期");
+                expiresAt = parsed.UtcDateTime;
+            }
+            var note = body["note"] is JsonValue nv && nv.TryGetValue<string>(out var noteText) ? noteText : null;
+            var result = accounts.CreateInvites(count, expiresAt, note, actor.Username);
+            return Results.Text(new JsonObject
+            {
+                ["ok"] = result.Ok,
+                ["message"] = result.Message,
+                ["codes"] = new JsonArray(result.Codes.Select(code => (JsonNode?)code).ToArray())
+            }.ToJsonString(), "application/json", statusCode: result.Ok ? 201 : 400);
+        });
+        api.MapDelete("/launcher/invites/{code}", (string code, LauncherAccountService accounts) =>
+        {
+            var result = accounts.RevokeInvite(code);
+            return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 400);
         });
 
         // ---------------------------------------------------------- 玩家数据库初始化

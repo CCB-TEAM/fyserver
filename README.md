@@ -169,18 +169,33 @@ fyserver/
 | `GET` | `/matches/v2/{id}/mulligan/{location}` | 获取指定侧调度结果 |
 | `GET` | `/matches/v2/{id}/post` | 结算并离开对局 |
 
-## 模组索引
+## 启动器账号
 
-服务端只保存模组的 manifest 与图标（`data/mods/<id>/`），Pak 文件由上传者提供的下载直链托管。
+启动器账号与游戏账号（`/session`）完全独立，只用于模组提交等启动器功能。注册需要后台“启动器账号”页面生成的一次性邀请码。数据保存在 `data/launcher-accounts.json`，密码使用 PBKDF2-SHA256 加盐哈希。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/mods?offset=0&limit=10` | 分页获取模组列表（按更新时间从新到旧，不含已隐藏或 sha256 不一致的模组）。`limit` 默认 10，最大 50 |
-| `GET` | `/mods/{id}` | 获取单个模组的 manifest |
+| `POST` | `/launcher/register` | 注册：`{"username","password","inviteCode"}`。账号名 3-32 位字母/数字/`_`/`-`，密码 8-128 位 |
+| `POST` | `/launcher/login` | 登录：`{"username","password"}`，返回 `token`（30 天有效）。同一 IP 连续失败 10 次锁定 15 分钟 |
+| `POST` | `/launcher/logout` | 注销当前 token |
+| `GET` | `/launcher/me` | 当前账号信息 |
+| `POST` | `/launcher/password` | 修改密码：`{"currentPassword","newPassword"}`，成功后所有登录失效 |
+
+需要登录的接口使用请求头 `Authorization: Bearer <token>`。
+
+## 模组索引
+
+模组采用人工审核制：服务端不托管 Pak、不检查文件合法性，只保存 manifest 与图标（`data/mods/<id>/`），Pak 由上传者提供的网盘直链托管，管理员在后台“模组审核”页面审核。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/mods?offset=0&limit=10` | 分页获取已发布的模组（按通过时间从新到旧，不含已隐藏的模组）。`limit` 默认 10，最大 50 |
+| `GET` | `/mods/{id}` | 获取单个已发布模组的 manifest |
 | `GET` | `/mods/{id}/icon` | 获取模组图标 |
 | `GET` | `/mods/{id}/download` | 下载模组：返回 manifest（含 base64 图标 `icon`）与 Pak 下载直链 `downloadUrl`，并累计下载次数 |
-| `POST` | `/mods` | 上传或更新模组信息（需玩家 `Authorization`）。同一 id 只能由原上传者更新 |
-| `DELETE` | `/mods/{id}` | 删除自己上传的模组（需玩家 `Authorization`） |
+| `POST` | `/mods` | 提交新模组或更新（需启动器登录），进入待审核，返回 202。同一 id 只能由原上传者提交 |
+| `GET` | `/mods/mine` | 查看自己的模组与最近一次提交的审核状态、驳回理由（需启动器登录） |
+| `DELETE` | `/mods/{id}` | 删除自己的模组并释放 id（需启动器登录） |
 
 `POST /mods` 请求体：
 
@@ -189,18 +204,23 @@ fyserver/
   "id": "my-mod",
   "name": "模组名称",
   "description": "模组简介",
+  "version": "1.0.0",
   "downloadUrl": "https://example.com/MyMod_P.pak",
   "sha256": "Pak 文件的 SHA-256（64 位十六进制）",
+  "fileSize": 10485760,
   "icon": "data:image/png;base64,..."
 }
 ```
 
-- `id`：内部模组 id，小写字母、数字、`_`、`.`、`-`，长度 3-64。
-- `icon`：PNG / JPEG / WebP，base64 或 data URL，最大 512 KB；新模组必填，更新时可省略以保留原图标。
-- `downloadUrl`：必须是公网 http(s) 直链（内网地址会被拒绝）。服务端只检查链接可访问，不检查文件格式，Pak 合法性由客户端负责。Pak 最大 1 GB。
-- `sha256`：必填。保存后服务端会在后台完整下载一次 Pak（同一时间只校验一个）计算 SHA-256，manifest 的 `hashStatus` 依次为 `pending` → `verified` / `mismatch` / `failed`；`mismatch` 的模组不会对玩家显示。启动器下载后也应自行用 `sha256` 校验文件。
+- `id`：内部模组 id，小写字母、数字、`_`、`.`、`-`，长度 3-64（`mine` 为保留字）。
+- `icon`：PNG / JPEG / WebP，base64 或 data URL，最大 512 KB；首次提交必填，更新时可省略以沿用当前图标。
+- `version`、`description`、`fileSize` 可选；`sha256` 必填，启动器下载后用它校验文件。
 
-后台“模组索引”页面（`/admin-ui/mods.html`，需要内容权限）可查看全部模组、重新检查直链、隐藏/显示和删除模组。
+审核规则：
+- 新模组提交后占用 id，审核通过前不对玩家显示。
+- 更新提交后，审核通过前玩家仍下载当前已发布版本；新提交会覆盖尚未审核或已被驳回的提交。
+- 驳回只作废这次提交，id 仍归原上传者；彻底删除（后台或上传者自己删除）会删除整个模组并释放 id。
+- 后台“模组审核”页面（需要内容权限）并排显示已发布版本和本次提交，标出有变化的字段；“启动器账号”页面（需要玩家管理权限）管理邀请码和账号。
 
 ## 管理接口
 

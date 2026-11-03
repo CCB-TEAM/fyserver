@@ -175,7 +175,7 @@ fyserver/
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/mods` | 获取模组列表（不含已隐藏的模组） |
+| `GET` | `/mods?offset=0&limit=10` | 分页获取模组列表（按更新时间从新到旧，不含已隐藏或 sha256 不一致的模组）。`limit` 默认 10，最大 50 |
 | `GET` | `/mods/{id}` | 获取单个模组的 manifest |
 | `GET` | `/mods/{id}/icon` | 获取模组图标 |
 | `GET` | `/mods/{id}/download` | 下载模组：返回 manifest（含 base64 图标 `icon`）与 Pak 下载直链 `downloadUrl`，并累计下载次数 |
@@ -190,13 +190,15 @@ fyserver/
   "name": "模组名称",
   "description": "模组简介",
   "downloadUrl": "https://example.com/MyMod_P.pak",
+  "sha256": "Pak 文件的 SHA-256（64 位十六进制）",
   "icon": "data:image/png;base64,..."
 }
 ```
 
 - `id`：内部模组 id，小写字母、数字、`_`、`.`、`-`，长度 3-64。
 - `icon`：PNG / JPEG / WebP，base64 或 data URL，最大 512 KB；新模组必填，更新时可省略以保留原图标。
-- `downloadUrl`：必须是公网 http(s) 直链（内网地址会被拒绝），下载服务器需支持 Range 请求。服务端只读取文件末尾 1 KB，检查链接可访问且文件带有 Unreal Pak 页脚魔数，zip 等压缩包会被拒绝。
+- `downloadUrl`：必须是公网 http(s) 直链（内网地址会被拒绝），下载服务器需支持 Range 请求。服务端只读取文件末尾 1 KB，检查链接可访问且文件带有 Unreal Pak 页脚魔数，zip 等压缩包会被拒绝。Pak 最大 1 GB。
+- `sha256`：必填。保存后服务端会在后台完整下载一次 Pak（同一时间只校验一个）计算 SHA-256，manifest 的 `hashStatus` 依次为 `pending` → `verified` / `mismatch` / `failed`；`mismatch` 的模组不会对玩家显示。启动器下载后也应自行用 `sha256` 校验文件。
 
 后台“模组索引”页面（`/admin-ui/mods.html`，需要内容权限）可查看全部模组、重新检查直链、隐藏/显示和删除模组。
 

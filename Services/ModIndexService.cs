@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -17,10 +18,15 @@ public sealed partial class ModIndexService
     private const int MaxNameLength = 64;
     private const int MaxDescriptionLength = 2000;
     private const uint PakMagic = 0x5A6F12E1;
+    /// <summary>服务端下载校验 sha256 的最大文件大小；超过的 Pak 拒绝登记。</summary>
+    public const long MaxPakBytes = 1024L * 1024 * 1024;
     private static readonly string[] AllowedIconTypes = ["image/png", "image/jpeg", "image/webp"];
 
     private readonly object _gate = new();
     private readonly HttpClient _http;
+    private readonly HttpClient _hashHttp;
+    // 同一时间只校验一个 Pak，避免占满服务器下行带宽。
+    private readonly SemaphoreSlim _hashGate = new(1, 1);
 
     public ModIndexService()
     {
@@ -48,12 +54,18 @@ public sealed partial class ModIndexService
                 }
             }
         };
-        _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
+        _http = new HttpClient(handler, disposeHandler: false) { Timeout = TimeSpan.FromSeconds(20) };
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("FYServer-ModIndex/1.0");
+        // 完整下载 Pak 计算 sha256 用的客户端：超时放宽到 2 小时（1 GB 在 30 Mbps 下约 5 分钟）。
+        _hashHttp = new HttpClient(handler, disposeHandler: false) { Timeout = TimeSpan.FromHours(2) };
+        _hashHttp.DefaultRequestHeaders.UserAgent.ParseAdd("FYServer-ModIndex/1.0");
     }
 
     [GeneratedRegex("^[a-z0-9][a-z0-9_.-]{2,63}$")]
     private static partial Regex ModIdRegex();
+
+    [GeneratedRegex("^[0-9a-f]{64}$")]
+    private static partial Regex Sha256Regex();
 
     public static bool IsValidId(string? id) => id != null && ModIdRegex().IsMatch(id);
 
@@ -68,12 +80,16 @@ public sealed partial class ModIndexService
             {
                 var manifest = ReadManifestLocked(Path.GetFileName(dir));
                 if (manifest == null) continue;
-                if (!includeHidden && manifest["hidden"]?.GetValue<bool>() == true) continue;
+                if (!includeHidden && !IsPublic(manifest)) continue;
                 result.Add(manifest);
             }
             return result.OrderByDescending(m => m["updatedAt"]?.GetValue<string>() ?? "").ToList();
         }
     }
+
+    /// <summary>未被管理员隐藏、且 sha256 校验未发现不一致的模组才对玩家可见。</summary>
+    public static bool IsPublic(JsonObject manifest) =>
+        manifest["hidden"]?.GetValue<bool>() != true && manifest["hashStatus"]?.GetValue<string>() != "mismatch";
 
     public JsonObject? Get(string id)
     {
@@ -116,12 +132,15 @@ public sealed partial class ModIndexService
         var description = body["description"]?.GetValue<string>()?.Trim() ?? "";
         var url = body["downloadUrl"]?.GetValue<string>()?.Trim();
         var iconBase64 = body["icon"]?.GetValue<string>()?.Trim();
+        var sha256 = body["sha256"]?.GetValue<string>()?.Trim().ToLowerInvariant();
 
         if (!IsValidId(id)) return (false, 400, "模组 id 只能包含小写字母、数字、下划线、点和连字符，长度 3-64", null);
         if (string.IsNullOrWhiteSpace(name) || name.Length > MaxNameLength) return (false, 400, $"模组名称不能为空且不超过 {MaxNameLength} 个字符", null);
         if (description.Length > MaxDescriptionLength) return (false, 400, $"模组简介不能超过 {MaxDescriptionLength} 个字符", null);
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             return (false, 400, "下载直链必须是 http 或 https 地址", null);
+        if (sha256 == null || !Sha256Regex().IsMatch(sha256))
+            return (false, 400, "sha256 必须是 64 位十六进制字符串（Pak 文件的 SHA-256）", null);
 
         JsonObject? existing;
         lock (_gate) existing = ReadManifestLocked(id!);
@@ -144,6 +163,8 @@ public sealed partial class ModIndexService
 
         var check = await CheckPakUrlAsync(uri!, token);
         if (!check.Ok) return (false, 422, "下载链接检查未通过：" + check.Message, null);
+        if (check.Size > MaxPakBytes)
+            return (false, 422, $"Pak 文件超过 {MaxPakBytes / 1024 / 1024} MB 上限", null);
 
         lock (_gate)
         {
@@ -153,6 +174,9 @@ public sealed partial class ModIndexService
                 return (false, 403, "该模组 id 已被其他用户占用", null);
 
             var now = DateTime.UtcNow.ToString("O");
+            var previousUrl = existing?["downloadUrl"]?.GetValue<string>();
+            var previousSha = existing?["sha256"]?.GetValue<string>();
+            var previousHashStatus = existing?["hashStatus"]?.GetValue<string>();
             var manifest = existing ?? new JsonObject
             {
                 ["id"] = id,
@@ -169,7 +193,15 @@ public sealed partial class ModIndexService
             manifest["pakVersion"] = check.PakVersion;
             manifest["linkCheckedAt"] = now;
             manifest["linkValid"] = true;
+            manifest["linkMessage"] = "";
             manifest["updatedAt"] = now;
+            var hashChanged = previousSha != sha256 || previousHashStatus != "verified" || previousUrl != uri!.ToString();
+            manifest["sha256"] = sha256;
+            if (hashChanged)
+            {
+                manifest["hashStatus"] = "pending";
+                manifest["hashMessage"] = "";
+            }
 
             Directory.CreateDirectory(Path.Combine(Root, id!));
             if (iconBytes != null)
@@ -182,6 +214,7 @@ public sealed partial class ModIndexService
                 manifest["iconContentType"] = iconType;
             }
             WriteManifestLocked(id!, manifest);
+            if (hashChanged) StartHashVerification(id!);
             return (true, existing == null ? 201 : 200, existing == null ? "模组已上传" : "模组已更新", manifest);
         }
     }
@@ -229,9 +262,85 @@ public sealed partial class ModIndexService
             manifest["linkCheckedAt"] = DateTime.UtcNow.ToString("O");
             manifest["linkMessage"] = check.Ok ? "" : check.Message;
             if (check.Ok) { manifest["fileSize"] = check.Size; manifest["pakVersion"] = check.PakVersion; }
+            if (check.Ok)
+            {
+                manifest["hashStatus"] = "pending";
+                manifest["hashMessage"] = "";
+            }
             WriteManifestLocked(id, manifest);
-            return (check.Ok, check.Ok ? "下载链接有效且文件为 Pak" : "下载链接检查未通过：" + check.Message, manifest);
+            if (check.Ok) StartHashVerification(id);
+            return (check.Ok, check.Ok ? "下载链接有效且文件为 Pak，已开始重新校验 sha256" : "下载链接检查未通过：" + check.Message, manifest);
         }
+    }
+
+    // ------------------------------------------------------------------ sha256 校验
+    /// <summary>在后台完整下载 Pak 并计算 sha256，与上传者声明的值比对，结果写回 manifest。</summary>
+    private void StartHashVerification(string id) => _ = Task.Run(() => VerifyHashAsync(id));
+
+    private async Task VerifyHashAsync(string id)
+    {
+        await _hashGate.WaitAsync();
+        try
+        {
+            var manifest = Get(id);
+            var url = manifest?["downloadUrl"]?.GetValue<string>();
+            var expected = manifest?["sha256"]?.GetValue<string>();
+            if (manifest == null || url == null || expected == null) return;
+
+            string status, message;
+            try
+            {
+                using var response = await _hashHttp.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+                await using var stream = await response.Content.ReadAsStreamAsync();
+                using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                var buffer = new byte[81920];
+                long total = 0;
+                int n;
+                while ((n = await stream.ReadAsync(buffer)) > 0)
+                {
+                    total += n;
+                    if (total > MaxPakBytes) throw new InvalidDataException($"文件超过 {MaxPakBytes / 1024 / 1024} MB 上限");
+                    hash.AppendData(buffer, 0, n);
+                }
+                var actual = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+                (status, message) = actual == expected
+                    ? ("verified", "")
+                    : ("mismatch", "实际 sha256 为 " + actual + "，与上传者提供的不一致");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException or TaskCanceledException)
+            {
+                (status, message) = ("failed", "下载校验失败：" + ex.Message);
+            }
+
+            lock (_gate)
+            {
+                var current = ReadManifestLocked(id);
+                // 校验期间模组被删除或改了链接/哈希，丢弃本次结果（新的校验已排队）。
+                if (current == null || current["downloadUrl"]?.GetValue<string>() != url ||
+                    current["sha256"]?.GetValue<string>() != expected) return;
+                current["hashStatus"] = status;
+                current["hashMessage"] = message;
+                current["hashCheckedAt"] = DateTime.UtcNow.ToString("O");
+                WriteManifestLocked(id, current);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"模组 {id} sha256 校验异常：{ex.Message}");
+        }
+        finally
+        {
+            _hashGate.Release();
+        }
+    }
+
+    /// <summary>启动时为仍处于 pending 的模组重新排队校验（例如上次校验时服务器重启）。</summary>
+    public void ResumePendingVerifications()
+    {
+        foreach (var manifest in List(includeHidden: true))
+            if (manifest["hashStatus"]?.GetValue<string>() is null or "pending")
+                StartHashVerification(manifest["id"]!.GetValue<string>());
     }
 
     // ------------------------------------------------------------------ 链接与 Pak 检查
@@ -364,6 +473,8 @@ public sealed partial class ModIndexService
             ["description"] = manifest["description"]?.DeepClone(),
             ["downloadUrl"] = manifest["downloadUrl"]?.DeepClone(),
             ["fileSize"] = manifest["fileSize"]?.DeepClone(),
+            ["sha256"] = manifest["sha256"]?.DeepClone(),
+            ["hashStatus"] = manifest["hashStatus"]?.DeepClone(),
             ["uploaderName"] = manifest["uploaderName"]?.DeepClone(),
             ["downloads"] = manifest["downloads"]?.DeepClone(),
             ["createdAt"] = manifest["createdAt"]?.DeepClone(),

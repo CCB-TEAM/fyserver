@@ -14,12 +14,25 @@ public static class ModIndexEndpoints
     {
         var mods = app.MapGroup("/mods");
 
-        mods.MapGet("/", (ModIndexService index) =>
+        // 分页：offset 从 0 开始，limit 默认 10、最大 50（列表项不含图标，单页约 30 KB 以内）。
+        mods.MapGet("/", (HttpContext context, ModIndexService index) =>
         {
-            var items = index.List(includeHidden: false)
+            var offset = ParseInt(context.Request.Query["offset"], 0);
+            var limit = ParseInt(context.Request.Query["limit"], DefaultPageSize);
+            if (offset < 0) return Fail(400, "offset 不能小于 0");
+            if (limit < 1 || limit > MaxPageSize) return Fail(400, $"limit 必须在 1 到 {MaxPageSize} 之间");
+
+            var all = index.List(includeHidden: false);
+            var items = all.Skip(offset).Take(limit)
                 .Select(m => index.ToPublic(m["id"]!.GetValue<string>(), false, IconUrl(m["id"]!.GetValue<string>())).Json)
                 .Select(j => (JsonNode?)j).ToArray();
-            return Json(new JsonObject { ["mods"] = new JsonArray(items) });
+            return Json(new JsonObject
+            {
+                ["total"] = all.Count,
+                ["offset"] = offset,
+                ["limit"] = limit,
+                ["mods"] = new JsonArray(items)
+            });
         });
 
         mods.MapGet("/{id}", (string id, ModIndexService index) =>
@@ -90,8 +103,14 @@ public static class ModIndexEndpoints
         return app;
     }
 
+    private const int DefaultPageSize = 10;
+    private const int MaxPageSize = 50;
+
+    private static int ParseInt(string? value, int fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : int.TryParse(value, out var n) ? n : -1;
+
     private static bool IsVisible(ModIndexService index, string id) =>
-        index.Get(id) is { } m && m["hidden"]?.GetValue<bool>() != true;
+        index.Get(id) is { } m && ModIndexService.IsPublic(m);
 
     private static string IconUrl(string id) => "/mods/" + id + "/icon";
     private static IResult NotFound() => Fail(404, "模组不存在");

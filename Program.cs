@@ -29,6 +29,7 @@ playerLibrary.InitLibrary("./library/deckCodeIDsTable2.json", "./library/emojiLi
 var storeConfig = new StoreConfigService();
 var redeemCodes = new RedeemCodeService();
 var modIndex = new ModIndexService();
+modIndex.ResumePendingVerifications();
 var webSocketHub = new WebSocketHubService();
 var auth = new AuthService(users, codec);
 var matchHistory = new MatchHistoryService(userDatabaseConfiguration);

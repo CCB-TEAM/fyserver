@@ -201,7 +201,7 @@ fyserver/
 - `downloadUrl`：必须是公网 http(s) 直链（内网地址会被拒绝）。服务端只检查链接可访问，不检查文件格式，Pak 合法性由客户端负责。Pak 最大 1 GB。
 - `sha256`：必填。保存后服务端会在后台完整下载一次 Pak（同一时间只校验一个）计算 SHA-256，manifest 的 `hashStatus` 依次为 `pending` → `verified` / `mismatch` / `failed`；`mismatch` 的模组不会对玩家显示。启动器下载后也应自行用 `sha256` 校验文件。
 
-### 使用 Cloudflare R2 托管模组文件
+### 使用对象存储（Cloudflare R2 / 阿里云 OSS）托管模组文件
 
 服务器带宽不足时，可以把 Pak 放到 Cloudflare R2（或任意 S3 兼容存储），文件流量不经过本服务器：
 
@@ -209,6 +209,7 @@ fyserver/
 2. 在后台“模组索引”页面填写 S3 端点（`https://<账号ID>.r2.cloudflarestorage.com`）、存储桶、Access Key ID、Secret Access Key 和公开下载域名并启用。配置保存在 `data/mod-storage.json`，修改需要系统设置权限。
 3. 启动器上传流程：`POST /mods/upload-url`（`{"id","sha256","size"}`）→ 用返回的 `uploadUrl` 直接 `PUT` Pak 文件（15 分钟内有效）→ `POST /mods` 时省略 `downloadUrl`，服务端自动使用 `mods/<id>/<sha256>.pak` 的公开地址。
 4. 更换文件或删除模组时，服务端会删除存储桶中不再使用的旧文件。
+5. 阿里云 OSS：端点填 `https://oss-<地域>.aliyuncs.com`，区域填 `oss-<地域>`（如 `oss-cn-hangzhou`），地址风格选“虚拟主机风格”，公开下载域名填 `https://<存储桶>.oss-<地域>.aliyuncs.com`；存储桶读写权限设为公共读。
 
 后台“模组索引”页面（`/admin-ui/mods.html`，需要内容权限）可查看全部模组、重新检查直链、隐藏/显示和删除模组。
 

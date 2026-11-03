@@ -22,7 +22,7 @@ public sealed class ModStorageService
     private StorageConfig? _config;
 
     public sealed record StorageConfig(bool Enabled, string Endpoint, string Bucket, string Region,
-        string AccessKeyId, string SecretAccessKey, string PublicBaseUrl);
+        string AccessKeyId, string SecretAccessKey, string PublicBaseUrl, bool VirtualHosted);
 
     // ------------------------------------------------------------------ 配置
     public StorageConfig Config
@@ -56,7 +56,8 @@ public sealed class ModStorageService
             ["region"] = c.Region,
             ["accessKeyId"] = c.AccessKeyId,
             ["secretAccessKeySet"] = c.SecretAccessKey != "",
-            ["publicBaseUrl"] = c.PublicBaseUrl
+            ["publicBaseUrl"] = c.PublicBaseUrl,
+            ["virtualHosted"] = c.VirtualHosted
         };
     }
 
@@ -71,6 +72,7 @@ public sealed class ModStorageService
         var accessKeyId = Str("accessKeyId");
         var secret = Str("secretAccessKey");
         var publicBaseUrl = Str("publicBaseUrl").TrimEnd('/');
+        var virtualHosted = body["virtualHosted"] is JsonValue vh && vh.TryGetValue<bool>(out var vhb) && vhb;
 
         if (endpoint != "" && (!Uri.TryCreate(endpoint, UriKind.Absolute, out var ep) || ep.Scheme != "https"))
             return (false, "端点必须是 https 地址，例如 https://<账号ID>.r2.cloudflarestorage.com");
@@ -83,7 +85,7 @@ public sealed class ModStorageService
         {
             var old = _config ??= Load();
             var config = new StorageConfig(enabled, endpoint, bucket, region == "" ? "auto" : region,
-                accessKeyId, secret == "" ? old.SecretAccessKey : secret, publicBaseUrl);
+                accessKeyId, secret == "" ? old.SecretAccessKey : secret, publicBaseUrl, virtualHosted);
             if (config.Enabled && (config.Endpoint == "" || config.Bucket == "" || config.AccessKeyId == "" ||
                                    config.SecretAccessKey == "" || config.PublicBaseUrl == ""))
                 return (false, "启用前请填写端点、存储桶、Access Key ID、Secret Access Key 和公开下载域名");
@@ -96,7 +98,8 @@ public sealed class ModStorageService
                 ["region"] = config.Region,
                 ["accessKeyId"] = config.AccessKeyId,
                 ["secretAccessKey"] = config.SecretAccessKey,
-                ["publicBaseUrl"] = config.PublicBaseUrl
+                ["publicBaseUrl"] = config.PublicBaseUrl,
+                ["virtualHosted"] = config.VirtualHosted
             };
             var temp = ConfigPath + ".tmp";
             try
@@ -120,7 +123,7 @@ public sealed class ModStorageService
 
     private static StorageConfig Load()
     {
-        var empty = new StorageConfig(false, "", "", "auto", "", "", "");
+        var empty = new StorageConfig(false, "", "", "auto", "", "", "", false);
         if (!File.Exists(ConfigPath)) return empty;
         try
         {
@@ -129,7 +132,8 @@ public sealed class ModStorageService
             var enabled = o["enabled"] is JsonValue e && e.TryGetValue<bool>(out var b) && b;
             var region = Str("region");
             return new StorageConfig(enabled, Str("endpoint"), Str("bucket"), region == "" ? "auto" : region,
-                Str("accessKeyId"), Str("secretAccessKey"), Str("publicBaseUrl"));
+                Str("accessKeyId"), Str("secretAccessKey"), Str("publicBaseUrl"),
+                o["virtualHosted"] is JsonValue vh && vh.TryGetValue<bool>(out var vhb) && vhb);
         }
         catch (System.Text.Json.JsonException)
         {
@@ -172,7 +176,10 @@ public sealed class ModStorageService
         }
     }
 
-    /// <summary>AWS SigV4 查询串预签名（路径风格：endpoint/bucket/key）。</summary>
+    /// <summary>
+    /// AWS SigV4 查询串预签名。路径风格：endpoint/bucket/key（Cloudflare R2）；
+    /// 虚拟主机风格：bucket.endpoint/key（阿里云 OSS 等只支持这种方式的服务）。
+    /// </summary>
     private (string Url, DateTime ExpiresAt) Presign(string method, string key, TimeSpan lifetime)
     {
         var c = Config;
@@ -181,8 +188,10 @@ public sealed class ModStorageService
         var amzDate = now.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
         var date = now.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
         var scope = $"{date}/{c.Region}/{Service}/aws4_request";
-        var host = endpoint.IsDefaultPort ? endpoint.Host : $"{endpoint.Host}:{endpoint.Port}";
-        var path = "/" + Encode(c.Bucket) + "/" + string.Join("/", key.Split('/').Select(Encode));
+        var hostName = c.VirtualHosted ? $"{c.Bucket}.{endpoint.Host}" : endpoint.Host;
+        var host = endpoint.IsDefaultPort ? hostName : $"{hostName}:{endpoint.Port}";
+        var keyPath = string.Join("/", key.Split('/').Select(Encode));
+        var path = c.VirtualHosted ? "/" + keyPath : "/" + Encode(c.Bucket) + "/" + keyPath;
 
         var query = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {

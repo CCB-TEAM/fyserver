@@ -5,7 +5,7 @@ const Admin = window.Admin;
 const mods = ref([]);
 const filter = ref('');
 const loading = ref(false);
-const storage = ref({ enabled: false, endpoint: '', bucket: '', region: 'auto', accessKeyId: '', secretAccessKey: '', publicBaseUrl: '', secretAccessKeySet: false, ready: false });
+const storage = ref({ enabled: false, endpoint: '', bucket: '', region: 'auto', accessKeyId: '', secretAccessKey: '', publicBaseUrl: '', virtualHosted: false, secretAccessKeySet: false, ready: false });
 const visibleMods = computed(() => {
   const q = filter.value.trim().toLowerCase();
   return mods.value.filter(m => !q || [m.id, m.name, m.uploaderName].some(v => String(v || '').toLowerCase().includes(q)));
@@ -100,15 +100,16 @@ onMounted(async () => { if (await Admin.ensureAuth()) await Promise.all([load(),
       </div>
     </section>
     <section class="card">
-      <div class="panel-head"><div><h2>模组文件存储（Cloudflare R2 / S3 兼容）</h2><p class="muted">启用后，启动器可通过 <span class="mono">POST /mods/upload-url</span> 拿到预签名链接，把 Pak 直接上传到存储桶，玩家从公开域名下载，文件流量不经过本服务器。修改需要系统设置权限。</p></div>
+      <div class="panel-head"><div><h2>模组文件存储（Cloudflare R2 / 阿里云 OSS / S3 兼容）</h2><p class="muted">启用后，启动器可通过 <span class="mono">POST /mods/upload-url</span> 拿到预签名链接，把 Pak 直接上传到存储桶，玩家从公开域名下载，文件流量不经过本服务器。修改需要系统设置权限。</p></div>
         <span class="chip" :class="storage.ready ? 'chip--ok' : 'chip--off'">{{ storage.ready ? '已启用' : '未启用' }}</span></div>
       <form @submit.prevent="saveStorage"><div class="form-grid">
         <label class="field"><span>启用</span><select v-model="storage.enabled"><option :value="true">启用</option><option :value="false">停用</option></select></label>
-        <label class="field"><span>S3 端点</span><input v-model="storage.endpoint" placeholder="https://<账号ID>.r2.cloudflarestorage.com"></label>
+        <label class="field"><span>S3 端点</span><input v-model="storage.endpoint" placeholder="R2：https://<账号ID>.r2.cloudflarestorage.com；OSS：https://oss-cn-hangzhou.aliyuncs.com"></label>
         <label class="field"><span>存储桶</span><input v-model="storage.bucket" placeholder="fyserver-mods"></label>
-        <label class="field"><span>区域</span><input v-model="storage.region" placeholder="auto（R2 固定为 auto）"></label>
+        <label class="field"><span>区域</span><input v-model="storage.region" placeholder="R2 填 auto；OSS 填地域，如 oss-cn-hangzhou"></label>
         <label class="field"><span>Access Key ID</span><input v-model="storage.accessKeyId" autocomplete="off"></label>
         <label class="field"><span>Secret Access Key</span><input v-model="storage.secretAccessKey" type="password" autocomplete="new-password" :placeholder="storage.secretAccessKeySet ? '已设置，留空则不修改' : '未设置'"></label>
+        <label class="field"><span>地址风格</span><select v-model="storage.virtualHosted"><option :value="false">路径风格（Cloudflare R2）</option><option :value="true">虚拟主机风格（阿里云 OSS）</option></select></label>
         <label class="field"><span>公开下载域名</span><input v-model="storage.publicBaseUrl" placeholder="https://mods.example.com"></label>
       </div><button class="btn" type="submit">保存存储配置</button></form>
     </section>

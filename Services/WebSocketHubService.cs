@@ -7,6 +7,14 @@ using fyserver.Serialization;
 
 namespace fyserver.Services;
 
+/// <summary>好友 / 聊天 / 小助手对 WebSocket 事件的处理（由 FriendService 实现，启动时挂到 hub 上）。</summary>
+public interface IWebSocketSocialHandler
+{
+    Task OnConnectedAsync(int userId);
+    Task OnDisconnectedAsync(int userId);
+    Task HandleChatAsync(int userId, WebSocketMessage message);
+}
+
 /// <summary>
 /// WebSocket 连接表与会话消息路由。每名用户只保留一条有效连接；所有发送/关闭按连接串行化。
 /// </summary>
@@ -20,6 +28,9 @@ public class WebSocketHubService
 
     private readonly ConcurrentDictionary<int, ClientConnection> _usersById = new();
     private readonly ConcurrentDictionary<int, SemaphoreSlim> _userGates = new();
+
+    /// <summary>好友系统处理器；为 null 时 chat 通道被忽略。</summary>
+    public IWebSocketSocialHandler? Social { get; set; }
 
     private SemaphoreSlim GetUserGate(int userId) => _userGates.GetOrAdd(userId, static _ => new SemaphoreSlim(1, 1));
 
@@ -49,15 +60,29 @@ public class WebSocketHubService
     }
 
     /// <summary>仅移除当前连接，避免旧连接 finally 误删同一玩家的新连接。</summary>
-    public void UnregisterClient(int clientId, WebSocket webSocket)
+    /// <returns>是否真的移除了该玩家的当前连接（被新连接顶掉的旧连接返回 false）。</returns>
+    public bool UnregisterClient(int clientId, WebSocket webSocket)
     {
+        var removed = false;
         if (_usersById.TryGetValue(clientId, out var connection) && ReferenceEquals(connection.Socket, webSocket))
         {
-            ((ICollection<KeyValuePair<int, ClientConnection>>)_usersById)
+            removed = ((ICollection<KeyValuePair<int, ClientConnection>>)_usersById)
                 .Remove(new KeyValuePair<int, ClientConnection>(clientId, connection));
         }
         Console.WriteLine($"客户端已断开: {clientId}");
+        return removed;
     }
+
+    public bool IsOnline(int userId) => _usersById.ContainsKey(userId);
+
+    /// <summary>向在线玩家推送一条消息；玩家不在线或发送失败返回 false。</summary>
+    public Task<bool> SendAsync(int userId, WebSocketMessage message) => SendToUserAsync(userId, message);
+
+    /// <summary>
+    /// 用 disconnect 通道给玩家弹一条提示但不关闭连接（参考服务端好友系统的报错方式）。
+    /// </summary>
+    public Task<bool> SendNoticeAsync(int userId, string text) => SendToUserAsync(userId, new WebSocketMessage(
+        Message: text, Channel: "disconnect", Context: null, Timestamp: "", Sender: "Server", Receiver: null));
 
     public bool TryGetClient(int userId, out WebSocket webSocket)
     {
@@ -138,7 +163,7 @@ public class WebSocketHubService
         try
         {
             Console.WriteLine($"收到消息: {message}");
-            var msg = JsonSerializer.Deserialize(message, FyJsonContext.Default.WebSocketMessage);
+            var msg = ParseClientMessage(message);
             if (msg == null) return;
 
             switch (msg.Channel)
@@ -178,6 +203,10 @@ public class WebSocketHubService
                     }
                     break;
 
+                case "chat":
+                    if (Social != null) await Social.HandleChatAsync(clientId, msg);
+                    break;
+
                 case "notification":
                     if (int.TryParse(msg.Receiver, out var notificationTarget))
                     {
@@ -200,6 +229,39 @@ public class WebSocketHubService
             Console.ForegroundColor = ConsoleColor.White;
             Console.WriteLine($"JSON 解析错误 [{clientId}]: {ex.Message}");
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // 好友/聊天处理失败（例如数据库暂时不可用）不应断开玩家的 WebSocket。
+            Console.WriteLine($"处理 WebSocket 消息失败 [{clientId}]: {ex.GetBaseException().Message}");
+        }
+    }
+
+    /// <summary>
+    /// 宽容解析客户端上行消息：sender / receiver 等字段无论是 JSON 字符串还是数字都接受，
+    /// 避免客户端发数字 id 时整个消息因类型不符被丢弃。
+    /// </summary>
+    private static WebSocketMessage? ParseClientMessage(string message)
+    {
+        using var document = JsonDocument.Parse(message);
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return null;
+        string? Str(string name) => root.TryGetProperty(name, out var v)
+            ? v.ValueKind switch
+            {
+                JsonValueKind.String => v.GetString(),
+                JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => v.GetRawText(),
+                _ => null
+            }
+            : null;
+        JsonElement? matchId = root.TryGetProperty("match_id", out var m) ? m.Clone() : null;
+        return new WebSocketMessage(
+            Timestamp: Str("timestamp") ?? "",
+            Context: Str("context") ?? "",
+            Message: Str("message") ?? "",
+            Channel: Str("channel") ?? "",
+            Sender: Str("sender") ?? "",
+            Receiver: Str("receiver") ?? "",
+            MatchId: matchId);
     }
 
     private async Task<bool> SendToUserAsync(int userId, WebSocketMessage message)

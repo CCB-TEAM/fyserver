@@ -76,11 +76,7 @@ public static class PlayerEndpoints
             return Results.Ok(e);
         });
 
-        app.MapGet("/{a}/players/{player_id}/friends", (string a, string player_id) =>
-        {
-            List<int> nil = new();
-            return Results.Ok(new FriendsReponse(Friends: nil, PreviousOpponents: nil));
-        });
+        // 好友列表、个人资料与好友对战邀请见 FriendEndpoints。
 
         app.MapMethods("/players/{id}/heartbeat", new[] { "PUT", "DELETE" }, (string id) => Results.Ok(new EmptyResponseDto()));
         // The game client reports non-fatal client-side diagnostics here (including replay failures).

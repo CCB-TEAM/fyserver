@@ -34,7 +34,7 @@ namespace fyserver.Serialization;
 [JsonSerializable(typeof(EquippedItem))]
 [JsonSerializable(typeof(Item))]
 [JsonSerializable(typeof(Entitlement))]
-[JsonSerializable(typeof(FriendsReponse))]
+[JsonSerializable(typeof(SocialLocalSnapshot))]
 [JsonSerializable(typeof(LibraryResponse))]
 [JsonSerializable(typeof(LibraryItem))]
 [JsonSerializable(typeof(ErrorResponse))]

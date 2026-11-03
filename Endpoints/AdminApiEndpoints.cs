@@ -274,6 +274,52 @@ public static class AdminApiEndpoints
             return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
         });
 
+        // ---------------------------------------------------------- 好友系统与服务器小助手
+        api.MapGet("/social", async (SocialService social, WebSocketHubService hub) =>
+        {
+            var root = new JsonObject
+            {
+                ["settings"] = SocialService.SettingsToJson(social.GetSettings()),
+                ["online"] = hub.OnlineCount
+            };
+            try
+            {
+                var stats = await social.GetStatsAsync();
+                root["stats"] = new JsonObject { ["friendships"] = stats.Friendships, ["pending"] = stats.Pending, ["messages"] = stats.Messages };
+            }
+            catch (Exception ex) { root["statsError"] = ex.GetBaseException().Message; }
+            return Results.Text(root.ToJsonString(), "application/json");
+        });
+        api.MapPut("/social/settings", async (HttpContext context, SocialService social) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var d = social.GetSettings();
+            string Str(string key, string fallback) => body[key] is JsonValue v && v.TryGetValue<string>(out var x) ? x : fallback;
+            int Int(string key, int fallback) => body[key] is JsonValue v && v.TryGetValue<int>(out var x) ? x : fallback;
+            bool Bool(string key, bool fallback) => body[key] is JsonValue v && v.TryGetValue<bool>(out var x) ? x : fallback;
+            var saved = social.SaveSettings(new SocialSettings(
+                Str("assistantName", d.AssistantName), Str("welcomeMessage", d.WelcomeMessage),
+                Int("maxFriends", d.MaxFriends), Int("maxPendingRequests", d.MaxPendingRequests),
+                Int("historyDays", d.HistoryDays), Int("historyPerFriend", d.HistoryPerFriend),
+                Int("maxMessageLength", d.MaxMessageLength), Bool("replayOwnMessages", d.ReplayOwnMessages)));
+            return Results.Text(new JsonObject { ["ok"] = true, ["message"] = "已保存", ["settings"] = SocialService.SettingsToJson(saved) }.ToJsonString(), "application/json");
+        });
+        api.MapPost("/social/message", async (HttpContext context, FriendService friends) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var text = (body["message"] is JsonValue m && m.TryGetValue<string>(out var t) ? t : "").Trim();
+            if (text.Length is 0 or > 2000) return JsonResult(false, "消息内容需要 1 到 2000 个字", 400);
+            int? playerId = body["playerId"] is JsonValue p && p.TryGetValue<int>(out var id) && id > 0 ? id : null;
+            var all = body["all"] is JsonValue a && a.TryGetValue<bool>(out var b) && b;
+            if (playerId == null && !all) return JsonResult(false, "请填写玩家 ID，或选择发给所有在线玩家", 400);
+            var count = await friends.SendAdminMessageAsync(all ? null : playerId, text);
+            return JsonResult(true, all ? $"已发送给 {count} 名在线玩家" : $"已发送给玩家 {playerId}（离线时上线后收到）", 200);
+        });
+        api.MapGet("/social/users/{id:int}/friends", async (int id, FriendService friends) =>
+            Results.Text(new JsonObject { ["friends"] = await friends.GetFriendsForAdminAsync(id) }.ToJsonString(), "application/json"));
+
         // ---------------------------------------------------------- 模组索引审核
         api.MapGet("/mods", (ModIndexService mods) =>
         {

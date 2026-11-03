@@ -35,6 +35,9 @@ public class MatchManagerService
     public List<LobbyPlayer> WaitingPlayersBrawl { get; } = [];
     public ConcurrentDictionary<string, List<LobbyPlayer>> BattleCodePlayers { get; } = new();
     public ConcurrentDictionary<int, MatchInfo> MatchedPairs { get; } = new();
+    /// <summary>好友对战：先进入大厅的一方在这里等对方（key 为自己的玩家 id）。</summary>
+    public ConcurrentDictionary<int, FriendlyLobbyEntry> FriendlyPending { get; } = new();
+    private static readonly TimeSpan FriendlyPendingTimeout = TimeSpan.FromMinutes(2);
 
     // 匹配队列为普通 List，用锁保护并发入队/出队
     private readonly object _queueLock = new();
@@ -57,6 +60,7 @@ public class MatchManagerService
             {
                 BattleCodePlayers[code].RemoveAll(p => p.PlayerId == playerId);
             }
+            FriendlyPending.TryRemove(playerId, out _);
         }
     }
 
@@ -125,6 +129,29 @@ public class MatchManagerService
         }
 
         Console.WriteLine(exData);
+
+        // 好友对战：extra_data 形如 "challenge:<对方玩家id> validate_turn_switches:1 "。
+        // 双方在对战邀请被接受后各自进入大厅，后到的一方与先到的一方配对。
+        var firstToken = exData.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+        if (firstToken.StartsWith("challenge:", StringComparison.Ordinal))
+        {
+            if (!int.TryParse(firstToken["challenge:".Length..], out var opponentId) || opponentId <= 0 || opponentId == lobbyPlayer.PlayerId)
+                return;
+            if (FriendlyPending.TryGetValue(opponentId, out var waiting) && waiting.TargetId == lobbyPlayer.PlayerId &&
+                DateTime.UtcNow - waiting.JoinedAt < FriendlyPendingTimeout &&
+                FriendlyPending.TryRemove(new KeyValuePair<int, FriendlyLobbyEntry>(opponentId, waiting)))
+            {
+                var matchId = GenerateMatchId();
+                var (left, right) = Random.Shared.Next(2) == 0 ? (waiting.Player, lobbyPlayer) : (lobbyPlayer, waiting.Player);
+                MatchedPairs[matchId] = new MatchInfo(matchId, left, right, "challenge");
+                Console.WriteLine($"好友对战匹配成功：{left.PlayerId} vs {right.PlayerId}，对局 {matchId}");
+            }
+            else
+            {
+                FriendlyPending[lobbyPlayer.PlayerId] = new FriendlyLobbyEntry(lobbyPlayer, opponentId, DateTime.UtcNow);
+            }
+            return;
+        }
 
         // 对战码匹配
         if (exData.StartsWith("battle_code:", StringComparison.Ordinal))
@@ -257,6 +284,28 @@ public class MatchManagerService
         }
 
         return null;
+    }
+
+    /// <summary>玩家是否正在一场未结束的真人对局中（不修改状态；好友列表的“对战中”与好友对战邀请使用）。</summary>
+    public bool IsInRealMatch(int userId)
+    {
+        foreach (var match in MatchedPairs.Values)
+        {
+            if (!match.HasPlayer(userId) || IsSoloMatch(match) || CanRemoveMatch(match)) continue;
+            if (!string.IsNullOrEmpty(match.WinnerSide) || HasPlayerEndedMatch(match, userId)) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>各匹配队列的排队人数快照（小助手 /在线人数 使用）。</summary>
+    public (int Ranked, int Classic, int Unranked, int Draft, int Brawl, int Friendly) QueueCounts()
+    {
+        lock (_queueLock)
+        {
+            return (WaitingPlayers2.Count, WaitingPlayersClassic.Count, WaitingPlayersUnranked.Count,
+                WaitingPlayersDraft.Count, WaitingPlayersBrawl.Count, FriendlyPending.Count);
+        }
     }
 
     /// <summary>真人之间的对局（排除 -9178 人机占位）。后台监控使用。</summary>
@@ -513,6 +562,7 @@ public class MatchManagerService
             if (match.Ex.StartsWith("battle_code", StringComparison.Ordinal)) matchType = "code";
             else if (match.Ex == "brawl") matchType = "brawl";
             else if (match.Ex == "draft") matchType = "draft";
+            else if (match.Ex == "challenge") matchType = "challenge";
             else if (match.Ex == "training" || match.Ex == "pw") matchType = "training";
 
             // 构建MatchStartingInfo
@@ -641,3 +691,6 @@ public class MatchManagerService
         return (cards, locationCard);
     }
 }
+
+/// <summary>好友对战大厅中等待对方的一方。</summary>
+public sealed record FriendlyLobbyEntry(LobbyPlayer Player, int TargetId, DateTime JoinedAt);

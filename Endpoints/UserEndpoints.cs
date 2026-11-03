@@ -9,7 +9,7 @@ public static class UserEndpoints
     public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         // 2. 配置和基本信息
-        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig) =>
+        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig, FriendService friends) =>
         {
             string addressHttp = options.GetAddressHttpR();
             User? user;
@@ -73,6 +73,8 @@ public static class UserEndpoints
                 await users.SaveUserAsync(current);
                 return current;
             }) ?? user;
+            // 客户端重新登录后内存里没有聊天记录，下次 WebSocket 连接时补发。
+            friends.MarkClientLogin(user.Id);
 
             var response = new SessionResponse(
                 AchievementsUrl: $"{addressHttp}/players/{user.Id}/achievements",

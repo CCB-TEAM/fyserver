@@ -40,11 +40,6 @@ public record Entitlement(
     string Name
 );
 
-public record FriendsReponse(
-    List<int> Friends,
-    List<int> PreviousOpponents
-);
-
 // Config records
 public record CurrentUser(
     int ClientId,

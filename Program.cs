@@ -36,6 +36,11 @@ var matchHistory = new MatchHistoryService(userDatabaseConfiguration);
 try { await matchHistory.InitializeAsync(); }
 catch (Exception ex) { Console.WriteLine($"对局历史数据库初始化失败：{ex.GetBaseException().Message}"); }
 var matches = new MatchManagerService(users, playerLibrary, codec, serverOptions, matchHistory);
+// 好友系统 / 好友私聊 / 服务器小助手 / 好友对战邀请
+var social = new SocialService(userDatabaseConfiguration);
+var friendChallenges = new FriendChallengeService(webSocketHub, matches, social);
+var friends = new FriendService(social, users, webSocketHub, matches, matchHistory, friendChallenges);
+webSocketHub.Social = friends;
 
 // ==================== 后台（静态页 /admin-ui 的数据层）服务 ====================
 var adminUsers = new AdminUserService(users, webSocketHub);
@@ -61,6 +66,9 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(auth);
     services.AddSingleton(matches);
     services.AddSingleton(matchHistory);
+    services.AddSingleton(social);
+    services.AddSingleton(friendChallenges);
+    services.AddSingleton(friends);
     services.AddSingleton(adminUsers);
     services.AddSingleton(frontpage);
     services.AddSingleton(contentEntries);
@@ -74,6 +82,7 @@ void RegisterSharedServices(IServiceCollection services)
 var httpBuilder = WebApplication.CreateSlimBuilder();
 RegisterSharedServices(httpBuilder.Services);
 httpBuilder.Services.AddHostedService<MatchHistoryCleanupWorker>();
+httpBuilder.Services.AddHostedService<SocialCleanupWorker>();
 
 httpBuilder.WebHost.UseUrls(serverOptions.GetAddressHttp());
 httpBuilder.Services.Configure<JsonOptions>(options =>
@@ -121,6 +130,7 @@ httpApp.UseRouting();
 
 httpApp.MapUserEndpoints();
 httpApp.MapPlayerEndpoints();
+httpApp.MapFriendEndpoints();
 httpApp.MapRedeemEndpoints();
 httpApp.MapModIndexEndpoints();
 httpApp.MapLauncherEndpoints();
@@ -180,6 +190,7 @@ httpApp.Lifetime.ApplicationStarted.Register(() =>
 httpApp.Lifetime.ApplicationStopping.Register(() =>
 {
     Console.WriteLine("Application stopping. Cleaning up...");
+    social.Dispose(); // local 模式下把好友与聊天数据写回磁盘
     fasterKv?.Dispose(); // 仅本地存储模式会创建
 });
 

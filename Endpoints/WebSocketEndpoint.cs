@@ -92,15 +92,34 @@ public static class WebSocketEndpoint
             }
             else
             {
+                await NotifySocialAsync(() => hub.Social?.OnConnectedAsync(userId), "上线");
                 await HandleWebSocketAsync(webSocket, userId, hub);
             }
-            hub.UnregisterClient(userId, webSocket);
+            if (hub.UnregisterClient(userId, webSocket))
+                await NotifySocialAsync(() => hub.Social?.OnDisconnectedAsync(userId), "下线");
         });
     }
+
+    private static async Task NotifySocialAsync(Func<Task?> action, string what)
+    {
+        try
+        {
+            var task = action();
+            if (task != null) await task;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"好友系统处理{what}事件失败：{ex.GetBaseException().Message}");
+        }
+    }
+
+    // 单条上行消息的上限；聊天正文另有长度限制，这里只防止恶意超大帧占内存。
+    private const int MaxMessageBytes = 64 * 1024;
 
     private static async Task HandleWebSocketAsync(WebSocket webSocket, int clientId, WebSocketHubService hub)
     {
         var buffer = new byte[4096];
+        using var assembled = new MemoryStream();
         try
         {
             while (webSocket.State == WebSocketState.Open)
@@ -124,7 +143,18 @@ public static class WebSocketEndpoint
                     break;
                 }
 
-                var message = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
+                // 一条消息可能分成多个帧（中文聊天很容易超过 4KB 缓冲区），拼完整再处理。
+                assembled.Write(buffer, 0, result.Count);
+                if (assembled.Length > MaxMessageBytes)
+                {
+                    Console.WriteLine($"[{clientId}] WebSocket 消息过大，已断开");
+                    break;
+                }
+                if (!result.EndOfMessage)
+                    continue;
+
+                var message = System.Text.Encoding.UTF8.GetString(assembled.GetBuffer(), 0, (int)assembled.Length);
+                assembled.SetLength(0);
                 await hub.HandleMessageAsync(clientId, webSocket, message);
             }
         }

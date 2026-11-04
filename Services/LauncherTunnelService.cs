@@ -118,9 +118,13 @@ public sealed class LauncherTunnelService
         {
             ["role"] = role,
             ["relay"] = true,
+            ["punchPort"] = PunchPort,
             ["hostOnline"] = _hosts.ContainsKey(room.Id)
         };
     }
+
+    /// <summary>打洞协调的 UDP 端口，没开时为 null（只走中继）。</summary>
+    public int? PunchPort { get; set; }
 
     public bool HostOnline(string roomId) => _hosts.ContainsKey(roomId);
 
@@ -133,10 +137,10 @@ public sealed class LauncherTunnelService
     // ==================== 连接处理 ====================
 
     /// <summary>校验票据和房间成员身份。成功时返回票据，失败时返回给客户端的错误。</summary>
-    public (RoomTicketService.Ticket? Ticket, IResult? Error) Authorize(HttpContext context, RoomTicketService tickets, LauncherRoomService rooms, string? role)
+    public (RoomTicketService.Ticket? Ticket, IResult? Error) Authorize(HttpContext context, RoomTicketService tickets, LauncherRoomService rooms, string? role, bool upgrade = true)
     {
         if (!Get().Enabled) return (null, Fail(503, "云端中继没有开启"));
-        if (context.Features.Get<IHttpUpgradeFeature>() is not { IsUpgradableRequest: true })
+        if (upgrade && context.Features.Get<IHttpUpgradeFeature>() is not { IsUpgradableRequest: true })
             return (null, Fail(426, "需要 Upgrade: fy-relay 连接"));
         var ticket = tickets.Verify(context.Request.Headers["X-Fy-Ticket"].ToString());
         if (ticket == null) return (null, Fail(401, "缺少或无效的进房票据"));
@@ -250,6 +254,10 @@ public sealed class LauncherTunnelService
         }
         return Results.Empty;
     }
+
+    /// <summary>经房主的控制连接发一行消息（打洞协调用）。房主不在线时返回 false。</summary>
+    public async Task<bool> SendToHostAsync(string roomId, string line) =>
+        _hosts.TryGetValue(roomId, out var host) && await SendAsync(host, line);
 
     // ==================== 内部 ====================
 

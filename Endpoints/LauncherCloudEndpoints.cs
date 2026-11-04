@@ -162,6 +162,15 @@ public static class LauncherCloudEndpoints
             return await tunnel.RunAcceptAsync(context, ticket, conn);
         });
 
+        // 打洞：成员先向 UDP 端口发登记包，再调用这里；云端通知房主向成员发包，并返回房主地址。
+        launcher.MapPost("/relay/punch", async (HttpContext context, LauncherTunnelService tunnel, LauncherPunchService punch, RoomTicketService tickets, LauncherRoomService rooms) =>
+        {
+            var (ticket, error) = tunnel.Authorize(context, tickets, rooms, "member", upgrade: false);
+            if (ticket == null) return error!;
+            var (status, body) = await punch.PunchAsync(ticket, tunnel);
+            return Json(body, status);
+        });
+
         // ==================== 好友 ====================
         launcher.MapGet("/friends", async (HttpContext context, LauncherAccountService accounts, LauncherSocialService social) =>
             accounts.Authenticate(context) is { } account ? Json(await social.ListFriendsAsync(account.Id)) : ModIndexEndpoints.Unauthorized());

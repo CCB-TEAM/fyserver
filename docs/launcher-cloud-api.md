@@ -77,7 +77,7 @@
 {
   "ok": true, "message": "…", "room": { … }, "role": "host | member",
   "ticket": "<JWS>", "ticketExpiresAt": "…",
-  "tunnel": {"role", "relay": true, "hostOnline": 房主启动器此刻是否连着中继}
+  "tunnel": {"role", "relay": true, "punchPort": 打洞协调的 UDP 端口或 null, "hostOnline": 房主启动器此刻是否连着中继}
 }
 ```
 
@@ -135,6 +135,18 @@ X-Fy-Ticket: <进房票据>
 - 两个方向共用每个房间的限速，默认 512KB/s，在后台设置。
 - 成员那边，本地网关照常在每个 HTTP 请求上加 `X-Fy-Ticket`。房主的嵌入版服务端靠它识别成员，所以中继不改动内容。
 - 中继关闭时开房、进房响应里的 `tunnel` 为 null。
+
+### 打洞直连
+
+云端在游戏端口号的 UDP 上（`tunnel.punchPort`）协调打洞。直连成功后，成员的新连接改走直连；直连断开或打不通时，继续走中继。
+
+1. 房主开房后，用跑 QUIC 的那个 UDP 套接字每 15 秒向 `punchPort` 发一次登记包：`FYP1 REG <票据> <证书指纹>`。证书是开房时临时生成的自签名证书，指纹是 DER 的 SHA-256 十六进制。
+2. 成员用自己的 UDP 套接字发几次 `FYP1 REG <票据>`，然后调用 `POST /launcher/relay/punch`（带 `X-Fy-Ticket`，不用 Upgrade 头）。
+3. 云端经房主的中继控制连接发出 `punch <成员ip:port>`，并返回 `{hostAddr, fingerprint, yourAddr}`。房主还没登记时返回 409，房主不在线时返回 503，5 秒内重复请求返回 429。
+4. 双方互相发几个 `FYP1 HI` 小包，在各自的 NAT 上打开映射。然后成员发起 QUIC 连接（ALPN `fy-room/1`），并按指纹校验房主的证书。
+5. 每条游戏连接对应一条 QUIC 双向流，房主把它接到本机嵌入版服务端。身份照样由每个请求里的票据决定。
+
+云端不回登记包，只记录看到的源地址（有效期：房主 45 秒，成员 20 秒）。对称型 NAT 一般打不通，这时只走中继。
 
 ## 5. 好友与聊天（按启动器账号）
 

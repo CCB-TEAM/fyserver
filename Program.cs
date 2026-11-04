@@ -52,6 +52,7 @@ var roomTickets = new RoomTicketService();
 var launcherHub = new LauncherHubService();
 var launcherRooms = new LauncherRoomService(launcherHub);
 var launcherTunnel = new LauncherTunnelService();
+var launcherPunch = new LauncherPunchService(roomTickets, launcherRooms);
 var launcherSocialStore = new SocialService(userDatabaseConfiguration, "fy_launcher_", "./data/social/launcher.json");
 var launcherSocial = new LauncherSocialService(launcherSocialStore, social, launcherAccounts, launcherHub, launcherRooms);
 var launcherModpacks = new LauncherModpackService(modIndex);
@@ -89,6 +90,7 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(launcherHub);
     services.AddSingleton(launcherRooms);
     services.AddSingleton(launcherTunnel);
+    services.AddSingleton(launcherPunch);
     services.AddSingleton(launcherSocial);
     services.AddSingleton(launcherModpacks);
     services.AddSingleton(adminUsers);
@@ -165,6 +167,9 @@ if (!embedded.Enabled)
     httpApp.MapModIndexEndpoints();
     httpApp.MapLauncherEndpoints();
     httpApp.MapLauncherCloudEndpoints();
+    // 打洞协调和游戏共用端口号（UDP）
+    launcherPunch.Start(serverOptions.portHttp);
+    launcherTunnel.PunchPort = launcherPunch.Port;
 }
 httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();

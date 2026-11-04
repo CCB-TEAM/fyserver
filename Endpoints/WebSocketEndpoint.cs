@@ -41,7 +41,8 @@ public static class WebSocketEndpoint
         app.UseWebSockets();
         app.Use(async (context, next) =>
         {
-            if (!context.WebSockets.IsWebSocketRequest)
+            // /launcher/ws 是启动器控制通道，由 LauncherCloudEndpoints 处理
+            if (!context.WebSockets.IsWebSocketRequest || context.Request.Path.StartsWithSegments("/launcher"))
             {
                 await next();
                 return;

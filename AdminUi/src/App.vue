@@ -19,6 +19,7 @@ const links = [
   ['mods', 'content', '模组审核', '运营'],
   ['launcher', 'users', '启动器账号', '运营'],
   ['social', 'users', '好友与小助手', '运营'],
+  ['rooms', 'online', '启动器房间', '运营'],
   ['server-config', 'settings', '服务器设置', '系统'],
   ['system-settings', 'cpu', '系统设置', '系统'],
   ['accounts', 'users', '后台用户', '系统'],
@@ -52,7 +53,7 @@ async function session() {
     username.value = s.username || '管理员';
     avatarUrl.value = s.avatarUrl || '';
     permissions.value = s.permissions || [];
-    const required = { users: 'players', matches: 'matches', content: 'content', store: 'content', redeem: 'content', mods: 'content', launcher: 'players', social: 'players', 'server-config': 'serverConfig', 'system-settings': 'systemSettings', accounts: 'permissions' }[active];
+    const required = { users: 'players', matches: 'matches', content: 'content', store: 'content', redeem: 'content', mods: 'content', launcher: 'players', social: 'players', rooms: 'players', 'server-config': 'serverConfig', 'system-settings': 'systemSettings', accounts: 'permissions' }[active];
     if (required && !permissions.value.includes(required) && !permissionNotified && document.getElementById('banner-host')) {
       permissionNotified = true;
       window.Admin.banner('当前账号对此页面只有查看权限，修改操作会被服务器拒绝。', 'info');

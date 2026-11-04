@@ -46,6 +46,14 @@ var social = new SocialService(userDatabaseConfiguration);
 var friendChallenges = new FriendChallengeService(webSocketHub, matches, social);
 var friends = new FriendService(social, users, webSocketHub, matches, matchHistory, friendChallenges);
 webSocketHub.Social = friends;
+// 启动器云端：房间大厅、进房票据、frp 打洞/中继协调、启动器好友聊天、云端整合包
+var roomTickets = new RoomTicketService();
+var launcherHub = new LauncherHubService();
+var launcherRooms = new LauncherRoomService(launcherHub);
+var launcherTunnel = new LauncherTunnelService();
+var launcherSocialStore = new SocialService(userDatabaseConfiguration, "fy_launcher_", "./data/social/launcher.json");
+var launcherSocial = new LauncherSocialService(launcherSocialStore, social, launcherAccounts, launcherHub, launcherRooms);
+var launcherModpacks = new LauncherModpackService(modIndex);
 
 // ==================== 后台（静态页 /admin-ui 的数据层）服务 ====================
 var adminUsers = new AdminUserService(users, webSocketHub);
@@ -75,6 +83,12 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(social);
     services.AddSingleton(friendChallenges);
     services.AddSingleton(friends);
+    services.AddSingleton(roomTickets);
+    services.AddSingleton(launcherHub);
+    services.AddSingleton(launcherRooms);
+    services.AddSingleton(launcherTunnel);
+    services.AddSingleton(launcherSocial);
+    services.AddSingleton(launcherModpacks);
     services.AddSingleton(adminUsers);
     services.AddSingleton(frontpage);
     services.AddSingleton(contentEntries);
@@ -88,7 +102,7 @@ void RegisterSharedServices(IServiceCollection services)
 var httpBuilder = WebApplication.CreateSlimBuilder();
 RegisterSharedServices(httpBuilder.Services);
 httpBuilder.Services.AddHostedService<MatchHistoryCleanupWorker>();
-httpBuilder.Services.AddHostedService<SocialCleanupWorker>();
+httpBuilder.Services.AddHostedService(_ => new SocialCleanupWorker(social, launcherSocialStore));
 
 httpBuilder.WebHost.UseUrls(serverOptions.GetAddressHttp());
 httpBuilder.Services.Configure<JsonOptions>(options =>
@@ -139,11 +153,12 @@ httpApp.MapUserEndpoints();
 httpApp.MapPlayerEndpoints();
 httpApp.MapFriendEndpoints();
 httpApp.MapRedeemEndpoints();
-// 模组索引与启动器账号只在云端提供
+// 模组索引、启动器账号与房间大厅只在云端提供
 if (!embedded.Enabled)
 {
     httpApp.MapModIndexEndpoints();
     httpApp.MapLauncherEndpoints();
+    httpApp.MapLauncherCloudEndpoints();
 }
 httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();
@@ -159,6 +174,7 @@ if (embedded.Enabled)
 else
 {
     httpApp.MapAdminApiEndpoints();
+    httpApp.MapAdminLauncherCloudEndpoints();
     // 后台入口别名：/admin-ui/ → index.html、/admin-ui/login → login.html
     httpApp.UseMiddleware<AdminUiEntryMiddleware>();
     // 静态资源（wwwroot/admin-ui）：CreateSlimBuilder 默认未启用静态文件中间件
@@ -217,6 +233,8 @@ httpApp.Lifetime.ApplicationStopping.Register(() =>
 {
     Console.WriteLine("Application stopping. Cleaning up...");
     social.Dispose(); // local 模式下把好友与聊天数据写回磁盘
+    launcherRooms.Dispose();
+    launcherSocialStore.Dispose();
     fasterKv?.Dispose(); // 仅本地存储模式会创建
 });
 

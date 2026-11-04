@@ -14,10 +14,13 @@ namespace fyserver.Services;
 /// local 模式写入 data/social/social.json（内存为准，定时落盘）。
 /// 与对局历史一样，每次调用按当前数据库配置选择后端，后台切换数据库后无需重启。
 /// </summary>
-public sealed class SocialService(UserDatabaseConfigurationService databaseConfiguration) : IDisposable
+public sealed class SocialService(UserDatabaseConfigurationService databaseConfiguration, string tablePrefix = "fy_", string localPath = "./data/social/social.json") : IDisposable
 {
     private const string SettingsPath = "./data/social-settings.json";
-    private const string LocalPath = "./data/social/social.json";
+    // 游戏内好友用 fy_friendships / fy_chat_messages；启动器好友用 fy_launcher_* 两张独立的表。
+    private readonly string _friendsTable = tablePrefix + "friendships";
+    private readonly string _chatTable = tablePrefix + "chat_messages";
+    private readonly string LocalPath = localPath;
 
     private readonly object _settingsLock = new();
     private SocialSettings? _settings;
@@ -106,7 +109,7 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
         await EnsureSchemaAsync(settings, cancellationToken);
         await using var connection = await OpenAsync(settings, cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT requester_id, addressee_id, status, created_at, updated_at FROM fy_friendships WHERE requester_id = @u OR addressee_id = @u";
+        command.CommandText = $"SELECT requester_id, addressee_id, status, created_at, updated_at FROM {_friendsTable} WHERE requester_id = @u OR addressee_id = @u";
         AddParameter(command, "@u", userId);
         return await ReadFriendshipsAsync(command, cancellationToken);
     }
@@ -158,13 +161,13 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
         switch (mutation.Kind)
         {
             case FriendshipMutationKind.CreatePending:
-                command.CommandText = "INSERT INTO fy_friendships (requester_id, addressee_id, status, created_at, updated_at) VALUES (@a, @b, 'pending', @now, @now)";
+                command.CommandText = $"INSERT INTO {_friendsTable} (requester_id, addressee_id, status, created_at, updated_at) VALUES (@a, @b, 'pending', @now, @now)";
                 break;
             case FriendshipMutationKind.Accept:
-                command.CommandText = "UPDATE fy_friendships SET status = 'accepted', updated_at = @now WHERE requester_id = @a AND addressee_id = @b";
+                command.CommandText = $"UPDATE {_friendsTable} SET status = 'accepted', updated_at = @now WHERE requester_id = @a AND addressee_id = @b";
                 break;
             case FriendshipMutationKind.Delete:
-                command.CommandText = "DELETE FROM fy_friendships WHERE (requester_id = @a AND addressee_id = @b) OR (requester_id = @b AND addressee_id = @a)";
+                command.CommandText = $"DELETE FROM {_friendsTable} WHERE (requester_id = @a AND addressee_id = @b) OR (requester_id = @b AND addressee_id = @a)";
                 break;
         }
         AddParameter(command, "@a", mutation.A);
@@ -195,8 +198,8 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
         await using var connection = await OpenAsync(settings, cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = settings.Provider == "postgresql"
-            ? "INSERT INTO fy_chat_messages (sender_id, receiver_id, body, context, created_at, delivered) VALUES (@s, @r, @body, @ctx, @at, @d) RETURNING id"
-            : "INSERT INTO fy_chat_messages (sender_id, receiver_id, body, context, created_at, delivered) VALUES (@s, @r, @body, @ctx, @at, @d); SELECT LAST_INSERT_ID();";
+            ? $"INSERT INTO {_chatTable} (sender_id, receiver_id, body, context, created_at, delivered) VALUES (@s, @r, @body, @ctx, @at, @d) RETURNING id"
+            : $"INSERT INTO {_chatTable} (sender_id, receiver_id, body, context, created_at, delivered) VALUES (@s, @r, @body, @ctx, @at, @d); SELECT LAST_INSERT_ID();";
         AddParameter(command, "@s", senderId);
         AddParameter(command, "@r", receiverId);
         AddParameter(command, "@body", body);
@@ -228,7 +231,7 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
         await EnsureSchemaAsync(settings, cancellationToken);
         await using var connection = await OpenAsync(settings, cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE fy_chat_messages SET delivered = @t WHERE id = @id";
+        command.CommandText = $"UPDATE {_chatTable} SET delivered = @t WHERE id = @id";
         AddParameter(command, "@t", true);
         AddParameter(command, "@id", id);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -259,7 +262,7 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
         await EnsureSchemaAsync(settings, cancellationToken);
         await using var connection = await OpenAsync(settings, cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE fy_chat_messages SET delivered = @t WHERE receiver_id = @r AND delivered = @f AND id <= @max";
+        command.CommandText = $"UPDATE {_chatTable} SET delivered = @t WHERE receiver_id = @r AND delivered = @f AND id <= @max";
         AddParameter(command, "@t", true);
         AddParameter(command, "@f", false);
         AddParameter(command, "@r", receiverId);
@@ -285,7 +288,7 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
         await EnsureSchemaAsync(settings, cancellationToken);
         await using var connection = await OpenAsync(settings, cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, sender_id, receiver_id, body, context, created_at, delivered FROM fy_chat_messages " +
+        command.CommandText = $"SELECT id, sender_id, receiver_id, body, context, created_at, delivered FROM {_chatTable} " +
                               "WHERE (sender_id = @u OR receiver_id = @u) AND (created_at >= @since OR (receiver_id = @u AND delivered = @f)) " +
                               "ORDER BY id DESC LIMIT @max";
         AddParameter(command, "@u", userId);
@@ -320,7 +323,7 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
         await EnsureSchemaAsync(settings, cancellationToken);
         await using var connection = await OpenAsync(settings, cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM fy_chat_messages WHERE created_at < @before";
+        command.CommandText = $"DELETE FROM {_chatTable} WHERE created_at < @before";
         AddParameter(command, "@before", before);
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -346,9 +349,98 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
             command.CommandText = sql;
             return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
         }
-        return (await Scalar("SELECT COUNT(*) FROM fy_friendships WHERE status = 'accepted'"),
-            await Scalar("SELECT COUNT(*) FROM fy_friendships WHERE status = 'pending'"),
-            await Scalar("SELECT COUNT(*) FROM fy_chat_messages"));
+        return (await Scalar($"SELECT COUNT(*) FROM {_friendsTable} WHERE status = 'accepted'"),
+            await Scalar($"SELECT COUNT(*) FROM {_friendsTable} WHERE status = 'pending'"),
+            await Scalar($"SELECT COUNT(*) FROM {_chatTable}"));
+    }
+
+    // ==================== 按会话查询（启动器聊天窗口用） ====================
+
+    /// <summary>两人之间 id 小于 beforeId 的最近 limit 条消息，按 id 升序返回。</summary>
+    public async Task<List<ChatMessageRecord>> GetConversationAsync(int a, int b, long beforeId, int limit, CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit, 1, 200);
+        var settings = RequireDatabase();
+        if (settings.Provider == "local")
+        {
+            return WithLocal(local => local.Messages
+                .Where(m => m.Id < beforeId && ((m.SenderId == a && m.ReceiverId == b) || (m.SenderId == b && m.ReceiverId == a)))
+                .OrderByDescending(m => m.Id).Take(limit).OrderBy(m => m.Id).ToList());
+        }
+
+        await EnsureSchemaAsync(settings, cancellationToken);
+        await using var connection = await OpenAsync(settings, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT id, sender_id, receiver_id, body, context, created_at, delivered FROM {_chatTable} " +
+                              "WHERE id < @before AND ((sender_id = @a AND receiver_id = @b) OR (sender_id = @b AND receiver_id = @a)) " +
+                              "ORDER BY id DESC LIMIT @limit";
+        AddParameter(command, "@a", a);
+        AddParameter(command, "@b", b);
+        AddParameter(command, "@before", beforeId);
+        AddParameter(command, "@limit", limit);
+        var rows = new List<ChatMessageRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            rows.Add(new ChatMessageRecord(reader.GetInt64(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetString(3),
+                reader.GetString(4), AsUtc(reader.GetDateTime(5)), reader.GetBoolean(6)));
+        rows.Reverse();
+        return rows;
+    }
+
+    /// <summary>发给该玩家、尚未读（Delivered = false）的消息数，按发送者分组。</summary>
+    public async Task<Dictionary<int, int>> GetUnreadCountsAsync(int receiverId, CancellationToken cancellationToken = default)
+    {
+        var settings = RequireDatabase();
+        if (settings.Provider == "local")
+        {
+            return WithLocal(local => local.Messages.Where(m => m.ReceiverId == receiverId && !m.Delivered)
+                .GroupBy(m => m.SenderId).ToDictionary(g => g.Key, g => g.Count()));
+        }
+
+        await EnsureSchemaAsync(settings, cancellationToken);
+        await using var connection = await OpenAsync(settings, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT sender_id, COUNT(*) FROM {_chatTable} WHERE receiver_id = @r AND delivered = @f GROUP BY sender_id";
+        AddParameter(command, "@r", receiverId);
+        AddParameter(command, "@f", false);
+        var result = new Dictionary<int, int>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            result[reader.GetInt32(0)] = Convert.ToInt32(reader.GetValue(1));
+        return result;
+    }
+
+    /// <summary>把 sender 发给 receiver 的消息全部标记为已读。</summary>
+    public async Task MarkConversationReadAsync(int receiverId, int senderId, CancellationToken cancellationToken = default)
+    {
+        var settings = RequireDatabase();
+        if (settings.Provider == "local")
+        {
+            WithLocal(local =>
+            {
+                for (var i = 0; i < local.Messages.Count; i++)
+                {
+                    var m = local.Messages[i];
+                    if (m.ReceiverId == receiverId && m.SenderId == senderId && !m.Delivered)
+                    {
+                        local.Messages[i] = m with { Delivered = true };
+                        _localDirty = true;
+                    }
+                }
+                return true;
+            });
+            return;
+        }
+
+        await EnsureSchemaAsync(settings, cancellationToken);
+        await using var connection = await OpenAsync(settings, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"UPDATE {_chatTable} SET delivered = @t WHERE receiver_id = @r AND sender_id = @s AND delivered = @f";
+        AddParameter(command, "@t", true);
+        AddParameter(command, "@f", false);
+        AddParameter(command, "@r", receiverId);
+        AddParameter(command, "@s", senderId);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     // ==================== 后端实现细节 ====================
@@ -369,7 +461,7 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
         }
     }
 
-    private static SocialLocalSnapshot LoadLocal()
+    private SocialLocalSnapshot LoadLocal()
     {
         try
         {
@@ -427,17 +519,17 @@ public sealed class SocialService(UserDatabaseConfigurationService databaseConfi
             var statements = settings.Provider == "postgresql"
                 ? new[]
                 {
-                    "CREATE TABLE IF NOT EXISTS fy_friendships (requester_id INTEGER NOT NULL, addressee_id INTEGER NOT NULL, status VARCHAR(16) NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (requester_id, addressee_id))",
-                    "CREATE INDEX IF NOT EXISTS ix_fy_friendships_addressee ON fy_friendships (addressee_id)",
-                    "CREATE TABLE IF NOT EXISTS fy_chat_messages (id BIGSERIAL PRIMARY KEY, sender_id INTEGER NOT NULL, receiver_id INTEGER NOT NULL, body TEXT NOT NULL, context VARCHAR(128) NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL, delivered BOOLEAN NOT NULL DEFAULT FALSE)",
-                    "CREATE INDEX IF NOT EXISTS ix_fy_chat_messages_receiver ON fy_chat_messages (receiver_id, id)",
-                    "CREATE INDEX IF NOT EXISTS ix_fy_chat_messages_sender ON fy_chat_messages (sender_id, id)",
-                    "CREATE INDEX IF NOT EXISTS ix_fy_chat_messages_created ON fy_chat_messages (created_at)"
+                    $"CREATE TABLE IF NOT EXISTS {_friendsTable} (requester_id INTEGER NOT NULL, addressee_id INTEGER NOT NULL, status VARCHAR(16) NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (requester_id, addressee_id))",
+                    $"CREATE INDEX IF NOT EXISTS ix_{_friendsTable}_addressee ON {_friendsTable} (addressee_id)",
+                    $"CREATE TABLE IF NOT EXISTS {_chatTable} (id BIGSERIAL PRIMARY KEY, sender_id INTEGER NOT NULL, receiver_id INTEGER NOT NULL, body TEXT NOT NULL, context VARCHAR(128) NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL, delivered BOOLEAN NOT NULL DEFAULT FALSE)",
+                    $"CREATE INDEX IF NOT EXISTS ix_{_chatTable}_receiver ON {_chatTable} (receiver_id, id)",
+                    $"CREATE INDEX IF NOT EXISTS ix_{_chatTable}_sender ON {_chatTable} (sender_id, id)",
+                    $"CREATE INDEX IF NOT EXISTS ix_{_chatTable}_created ON {_chatTable} (created_at)"
                 }
                 : new[]
                 {
-                    "CREATE TABLE IF NOT EXISTS fy_friendships (requester_id INT NOT NULL, addressee_id INT NOT NULL, status VARCHAR(16) NOT NULL, created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL, PRIMARY KEY (requester_id, addressee_id), INDEX ix_fy_friendships_addressee (addressee_id)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
-                    "CREATE TABLE IF NOT EXISTS fy_chat_messages (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, sender_id INT NOT NULL, receiver_id INT NOT NULL, body TEXT NOT NULL, context VARCHAR(128) NOT NULL DEFAULT '', created_at DATETIME(6) NOT NULL, delivered TINYINT(1) NOT NULL DEFAULT 0, INDEX ix_fy_chat_messages_receiver (receiver_id, id), INDEX ix_fy_chat_messages_sender (sender_id, id), INDEX ix_fy_chat_messages_created (created_at)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"
+                    $"CREATE TABLE IF NOT EXISTS {_friendsTable} (requester_id INT NOT NULL, addressee_id INT NOT NULL, status VARCHAR(16) NOT NULL, created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL, PRIMARY KEY (requester_id, addressee_id), INDEX ix_{_friendsTable}_addressee (addressee_id)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
+                    $"CREATE TABLE IF NOT EXISTS {_chatTable} (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, sender_id INT NOT NULL, receiver_id INT NOT NULL, body TEXT NOT NULL, context VARCHAR(128) NOT NULL DEFAULT '', created_at DATETIME(6) NOT NULL, delivered TINYINT(1) NOT NULL DEFAULT 0, INDEX ix_{_chatTable}_receiver (receiver_id, id), INDEX ix_{_chatTable}_sender (sender_id, id), INDEX ix_{_chatTable}_created (created_at)) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"
                 };
             foreach (var sql in statements)
             {
@@ -497,21 +589,24 @@ public readonly record struct FriendshipMutation(FriendshipMutationKind Kind, in
 }
 
 /// <summary>每 6 小时删除超过保留天数的好友聊天记录。</summary>
-public sealed class SocialCleanupWorker(SocialService social) : BackgroundService
+public sealed class SocialCleanupWorker(SocialService social, params SocialService[] extraStores) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); } catch (OperationCanceledException) { return; }
         while (!stoppingToken.IsCancellationRequested)
         {
-            try
+            var days = social.GetSettings().HistoryDays;
+            foreach (var store in extraStores.Prepend(social))
             {
-                var days = social.GetSettings().HistoryDays;
-                var removed = await social.CleanupMessagesAsync(DateTime.UtcNow.AddDays(-days), stoppingToken);
-                if (removed > 0) Console.WriteLine($"已清理 {removed} 条超过 {days} 天的好友聊天记录");
+                try
+                {
+                    var removed = await store.CleanupMessagesAsync(DateTime.UtcNow.AddDays(-days), stoppingToken);
+                    if (removed > 0) Console.WriteLine($"已清理 {removed} 条超过 {days} 天的好友聊天记录");
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception ex) { Console.WriteLine($"清理好友聊天记录失败：{ex.GetBaseException().Message}"); }
             }
-            catch (OperationCanceledException) { return; }
-            catch (Exception ex) { Console.WriteLine($"清理好友聊天记录失败：{ex.GetBaseException().Message}"); }
             try { await Task.Delay(TimeSpan.FromHours(6), stoppingToken); } catch (OperationCanceledException) { return; }
         }
     }

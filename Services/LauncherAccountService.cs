@@ -342,9 +342,24 @@ public sealed partial class LauncherAccountService
     private static string? BearerToken(HttpContext context)
     {
         var header = context.Request.Headers.Authorization.FirstOrDefault();
-        if (header == null || !header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return null;
-        var token = header[7..].Trim();
-        return token.Length is > 0 and <= 128 ? token : null;
+        string? token = null;
+        if (header != null && header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            token = header[7..].Trim();
+        // 浏览器/WebView 里的 WebSocket 不能自定义请求头，控制连接 /launcher/ws 允许把 token 放在查询串里。
+        else if (context.WebSockets.IsWebSocketRequest && context.Request.Path.StartsWithSegments("/launcher/ws"))
+            token = context.Request.Query["token"].ToString().Trim();
+        return token is { Length: > 0 and <= 128 } ? token : null;
+    }
+
+    /// <summary>按账号名（不区分大小写）查找未禁用的启动器账号。</summary>
+    public (int Id, string Username)? FindByUsername(string? username)
+    {
+        if (string.IsNullOrWhiteSpace(username)) return null;
+        lock (_gate)
+        {
+            var account = LoadLocked().Accounts.FirstOrDefault(a => !a.Disabled && string.Equals(a.Username, username.Trim(), StringComparison.OrdinalIgnoreCase));
+            return account == null ? null : (account.Id, account.Username);
+        }
     }
 
     private static string TokenHash(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));

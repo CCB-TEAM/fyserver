@@ -9,6 +9,8 @@ namespace fyserver.Services;
 /// 而本进程实际监听另一个本地端口，由网关转发过来。
 ///
 /// 命令行：--embedded [--port 11450] [--public-port 1145] [--parent-pid 1234]
+///        [--room-id 8MJ257 --ticket-pubkey &lt;base64 SPKI&gt;]
+/// 带上房间号和公钥时进入联机房间模式：每个请求都要带本房间的进房票据。
 /// </summary>
 public sealed class EmbeddedMode
 {
@@ -19,6 +21,11 @@ public sealed class EmbeddedMode
     public int Port { get; private init; } = DefaultPort;
     public int PublicPort { get; private init; } = DefaultPublicPort;
     public int? ParentPid { get; private init; }
+    public string? RoomId { get; private init; }
+    public string? TicketPublicKey { get; private init; }
+
+    /// <summary>联机房间模式：别人经隧道进来，必须校验票据。</summary>
+    public bool RequiresTicket => RoomId != null && TicketPublicKey != null;
 
     public static EmbeddedMode Parse(string[] args)
     {
@@ -31,7 +38,16 @@ public sealed class EmbeddedMode
             Port = IntArg(args, "--port") ?? DefaultPort,
             PublicPort = IntArg(args, "--public-port") ?? DefaultPublicPort,
             ParentPid = IntArg(args, "--parent-pid"),
+            RoomId = StringArg(args, "--room-id"),
+            TicketPublicKey = StringArg(args, "--ticket-pubkey"),
         };
+    }
+
+    private static string? StringArg(string[] args, string name)
+    {
+        var i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (i < 0 || i + 1 >= args.Length || string.IsNullOrWhiteSpace(args[i + 1])) return null;
+        return args[i + 1].Trim();
     }
 
     private static int? IntArg(string[] args, string name)

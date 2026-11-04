@@ -12,11 +12,13 @@ public static class UserEndpoints
         app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig, FriendService friends) =>
         {
             string addressHttp = options.GetAddressHttpR();
+            // 联机房间里以启动器账号为准，不信游戏自己报的用户名
+            var sessionUserName = RoomTicketVerifier.Current(context)?.Name ?? session.Username;
             User? user;
             try
             {
-                user = await users.GetByUserNameAsync(session.Username);
-                Console.WriteLine($"Find user: {session.Username}");
+                user = await users.GetByUserNameAsync(sessionUserName);
+                Console.WriteLine($"Find user: {sessionUserName}");
             }
             catch (Exception)
             {
@@ -28,8 +30,8 @@ public static class UserEndpoints
                 Console.WriteLine("未找到");
                 try
                 {
-                    user = await users.CreateUserAsync(session.Username);
-                    Console.WriteLine($"Created new user: {session.Username}");
+                    user = await users.CreateUserAsync(sessionUserName);
+                    Console.WriteLine($"Created new user: {sessionUserName}");
                 }
                 catch (Exception ex)
                 {
@@ -133,7 +135,7 @@ public static class UserEndpoints
                 JapanLevelClaimed: 500,
                 JapanXp: 0,
                 Jti: "114514",
-                Jwt: $"{codec.Encode(session.Username, 114)}",
+                Jwt: $"{codec.Encode(sessionUserName, 114)}",
                 LastCrateClaimedDate: "2025-07-02T11:24:15.567042Z",
                 LastDailyMissionCancel: null,
                 LastDailyMissionRenewal: "2025-07-05T15:21:43.653915Z",

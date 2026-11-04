@@ -22,6 +22,7 @@ serverOptions.ReadFromFile(); // 读 ./setting.json；不存在则生成默认�
 // 嵌入模式：由启动器拉起，房主在本机开房用（见 Services/EmbeddedMode.cs）
 var embedded = EmbeddedMode.Parse(args);
 if (embedded.Enabled) embedded.Apply(serverOptions);
+var roomTicketVerifier = embedded.RequiresTicket ? new RoomTicketVerifier(embedded.TicketPublicKey!, embedded.RoomId!) : null;
 
 FasterKvService? fasterKv = null;
 var userDatabaseConfiguration = new UserDatabaseConfigurationService();
@@ -68,6 +69,7 @@ void RegisterSharedServices(IServiceCollection services)
 {
     services.AddSingleton(serverOptions);
     services.AddSingleton(embedded);
+    if (roomTicketVerifier != null) services.AddSingleton(roomTicketVerifier);
     services.AddSingleton(users);
     services.AddSingleton(userDatabaseConfiguration);
     services.AddSingleton(codec);
@@ -136,6 +138,10 @@ httpApp.UseExceptionHandler(exceptionHandlerApp =>
 });
 
 // WebSocket 端点：与 HTTP 共用同一端口与管线（非 WS 请求继续走后面的 HTTP 管线）
+// 联机房间模式：票据校验必须早于 WebSocket 升级
+if (roomTicketVerifier != null)
+    httpApp.UseMiddleware<RoomTicketMiddleware>();
+
 httpApp.MapWebSocketEndpoint();
 
 httpApp.UseMiddleware<ContentTypeCleanupMiddleware>();
@@ -216,6 +222,7 @@ httpApp.Lifetime.ApplicationStarted.Register(() =>
     if (embedded.Enabled)
     {
         Console.WriteLine($"嵌入模式：客户端经 127.0.0.1:{embedded.PublicPort} 的启动器网关访问本服务");
+        if (roomTicketVerifier != null) Console.WriteLine($"联机房间 {embedded.RoomId}：只接受带本房间票据的请求");
         embedded.WatchParent(httpApp.Lifetime);
     }
     else if (!adminAccount.IsInitialized)

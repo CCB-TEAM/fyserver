@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace fyserver.Services;
 
@@ -9,7 +9,7 @@ namespace fyserver.Services;
 /// 而本进程实际监听另一个本地端口，由网关转发过来。
 ///
 /// 命令行：--embedded [--port 11450] [--public-port 1145] [--parent-pid 1234]
-///        [--room-id 8MJ257 --ticket-pubkey &lt;base64 SPKI&gt;]
+///        [--room-id 8MJ257 --ticket-pubkey &lt;base64 SPKI&gt;] [--settings &lt;房主服务器设置文件&gt;]
 /// 带上房间号和公钥时进入联机房间模式：每个请求都要带本房间的进房票据。
 /// </summary>
 public sealed class EmbeddedMode
@@ -23,6 +23,7 @@ public sealed class EmbeddedMode
     public int? ParentPid { get; private init; }
     public string? RoomId { get; private init; }
     public string? TicketPublicKey { get; private init; }
+    public string? SettingsPath { get; private init; }
 
     /// <summary>联机房间模式：别人经隧道进来，必须校验票据。</summary>
     public bool RequiresTicket => RoomId != null && TicketPublicKey != null;
@@ -40,6 +41,7 @@ public sealed class EmbeddedMode
             ParentPid = IntArg(args, "--parent-pid"),
             RoomId = StringArg(args, "--room-id"),
             TicketPublicKey = StringArg(args, "--ticket-pubkey"),
+            SettingsPath = StringArg(args, "--settings"),
         };
     }
 

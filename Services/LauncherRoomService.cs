@@ -14,6 +14,9 @@ public sealed class LauncherRoomService : IDisposable
     public const int MaxRoomSize = 10;
     public static readonly TimeSpan HostTimeout = TimeSpan.FromSeconds(45);
     public static readonly TimeSpan MemberTimeout = TimeSpan.FromSeconds(90);
+    private const int MaxChatLength = 500;
+    private static readonly TimeSpan ChatCooldown = TimeSpan.FromMilliseconds(300);
+    private readonly Dictionary<int, DateTime> _lastChat = new();
     private const string CodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static readonly string[] Visibilities = ["public", "password", "friends"];
 
@@ -323,6 +326,38 @@ public sealed class LauncherRoomService : IDisposable
             await NotifyClosedAsync(room, "房主已离线");
         }
         foreach (var (room, departed) in changed) await NotifyChangedAsync(room, departed);
+    }
+
+    /// <summary>房间聊天：发给房内每个人（包括发送者），不保存。</summary>
+    public async Task<Result> ChatAsync(string id, int accountId, string username, string? text)
+    {
+        text = text?.Trim();
+        if (string.IsNullOrEmpty(text) || text.Length > MaxChatLength)
+            return new(false, 400, $"消息不能为空，也不能超过 {MaxChatLength} 个字");
+        int[] members;
+        lock (_gate)
+        {
+            if (!_rooms.TryGetValue(id, out var room) || !room.Members.ContainsKey(accountId))
+                return new(false, 404, "你不在这个房间里");
+            var now = DateTime.UtcNow;
+            if (_lastChat.TryGetValue(accountId, out var last) && now - last < ChatCooldown)
+                return new(false, 429, "发得太快了");
+            _lastChat[accountId] = now;
+            members = room.Members.Keys.ToArray();
+        }
+        var at = DateTime.UtcNow.ToString("O");
+        foreach (var member in members)
+        {
+            await _hub.SendAsync(member, new JsonObject
+            {
+                ["type"] = "room_chat",
+                ["roomId"] = id,
+                ["from"] = new JsonObject { ["accountId"] = accountId, ["username"] = username },
+                ["text"] = text,
+                ["at"] = at
+            });
+        }
+        return new(true, 200, "ok");
     }
 
     private async Task NotifyChangedAsync(Room room, params int[] departed)

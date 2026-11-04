@@ -131,6 +131,16 @@ public static class LauncherCloudEndpoints
             return result.Ok ? Ok(result.Message) : Fail(result.Status, result.Message);
         });
 
+        launcher.MapPost("/rooms/{id}/chat", async (string id, HttpContext context, LauncherAccountService accounts, LauncherRoomService rooms) =>
+        {
+            if (accounts.Authenticate(context) is not { } account) return ModIndexEndpoints.Unauthorized();
+            var (body, error) = await ModIndexEndpoints.ReadBody(context);
+            if (body == null) return error!;
+            var text = body["text"] is JsonValue t && t.TryGetValue<string>(out var s) ? s : null;
+            var result = await rooms.ChatAsync(Code(id), account.Id, account.Username, text);
+            return result.Ok ? Ok(result.Message) : Fail(result.Status, result.Message);
+        });
+
         launcher.MapDelete("/rooms/{id}", (string id, HttpContext context, LauncherAccountService accounts, LauncherRoomService rooms) =>
         {
             if (accounts.Authenticate(context) is not { } account) return ModIndexEndpoints.Unauthorized();

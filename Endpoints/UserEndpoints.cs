@@ -1,4 +1,4 @@
-using fyserver.Models;
+﻿using fyserver.Models;
 using fyserver.Serialization;
 using fyserver.Services;
 
@@ -9,7 +9,7 @@ public static class UserEndpoints
     public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         // 2. 配置和基本信息
-        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig, FriendService friends) =>
+        app.MapPost("/session", async (Session session, HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, WebSocketHubService webSockets, ClientServerConfigService clientServerConfig, FriendService friends, EmbeddedSettings embeddedSettings) =>
         {
             string addressHttp = options.GetAddressHttpR();
             // 联机房间里以启动器账号为准，不信游戏自己报的用户名
@@ -165,7 +165,7 @@ public static class UserEndpoints
                 Rewards: new List<object>(),
                 SeasonEnd: "2025-08-01T00:00:00Z",
                 SeasonWins: user.Wins,
-                ServerOptions: clientServerConfig.ReadForSession(options.GetAddressWsR()),
+                ServerOptions: clientServerConfig.ReadForSession(options.GetAddressWsR(), embeddedSettings.Versions),
                 ServerTime: DateTime.UtcNow.ToString("yyyy.MM.dd-HH.mm.ss"),
                 SovietLevel: 500,
                 SovietLevelClaimed: 500,
@@ -200,7 +200,7 @@ public static class UserEndpoints
             return Results.Ok(response);
         });
 
-        app.MapGet("/", async (HttpContext context, UserStoreService users, CodecService codec, ServerOptions options) =>
+        app.MapGet("/", async (HttpContext context, UserStoreService users, CodecService codec, ServerOptions options, EmbeddedSettings embeddedSettings) =>
         {
             var auth = context.Request.Headers.Authorization.FirstOrDefault();
             // Console.WriteLine(auth);
@@ -234,14 +234,23 @@ public static class UserEndpoints
                     return Results.BadRequest(ex.Message);
                 }
 
-            return Results.Ok(await BuildConfigResponse(user, codec, options));
+            return Results.Ok(await BuildConfigResponse(user, codec, options, RoomRoles(context, embeddedSettings)));
         });
 
         return app;
     }
 
+    /// <summary>联机房间里的身份：房主全有，其他人只有房主授予的。不在房间里时返回 null，用账号自己的身份。</summary>
+    private static IReadOnlyList<string>? RoomRoles(HttpContext context, EmbeddedSettings settings) =>
+        RoomTicketVerifier.Current(context) switch
+        {
+            null => null,
+            { Role: "host" } => PlayerRoleCatalog.Available,
+            var claims => settings.RolesFor(claims.Name),
+        };
+
     /// <summary>构建 GET / 的 Config 响应（原 config.appconfig.getConfigAsync）。</summary>
-    private static Task<Config> BuildConfigResponse(User? user, CodecService codec, ServerOptions options)
+    private static Task<Config> BuildConfigResponse(User? user, CodecService codec, ServerOptions options, IReadOnlyList<string>? roomRoles)
     {
         CurrentUser? currentUser = null;
         var userName = user?.UserName ?? "1939Mother";
@@ -259,7 +268,7 @@ public static class UserEndpoints
                 Payment: "notavailable",
                 PlayerId: user.Id.ToString(),
                 Provider: "device_id",
-                Roles: PlayerRoleCatalog.Normalize(user.Roles),
+                Roles: PlayerRoleCatalog.Normalize(roomRoles ?? user.Roles),
                 Tier: "LIVE",
                 UserId: user.Id,
                 UserName: userName

@@ -1,4 +1,4 @@
-using fyserver;
+﻿using fyserver;
 using fyserver.Endpoints;
 using fyserver.Middleware;
 using fyserver.Models;
@@ -21,8 +21,14 @@ serverOptions.ReadFromFile(); // 读 ./setting.json；不存在则生成默认�
 
 // 嵌入模式：由启动器拉起，房主在本机开房用（见 Services/EmbeddedMode.cs）
 var embedded = EmbeddedMode.Parse(args);
-if (embedded.Enabled) embedded.Apply(serverOptions);
+if (embedded.Enabled)
+{
+    embedded.Apply(serverOptions);
+    // 日志由启动器读取并显示给房主
+    Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+}
 var roomTicketVerifier = embedded.RequiresTicket ? new RoomTicketVerifier(embedded.TicketPublicKey!, embedded.RoomId!) : null;
+var embeddedSettings = embedded.SettingsPath != null ? new EmbeddedSettings(embedded.SettingsPath, serverOptions, embedded.RequiresTicket) : new EmbeddedSettings();
 
 FasterKvService? fasterKv = null;
 var userDatabaseConfiguration = new UserDatabaseConfigurationService();
@@ -31,7 +37,7 @@ var users = new UserStoreService(() => fasterKv ??= new FasterKvService(), userD
 users.TryInitializeConfiguredAsync().GetAwaiter().GetResult();
 var codec = new CodecService();
 var playerLibrary = new PlayerLibraryService();
-playerLibrary.InitLibrary("./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");
+playerLibrary.InitLibrary(embeddedSettings.LibraryPath ?? "./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");
 var storeConfig = new StoreConfigService();
 var redeemCodes = new RedeemCodeService();
 var modIndex = new ModIndexService();
@@ -71,6 +77,7 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(serverOptions);
     services.AddSingleton(embedded);
     if (roomTicketVerifier != null) services.AddSingleton(roomTicketVerifier);
+    services.AddSingleton(embeddedSettings);
     services.AddSingleton(users);
     services.AddSingleton(userDatabaseConfiguration);
     services.AddSingleton(codec);

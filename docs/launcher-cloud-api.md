@@ -26,6 +26,7 @@
 | `chat_ack` | `clientId, ok, message, error` | 回执自己通过 WS 发出的 chat |
 | `room_invite` | `roomId, roomName, hasPassword(恒为 false), hostName, playerCount, maxPlayers, from:{accountId,username}` | 好友邀请你进房；10 分钟内进这个房间不用密码，仅好友房也能进 |
 | `room_updated` | `room`（同 §2 的房间对象） | 房间成员或设置变化（发给房间里每个人） |
+| `room_chat` | `roomId, from:{accountId,username}, text, at` | 房间里有人发言 |
 | `room_closed` | `roomId, reason` | 房主关房、房主超时、管理员关闭、房主开了新房 |
 | `kicked` | `roomId, message` | 你被房主移出 |
 | `replaced` | `message` | 同账号在别处连上 |
@@ -68,6 +69,7 @@
 | POST | `/launcher/rooms/{id}/heartbeat` | 心跳，同时续期票据 |
 | POST | `/launcher/rooms/{id}/leave` | 离开。房主离开就是关房 |
 | POST | `/launcher/rooms/{id}/kick` | 房主踢人，请求体 `{accountId}`。被踢的人不能再进这个房间 |
+| POST | `/launcher/rooms/{id}/chat` | 房间聊天，请求体 `{text}`（最多 500 字），房内每个人（包括发送者）收到 `room_chat`。不保存 |
 | POST | `/launcher/rooms/{id}/invite` | 邀请在线好友，请求体 `{accountId}`，对方收到 `room_invite` |
 | DELETE | `/launcher/rooms/{id}` | 房主关房 |
 

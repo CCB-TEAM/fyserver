@@ -5,7 +5,7 @@ using fyserver.Services;
 namespace fyserver.Endpoints;
 
 /// <summary>
-/// 后台：启动器云端（房间大厅监控、frp 隧道设置、启动器好友/小助手、云端整合包）。
+/// 后台：启动器云端（房间大厅监控、中继设置、启动器好友/小助手、云端整合包）。
 /// 权限由 AdminApiAuthorizationMiddleware 按路径判断：/launcher-cloud/tunnel 需要 serverConfig，其余需要 players。
 /// </summary>
 public static class AdminLauncherCloudEndpoints
@@ -62,21 +62,19 @@ public static class AdminLauncherCloudEndpoints
             return Result(result.Ok, result.Message, result.Status);
         });
 
-        api.MapGet("/tunnel", (LauncherTunnelService tunnel, RoomTicketService tickets, ServerOptions options) =>
-            Text(TunnelJson(tunnel.Get(), tickets, options)));
+        api.MapGet("/tunnel", (LauncherTunnelService tunnel, RoomTicketService tickets) =>
+            Text(TunnelJson(tunnel.Get(), tunnel, tickets)));
 
-        api.MapPut("/tunnel", async (HttpContext context, LauncherTunnelService tunnel, RoomTicketService tickets, ServerOptions options) =>
+        api.MapPut("/tunnel", async (HttpContext context, LauncherTunnelService tunnel, RoomTicketService tickets) =>
         {
             var body = await ReadBody(context);
             if (body == null) return Result(false, "请求体不是合法的 JSON 对象", 400);
             var current = tunnel.Get();
             var enabled = body["enabled"] is JsonValue e && e.TryGetValue<bool>(out var en) ? en : current.Enabled;
-            var addr = body["serverAddr"] is JsonValue s && s.TryGetValue<string>(out var sa) ? sa : current.ServerAddr;
-            var port = body["serverPort"] is JsonValue p && p.TryGetValue<int>(out var sp) ? sp : current.ServerPort;
             var bw = body["relayBandwidthLimit"] is JsonValue w && w.TryGetValue<string>(out var bws) ? bws : current.RelayBandwidthLimit;
-            var (ok, message, saved) = tunnel.Save(enabled, addr, port, bw);
+            var (ok, message, saved) = tunnel.Save(enabled, bw);
             if (!ok) return Result(false, message, 400);
-            var json = TunnelJson(saved!, tickets, options);
+            var json = TunnelJson(saved!, tunnel, tickets);
             json["ok"] = true;
             json["message"] = message;
             return Text(json);
@@ -85,26 +83,12 @@ public static class AdminLauncherCloudEndpoints
         return app;
     }
 
-    private static JsonObject TunnelJson(LauncherTunnelService.Settings s, RoomTicketService tickets, ServerOptions options) => new()
+    private static JsonObject TunnelJson(LauncherTunnelService.Settings s, LauncherTunnelService tunnel, RoomTicketService tickets) => new()
     {
         ["enabled"] = s.Enabled,
-        ["serverAddr"] = s.ServerAddr,
-        ["serverPort"] = s.ServerPort,
         ["relayBandwidthLimit"] = s.RelayBandwidthLimit,
-        ["pluginKey"] = s.PluginKey,
         ["ticketKeyId"] = tickets.KeyId,
-        // 部署在同一台机器上的 frps 配置示例（插件只接受回环地址调用）
-        ["frpsExample"] = $"""
-            bindPort = {s.ServerPort}
-            # 打洞（xtcp）不需要额外端口；stcp 中继走 bindPort。
-            transport.maxPoolCount = 5
-
-            [[httpPlugins]]
-            name = "fyserver-rooms"
-            addr = "127.0.0.1:{options.portHttp}"
-            path = "/launcher/frp/plugin?key={s.PluginKey}"
-            ops = ["Login", "NewProxy", "NewUserConn"]
-            """
+        ["stats"] = tunnel.Stats()
     };
 
     private static IResult Text(JsonObject json) => Results.Text(json.ToJsonString(), "application/json");

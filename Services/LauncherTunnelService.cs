@@ -1,27 +1,67 @@
-using System.Net;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Http.Features;
 
 namespace fyserver.Services;
 
 /// <summary>
-/// 房间隧道：用 frp 实现“服务器协助打洞（xtcp），失败回落中继（stcp）”。
-/// 云端只跑 frps，本服务提供 frps 的 HTTP 插件接口，用进房票据决定谁能登录、谁能为哪个房间开代理。
+/// 房间中继：启动器内置的隧道，复用游戏 HTTP 端口，不需要 frp，也不用开新端口。
 ///
-/// 约定：房主的 frpc 为房间 R 注册两个代理，都指向本机嵌入版 fyserver：
-///   room_R_p2p   类型 xtcp（打洞直连）
-///   room_R_relay 类型 stcp（经 frps 中继）
-/// 两者的 secretKey 都是开房响应里的 sk。加入者的 frpc 以 visitor 方式连接 room_R_p2p，
-/// 并把 fallbackTo 设为 room_R_relay 的 visitor，打洞失败自动走中继。
-/// 所有 frpc 登录时都要在 metadatas.ticket 里带上当前有效的进房票据。frpc 不要设置 user。
+/// 三种连接都是普通的 HTTP/1.1 GET 请求，带 <c>Connection: Upgrade</c>、<c>Upgrade: fy-relay</c> 和
+/// <c>X-Fy-Ticket</c> 头，服务端回 101 后变成原始字节流：
+///   /launcher/relay/host           房主的控制连接。云端按行发送 "open &lt;连接号&gt;" 和 "ping"。
+///   /launcher/relay/connect        成员的一条游戏连接。云端通知房主，等房主接上后两边对接。
+///   /launcher/relay/accept/{conn}  房主为某个连接号接上的数据连接，另一头是本机嵌入版服务端。
+/// 进房时房主和成员都按需建立这些连接，退房、被踢或房间关闭后云端会断开它们。
+/// 中继走云端带宽，每个房间按后台设置限速。
 /// </summary>
 public sealed class LauncherTunnelService
 {
-    private const string ConfigPath = "./data/launcher-tunnel.json";
+    public const string UpgradeProtocol = "fy-relay";
+    private const string ConfigPath = "./data/launcher-relay.json";
+    /// <summary>成员连接等房主接上的最长时间。</summary>
+    private static readonly TimeSpan AcceptTimeout = TimeSpan.FromSeconds(10);
+    /// <summary>多久核对一次房主 / 成员是否还在房间里。</summary>
+    private static readonly TimeSpan MembershipCheck = TimeSpan.FromSeconds(10);
+    private const int MaxConnectionsPerRoom = 64;
+
     private readonly object _gate = new();
     private Settings? _settings;
+    private readonly ConcurrentDictionary<string, HostLink> _hosts = new();
+    private readonly ConcurrentDictionary<string, Pending> _pending = new();
+    private readonly ConcurrentDictionary<string, RoomTraffic> _traffic = new();
 
-    public sealed record Settings(bool Enabled, string ServerAddr, int ServerPort, string RelayBandwidthLimit, string PluginKey);
+    public sealed record Settings(bool Enabled, string RelayBandwidthLimit)
+    {
+        public long BytesPerSecond => ParseBandwidth(RelayBandwidthLimit);
+    }
+
+    private sealed class HostLink(int accountId, Stream control)
+    {
+        public readonly int AccountId = accountId;
+        public readonly Stream Control = control;
+        public readonly SemaphoreSlim WriteLock = new(1, 1);
+        public readonly CancellationTokenSource Closed = new();
+    }
+
+    private sealed class Pending(string roomId, int hostId)
+    {
+        public readonly string RoomId = roomId;
+        public readonly int HostId = hostId;
+        public readonly TaskCompletionSource<Stream> HostStream = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>对接结束后放行房主那边的请求（升级后的流属于那个请求，请求结束流就关了）。</summary>
+        public readonly TaskCompletionSource Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class RoomTraffic
+    {
+        public int Connections;
+        public readonly TokenBucket Bucket = new();
+    }
+
+    // ==================== 设置 ====================
 
     public Settings Get()
     {
@@ -33,154 +73,280 @@ public sealed class LauncherTunnelService
             {
                 var root = File.Exists(ConfigPath) ? JsonNode.Parse(File.ReadAllText(ConfigPath)) as JsonObject : null;
                 settings = new Settings(
-                    root?["enabled"]?.GetValue<bool>() ?? false,
-                    root?["serverAddr"]?.GetValue<string>() ?? "",
-                    root?["serverPort"]?.GetValue<int>() ?? 7000,
-                    root?["relayBandwidthLimit"]?.GetValue<string>() ?? "256KB",
-                    root?["pluginKey"]?.GetValue<string>() ?? "");
+                    root?["enabled"]?.GetValue<bool>() ?? true,
+                    root?["relayBandwidthLimit"]?.GetValue<string>() ?? "512KB");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"读取 {ConfigPath} 失败：{ex.Message}");
-                settings = new Settings(false, "", 7000, "256KB", "");
-            }
-            if (string.IsNullOrEmpty(settings.PluginKey))
-            {
-                settings = settings with { PluginKey = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24)) };
-                SaveLocked(settings);
+                settings = new Settings(true, "512KB");
             }
             _settings = settings;
             return settings;
         }
     }
 
-    public (bool Ok, string Message, Settings? Settings) Save(bool enabled, string? serverAddr, int serverPort, string? bandwidth)
+    public (bool Ok, string Message, Settings? Settings) Save(bool enabled, string? bandwidth)
     {
-        serverAddr = serverAddr?.Trim() ?? "";
-        bandwidth = string.IsNullOrWhiteSpace(bandwidth) ? "256KB" : bandwidth.Trim().ToUpperInvariant();
-        if (enabled && (serverAddr.Length is 0 or > 253 || serverAddr.Any(c => char.IsWhiteSpace(c) || c == '/')))
-            return (false, "请填写 frps 的公网地址（域名或 IP，不带协议和端口）", null);
-        if (serverPort is < 1 or > 65535) return (false, "端口需要在 1 到 65535 之间", null);
-        if (!System.Text.RegularExpressions.Regex.IsMatch(bandwidth, "^[0-9]{1,6}(KB|MB)$")) return (false, "中继限速格式应为 256KB 或 1MB", null);
+        bandwidth = string.IsNullOrWhiteSpace(bandwidth) ? "512KB" : bandwidth.Trim().ToUpperInvariant();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(bandwidth, "^[0-9]{1,6}(KB|MB)$") || ParseBandwidth(bandwidth) <= 0)
+            return (false, "中继限速格式应为 512KB 或 1MB", null);
         lock (_gate)
         {
-            var settings = new Settings(enabled, serverAddr, serverPort, bandwidth, Get().PluginKey);
-            SaveLocked(settings);
+            var settings = new Settings(enabled, bandwidth);
+            Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
+            var json = new JsonObject { ["enabled"] = settings.Enabled, ["relayBandwidthLimit"] = settings.RelayBandwidthLimit };
+            var temp = ConfigPath + ".tmp";
+            File.WriteAllText(temp, json.ToJsonString(new() { WriteIndented = true }));
+            File.Move(temp, ConfigPath, true);
             _settings = settings;
             return (true, "已保存", settings);
         }
     }
 
-    private static void SaveLocked(Settings s)
+    private static long ParseBandwidth(string text)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
-        var json = new JsonObject
-        {
-            ["enabled"] = s.Enabled, ["serverAddr"] = s.ServerAddr, ["serverPort"] = s.ServerPort,
-            ["relayBandwidthLimit"] = s.RelayBandwidthLimit, ["pluginKey"] = s.PluginKey
-        };
-        var temp = ConfigPath + ".tmp";
-        File.WriteAllText(temp, json.ToJsonString(new() { WriteIndented = true }));
-        File.Move(temp, ConfigPath, true);
+        var unit = text.EndsWith("MB") ? 1024L * 1024 : 1024L;
+        return long.TryParse(text[..^2], out var n) ? n * unit : 0;
     }
 
-    public static string P2pProxyName(string roomId) => $"room_{roomId}_p2p";
-    public static string RelayProxyName(string roomId) => $"room_{roomId}_relay";
-
-    /// <summary>开房 / 进房响应里给启动器的隧道参数。隧道未启用时返回 null（只能本机或局域网测试）。</summary>
+    /// <summary>开房 / 进房响应里给启动器的隧道参数。中继关闭时返回 null（只能本机测试）。</summary>
     public JsonObject? ClientConfig(LauncherRoomService.Room room, string role)
     {
-        var s = Get();
-        if (!s.Enabled) return null;
+        if (!Get().Enabled) return null;
         return new JsonObject
         {
             ["role"] = role,
-            ["serverAddr"] = s.ServerAddr,
-            ["serverPort"] = s.ServerPort,
-            ["p2pProxy"] = P2pProxyName(room.Id),
-            ["relayProxy"] = RelayProxyName(room.Id),
-            ["sk"] = room.Sk
+            ["relay"] = true,
+            ["hostOnline"] = _hosts.ContainsKey(room.Id)
         };
     }
 
-    // ==================== frps HTTP 插件 ====================
+    public bool HostOnline(string roomId) => _hosts.ContainsKey(roomId);
 
-    /// <summary>
-    /// 只接受本机 frps 的调用：连接必须来自回环地址、没有经过反向代理（无 X-Forwarded-For），
-    /// 并且查询串 key 与 data/launcher-tunnel.json 里的 pluginKey 一致。
-    /// </summary>
-    public bool IsTrustedPluginCall(HttpContext context)
+    public JsonObject Stats() => new()
     {
-        var remote = context.Connection.RemoteIpAddress;
-        if (remote == null || !IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote)) return false;
-        if (context.Request.Headers.ContainsKey("X-Forwarded-For") || context.Request.Headers.ContainsKey("Forwarded")) return false;
-        var key = context.Request.Query["key"].ToString();
-        var expected = Get().PluginKey;
-        return key.Length == expected.Length &&
-               CryptographicOperations.FixedTimeEquals(System.Text.Encoding.ASCII.GetBytes(key), System.Text.Encoding.ASCII.GetBytes(expected));
+        ["hosts"] = _hosts.Count,
+        ["connections"] = _traffic.Values.Sum(t => Volatile.Read(ref t.Connections))
+    };
+
+    // ==================== 连接处理 ====================
+
+    /// <summary>校验票据和房间成员身份。成功时返回票据，失败时返回给客户端的错误。</summary>
+    public (RoomTicketService.Ticket? Ticket, IResult? Error) Authorize(HttpContext context, RoomTicketService tickets, LauncherRoomService rooms, string? role)
+    {
+        if (!Get().Enabled) return (null, Fail(503, "云端中继没有开启"));
+        if (context.Features.Get<IHttpUpgradeFeature>() is not { IsUpgradableRequest: true })
+            return (null, Fail(426, "需要 Upgrade: fy-relay 连接"));
+        var ticket = tickets.Verify(context.Request.Headers["X-Fy-Ticket"].ToString());
+        if (ticket == null) return (null, Fail(401, "缺少或无效的进房票据"));
+        if (!rooms.IsMember(ticket.RoomId, ticket.AccountId, out var actual) || actual != ticket.Role)
+            return (null, Fail(403, "你不在这个房间里或房间已关闭"));
+        if (role != null && ticket.Role != role) return (null, Fail(403, role == "host" ? "只有房主可以这样连接" : "房主不需要经中继进自己的房间"));
+        return (ticket, null);
     }
 
-    /// <summary>处理 frps 插件请求 {"version","op","content"}，返回 frps 期望的响应对象。</summary>
-    public JsonObject HandlePlugin(JsonObject request, RoomTicketService tickets, LauncherRoomService rooms)
+    /// <summary>房主的控制连接：一直保持到房主断开、换了新的控制连接，或者房主不在房间里了。</summary>
+    public async Task RunHostAsync(HttpContext context, RoomTicketService.Ticket ticket, LauncherRoomService rooms)
     {
-        var op = request["op"]?.GetValue<string>() ?? "";
-        var content = request["content"] as JsonObject ?? new JsonObject();
-        switch (op)
+        var stream = await Upgrade(context);
+        var link = new HostLink(ticket.AccountId, stream);
+        if (_hosts.TryGetValue(ticket.RoomId, out var old)) old.Closed.Cancel();
+        _hosts[ticket.RoomId] = link;
+        Console.WriteLine($"中继：房间 {ticket.RoomId} 的房主 {ticket.Name} 已连上");
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(link.Closed.Token, context.RequestAborted);
+        try
         {
-            case "Login":
+            // 房主那边断开时读到 0 字节
+            var reader = DrainAsync(stream, stop.Token);
+            while (!stop.IsCancellationRequested)
             {
-                var (ticket, error) = CheckTicket(content["metas"] as JsonObject, tickets, rooms);
-                if (ticket == null) return Reject(error);
-                Console.WriteLine($"frp 登录：房间 {ticket.RoomId}，{ticket.Role} {ticket.Name}（#{ticket.AccountId}）");
-                return Allow();
+                var tick = Task.Delay(MembershipCheck, stop.Token);
+                if (await Task.WhenAny(reader, tick) == reader) break;
+                if (!rooms.IsMember(ticket.RoomId, ticket.AccountId, out var role) || role != "host") break;
+                if (!await SendAsync(link, "ping")) break;
             }
-            case "NewProxy":
-            {
-                var (ticket, error) = CheckTicket((content["user"] as JsonObject)?["metas"] as JsonObject, tickets, rooms);
-                if (ticket == null) return Reject(error);
-                if (ticket.Role != "host") return Reject("只有房主可以注册房间代理");
-                var room = rooms.Get(ticket.RoomId);
-                if (room == null) return Reject("房间不存在或已关闭");
-                var name = content["proxy_name"]?.GetValue<string>() ?? "";
-                var type = content["proxy_type"]?.GetValue<string>() ?? "";
-                var sk = content["sk"]?.GetValue<string>() ?? "";
-                var valid = (name == P2pProxyName(room.Id) && type == "xtcp") || (name == RelayProxyName(room.Id) && type == "stcp");
-                if (!valid) return Reject($"只允许注册 {P2pProxyName(room.Id)}（xtcp）和 {RelayProxyName(room.Id)}（stcp）");
-                if (!CryptographicOperations.FixedTimeEquals(System.Text.Encoding.UTF8.GetBytes(sk), System.Text.Encoding.UTF8.GetBytes(room.Sk)))
-                    return Reject("代理密钥与房间不符");
-                if (type == "stcp")
-                {
-                    // 中继走云端带宽：强制服务端限速，防止被当作免费代理。
-                    var changed = (JsonObject)content.DeepClone();
-                    changed["bandwidth_limit"] = Get().RelayBandwidthLimit;
-                    changed["bandwidth_limit_mode"] = "server";
-                    return new JsonObject { ["reject"] = false, ["unchange"] = false, ["content"] = changed };
-                }
-                return Allow();
-            }
-            // 只有 tcp/http 这类公开代理才会触发 NewUserConn；房间只允许 stcp/xtcp，一律拒绝。
-            case "NewUserConn":
-                return Reject("不允许公开代理");
-            default:
-                // Ping / NewWorkConn / CloseProxy 等：登录时已经校验过身份，放行。
-                return Allow();
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _hosts.TryRemove(new KeyValuePair<string, HostLink>(ticket.RoomId, link));
+            if (!_hosts.ContainsKey(ticket.RoomId)) _traffic.TryRemove(ticket.RoomId, out _);
+            link.Closed.Cancel();
+            await stream.DisposeAsync();
+            Console.WriteLine($"中继：房间 {ticket.RoomId} 的房主控制连接已断开");
         }
     }
 
-    /// <summary>
-    /// 校验 metas.ticket：签名有效，且账号此刻仍在该房间里（以房间成员为准，不看票据是否过期，
-    /// 因为 frpc 断线重连时会沿用登录时的 metas）。
-    /// </summary>
-    private static (RoomTicketService.Ticket? Ticket, string Error) CheckTicket(JsonObject? metas, RoomTicketService tickets, LauncherRoomService rooms)
+    /// <summary>成员的一条游戏连接。房主不在线或没有及时接上时返回错误，不升级。</summary>
+    public async Task<IResult> RunConnectAsync(HttpContext context, RoomTicketService.Ticket ticket, LauncherRoomService rooms)
     {
-        var token = metas?["ticket"]?.GetValue<string>();
-        var ticket = tickets.Verify(token, allowExpired: true);
-        if (ticket == null) return (null, "缺少或无效的进房票据");
-        if (!rooms.IsMember(ticket.RoomId, ticket.AccountId, out var role)) return (null, "你不在这个房间里或房间已关闭");
-        if (role != ticket.Role) return (null, "票据身份与房间不符");
-        return (ticket, "");
+        if (!_hosts.TryGetValue(ticket.RoomId, out var host)) return Fail(503, "房主的启动器没有连上云端中继");
+        var traffic = _traffic.GetOrAdd(ticket.RoomId, _ => new RoomTraffic());
+        if (Interlocked.Increment(ref traffic.Connections) > MaxConnectionsPerRoom)
+        {
+            Interlocked.Decrement(ref traffic.Connections);
+            return Fail(429, "这个房间的中继连接太多了");
+        }
+        var id = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        var pending = new Pending(ticket.RoomId, host.AccountId);
+        _pending[id] = pending;
+        try
+        {
+            if (!await SendAsync(host, "open " + id)) return Fail(503, "房主的启动器没有连上云端中继");
+            Stream hostStream;
+            try
+            {
+                hostStream = await pending.HostStream.Task.WaitAsync(AcceptTimeout, context.RequestAborted);
+            }
+            catch (TimeoutException)
+            {
+                return Fail(504, "房主的启动器没有及时接上连接");
+            }
+            _pending.TryRemove(id, out _);
+            var memberStream = await Upgrade(context);
+            traffic.Bucket.Rate = Get().BytesPerSecond;
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, host.Closed.Token);
+            try
+            {
+                var watchdog = WatchMembershipAsync(rooms, ticket, stop);
+                await Task.WhenAny(
+                    PumpAsync(memberStream, hostStream, traffic.Bucket, stop.Token),
+                    PumpAsync(hostStream, memberStream, traffic.Bucket, stop.Token),
+                    watchdog);
+            }
+            finally
+            {
+                stop.Cancel();
+                await memberStream.DisposeAsync();
+            }
+            return Results.Empty;
+        }
+        finally
+        {
+            _pending.TryRemove(id, out _);
+            pending.HostStream.TrySetCanceled();
+            pending.Done.TrySetResult();
+            Interlocked.Decrement(ref traffic.Connections);
+        }
     }
 
-    private static JsonObject Allow() => new() { ["reject"] = false, ["unchange"] = true };
-    private static JsonObject Reject(string reason) => new() { ["reject"] = true, ["reject_reason"] = reason };
+    /// <summary>房主接上某个连接号。连接号不存在、已过期或不属于这个房主时返回 404。</summary>
+    public async Task<IResult> RunAcceptAsync(HttpContext context, RoomTicketService.Ticket ticket, string connId)
+    {
+        if (!_pending.TryGetValue(connId, out var pending) || pending.RoomId != ticket.RoomId || pending.HostId != ticket.AccountId)
+            return Fail(404, "连接已失效");
+        if (pending.HostStream.Task.IsCompleted) return Fail(409, "连接已被接上");
+        var stream = await Upgrade(context);
+        try
+        {
+            if (!pending.HostStream.TrySetResult(stream)) return Results.Empty;
+            await pending.Done.Task.WaitAsync(context.RequestAborted);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            await stream.DisposeAsync();
+        }
+        return Results.Empty;
+    }
+
+    // ==================== 内部 ====================
+
+    private static async Task<Stream> Upgrade(HttpContext context)
+    {
+        context.Response.Headers["Upgrade"] = UpgradeProtocol;
+        var stream = await context.Features.Get<IHttpUpgradeFeature>()!.UpgradeAsync();
+        return stream;
+    }
+
+    private static async Task<bool> SendAsync(HostLink link, string line)
+    {
+        var bytes = Encoding.ASCII.GetBytes(line + "\n");
+        try
+        {
+            await link.WriteLock.WaitAsync(link.Closed.Token);
+            try
+            {
+                await link.Control.WriteAsync(bytes, link.Closed.Token);
+                await link.Control.FlushAsync(link.Closed.Token);
+            }
+            finally
+            {
+                link.WriteLock.Release();
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException)
+        {
+            link.Closed.Cancel();
+            return false;
+        }
+    }
+
+    /// <summary>读掉房主发来的任何内容（目前不需要），连接关闭时结束。</summary>
+    private static async Task DrainAsync(Stream stream, CancellationToken token)
+    {
+        var buffer = new byte[256];
+        try
+        {
+            while (await stream.ReadAsync(buffer, token) > 0) { }
+        }
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException) { }
+    }
+
+    private static async Task WatchMembershipAsync(LauncherRoomService rooms, RoomTicketService.Ticket ticket, CancellationTokenSource stop)
+    {
+        try
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                await Task.Delay(MembershipCheck, stop.Token);
+                if (!rooms.IsMember(ticket.RoomId, ticket.AccountId, out _)) return;
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private static async Task PumpAsync(Stream from, Stream to, TokenBucket bucket, CancellationToken token)
+    {
+        var buffer = new byte[16 * 1024];
+        try
+        {
+            while (true)
+            {
+                var n = await from.ReadAsync(buffer, token);
+                if (n == 0) return;
+                await bucket.TakeAsync(n, token);
+                await to.WriteAsync(buffer.AsMemory(0, n), token);
+                await to.FlushAsync(token);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException) { }
+    }
+
+    private static IResult Fail(int status, string message) => fyserver.Endpoints.ModIndexEndpoints.Fail(status, message);
+
+    /// <summary>每个房间一个令牌桶，两个方向共用。最多攒 1 秒的额度。</summary>
+    private sealed class TokenBucket
+    {
+        private readonly object _gate = new();
+        private double _tokens;
+        private long _last = Environment.TickCount64;
+        public long Rate = 512 * 1024;
+
+        public async ValueTask TakeAsync(int n, CancellationToken token)
+        {
+            double wait;
+            lock (_gate)
+            {
+                var now = Environment.TickCount64;
+                _tokens = Math.Min(Rate, _tokens + (now - _last) / 1000.0 * Rate);
+                _last = now;
+                _tokens -= n;
+                wait = _tokens < 0 ? -_tokens / Rate : 0;
+            }
+            if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait), token);
+        }
+    }
 }

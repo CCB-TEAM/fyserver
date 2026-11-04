@@ -74,7 +74,7 @@ public sealed class RoomTicketService
         return (signingInput + "." + B64(signature), exp);
     }
 
-    /// <summary>验证签名；allowExpired 为 true 时不检查过期（frp 重连等场景另行核对房间成员）。</summary>
+    /// <summary>验证签名；allowExpired 为 true 时不检查过期（调用方需另行核对房间成员）。</summary>
     public Ticket? Verify(string? token, bool allowExpired = false)
     {
         if (string.IsNullOrEmpty(token) || token.Length > 4096) return null;

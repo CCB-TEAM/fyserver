@@ -47,7 +47,7 @@ var social = new SocialService(userDatabaseConfiguration);
 var friendChallenges = new FriendChallengeService(webSocketHub, matches, social);
 var friends = new FriendService(social, users, webSocketHub, matches, matchHistory, friendChallenges);
 webSocketHub.Social = friends;
-// 启动器云端：房间大厅、进房票据、frp 打洞/中继协调、启动器好友聊天、云端整合包
+// 启动器云端：房间大厅、进房票据、房间中继、启动器好友聊天、云端整合包
 var roomTickets = new RoomTicketService();
 var launcherHub = new LauncherHubService();
 var launcherRooms = new LauncherRoomService(launcherHub);

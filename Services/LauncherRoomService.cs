@@ -40,8 +40,6 @@ public sealed class LauncherRoomService : IDisposable
         public JsonArray Mods = [];
         public string? ModpackId;
         public string GameVersion = "";
-        /// <summary>frp stcp/xtcp 代理的共享密钥：只下发给房主和已进房的成员。</summary>
-        public string Sk = "";
         public DateTime CreatedAt;
         public readonly Dictionary<int, Member> Members = new();
         public readonly HashSet<int> Kicked = new();
@@ -141,7 +139,6 @@ public sealed class LauncherRoomService : IDisposable
                 Id = NewCode(),
                 HostId = hostId,
                 HostName = hostName,
-                Sk = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24)),
                 CreatedAt = DateTime.UtcNow
             };
             Apply(room, fields);

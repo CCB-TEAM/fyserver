@@ -75,7 +75,7 @@ public sealed class AdminApiAuthorizationMiddleware
         if (local.StartsWith("/content", StringComparison.OrdinalIgnoreCase) || local.StartsWith("/store", StringComparison.OrdinalIgnoreCase)) return "content";
         if (local.StartsWith("/redeem", StringComparison.OrdinalIgnoreCase)) return "content";
         if (local.StartsWith("/mods", StringComparison.OrdinalIgnoreCase)) return "content";
-        // frps 插件密钥等隧道设置属于服务器配置，需先于 /launcher 前缀判断
+        // 中继设置属于服务器配置，需先于 /launcher 前缀判断
         if (local.StartsWith("/launcher-cloud/tunnel", StringComparison.OrdinalIgnoreCase)) return "serverConfig";
         if (local.StartsWith("/launcher", StringComparison.OrdinalIgnoreCase)) return "players";
         if (local.StartsWith("/social", StringComparison.OrdinalIgnoreCase)) return "players";

@@ -1,7 +1,7 @@
 # 启动器云端接口（房间大厅 / 进房票据 / 打洞与中继 / 好友聊天 / 云端整合包）
 
 云端 fyserver 是“启动器服务器”：它管理启动器账号、好友、聊天和小助手，还负责房间大厅、整合包清单和打洞协调。
-真正的游戏服务端是房主电脑上的嵌入版 fyserver。云端不转发游戏数据，只有打洞失败时由 frps 中继，并且限速。
+真正的游戏服务端是房主电脑上的嵌入版 fyserver。成员的游戏连接经云端中继转给房主，中继复用游戏端口，按房间限速。不需要 frp。
 
 所有接口都在 `/launcher` 下，请求体和响应都是 JSON，字段名用 camelCase。
 需要登录的接口都带 `Authorization: Bearer <token>`，token 来自 `POST /launcher/login`。WebSocket 也可以用 `?token=` 传 token。
@@ -77,11 +77,11 @@
 {
   "ok": true, "message": "…", "room": { … }, "role": "host | member",
   "ticket": "<JWS>", "ticketExpiresAt": "…",
-  "tunnel": {"role", "serverAddr", "serverPort", "p2pProxy": "room_<ID>_p2p", "relayProxy": "room_<ID>_relay", "sk"}
+  "tunnel": {"role", "relay": true, "hostOnline": 房主启动器此刻是否连着中继}
 }
 ```
 
-隧道没启用时 `tunnel` 是 null，这时只能本机或局域网联机。
+中继关闭时 `tunnel` 是 null，这时只能本机测试。
 
 **超时规则：**
 
@@ -110,88 +110,31 @@ const key = crypto.createPublicKey({ key: Buffer.from(spki, 'base64'), format: '
 crypto.verify('sha256', Buffer.from(h + '.' + p), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(s, 'base64url'));
 ```
 
-## 4. 打洞与中继（frp）
+## 4. 中继（启动器内置隧道）
 
-做法是先用 xtcp 打洞直连，失败就回落到 stcp 中继。
+三种连接都是对云端游戏端口的 HTTP/1.1 GET，带下面三个头。云端校验通过后回 `101 Switching Protocols`，之后连接就是原始字节流：
 
-- 云端机器上运行 frps，并配置 fyserver 的 HTTP 插件。
-- 后台“启动器房间”页可以开关隧道，设置 frps 公网地址、端口和中继限速，并给出 frps.toml 示例。
-- 插件密钥 `pluginKey` 自动生成，保存在 `./data/launcher-tunnel.json`。
-
-**frps.toml（和 fyserver 在同一台机器上）：**
-
-```toml
-bindPort = 7000
-
-[[httpPlugins]]
-name = "fyserver-rooms"
-addr = "127.0.0.1:<fyserver 端口>"
-path = "/launcher/frp/plugin?key=<pluginKey>"
-ops = ["Login", "NewProxy", "NewUserConn"]
+```
+Connection: Upgrade
+Upgrade: fy-relay
+X-Fy-Ticket: <进房票据>
 ```
 
-**插件规则：**
+| 路径 | 谁连 | 升级后的内容 |
+|------|------|------|
+| `/launcher/relay/host` | 房主，进房后一直保持 | 云端按行发 `open <连接号>`，每 10 秒发一次 `ping` |
+| `/launcher/relay/connect` | 成员，每条游戏连接一条 | 接通后直通房主的嵌入版服务端 |
+| `/launcher/relay/accept/<连接号>` | 房主，收到 `open` 后 | 另一头是对应成员的连接，房主把它接到本机嵌入版服务端 |
 
-- 插件接口只接受本机回环地址的调用，请求不能带 `X-Forwarded-For` 或 `Forwarded` 头，查询串里的 key 必须正确。
-- `Login`：`metadatas.ticket` 必须是有效票据，而且账号此刻还在这个房间里。这里允许票据已过期，因为 frpc 断线重连时会沿用登录时的票据。被踢或退房后就登不上了。
-- `NewProxy`：
-  - 只有房主能注册代理，而且只能注册 `room_<ID>_p2p`（xtcp）和 `room_<ID>_relay`（stcp）这两个。
-  - 两个代理的 `secretKey` 都必须等于房间的 `sk`。
-  - stcp 代理会被强制加上服务端限速，`bandwidth_limit` 取后台的设置值，`bandwidth_limit_mode` 为 `server`。
-- `NewUserConn` 一律拒绝，也就是不允许 tcp/http 这类公开代理。
+规则：
 
-frpc 不要设置 `user`，因为设置后代理名会被加上前缀，插件就对不上了。
-
-**房主的 frpc.toml（两个代理都指向本机嵌入版服务端）：**
-
-```toml
-serverAddr = "<tunnel.serverAddr>"
-serverPort = <tunnel.serverPort>
-metadatas.ticket = "<房主票据>"
-
-[[proxies]]
-name = "room_<ID>_p2p"
-type = "xtcp"
-secretKey = "<tunnel.sk>"
-localIP = "127.0.0.1"
-localPort = 11450
-
-[[proxies]]
-name = "room_<ID>_relay"
-type = "stcp"
-secretKey = "<tunnel.sk>"
-localIP = "127.0.0.1"
-localPort = 11450
-```
-
-**加入者的 frpc.toml（本地网关把游戏流量转到 bindPort）：**
-
-```toml
-serverAddr = "<tunnel.serverAddr>"
-serverPort = <tunnel.serverPort>
-metadatas.ticket = "<成员票据>"
-
-[[visitors]]
-name = "room_<ID>_relay_visitor"
-type = "stcp"
-serverName = "room_<ID>_relay"
-secretKey = "<tunnel.sk>"
-bindAddr = "127.0.0.1"
-bindPort = -1
-
-[[visitors]]
-name = "room_<ID>_p2p_visitor"
-type = "xtcp"
-serverName = "room_<ID>_p2p"
-secretKey = "<tunnel.sk>"
-bindAddr = "127.0.0.1"
-bindPort = 11451
-keepTunnelOpen = false
-fallbackTo = "room_<ID>_relay_visitor"
-fallbackTimeoutMs = 1500
-```
-
-`sk` 是每个房间随机生成的，只通过开房、进房、心跳的响应下发，启动器不要把它写进日志。
+- 票据必须有效，没过期，账号此刻还在这个房间里，身份也要对：`host` 和 `accept` 只给房主，`connect` 只给成员。
+- 房主没连着中继时，`connect` 返回 503；房主 10 秒内没接上，返回 504。这两种情况都不升级。
+- 每个房间最多 64 条中继连接，超出返回 429。
+- 云端每 10 秒核对一次成员身份。被踢、退房或房间关闭后，相关连接会断开。房主换了新的控制连接，旧的会被关掉。
+- 两个方向共用每个房间的限速，默认 512KB/s，在后台设置。
+- 成员那边，本地网关照常在每个 HTTP 请求上加 `X-Fy-Ticket`。房主的嵌入版服务端靠它识别成员，所以中继不改动内容。
+- 中继关闭时开房、进房响应里的 `tunnel` 为 null。
 
 ## 5. 好友与聊天（按启动器账号）
 
@@ -241,13 +184,13 @@ fallbackTimeoutMs = 1500
 | POST | `/rooms/{id}/close` | players |
 | POST | `/message`：`{accountId}` 或 `{all:true}`，加上 `message` | players |
 | DELETE | `/modpacks/{id}` | players |
-| GET / PUT | `/tunnel`：`{enabled, serverAddr, serverPort, relayBandwidthLimit}`，返回内容包含 pluginKey 和 frps 示例 | serverConfig |
+| GET / PUT | `/tunnel`：`{enabled, relayBandwidthLimit}`，返回内容另含 `stats: {hosts, connections}` | serverConfig |
 
 ## 8. 数据文件
 
 | 文件 | 内容 |
 |---|---|
 | `data/room-signing-key.pem` | 票据签名私钥（PKCS8），只有本机可读 |
-| `data/launcher-tunnel.json` | 隧道设置和 frps 插件密钥 |
+| `data/launcher-relay.json` | 中继开关和限速（没有这个文件时默认开启，512KB/s） |
 | `data/launcher-modpacks.json` | 云端整合包清单 |
 | `data/social/launcher.json` | 本地存储模式下的启动器好友和聊天（数据库模式下用 `fy_launcher_*` 表） |

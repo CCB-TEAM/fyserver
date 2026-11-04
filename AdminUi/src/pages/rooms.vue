@@ -24,7 +24,7 @@ async function load() {
 async function loadTunnel() {
   try {
     const r = await Admin.api('/launcher-cloud/tunnel');
-    if (r?.pluginKey === undefined) throw Error(r?.message || '读取隧道设置失败');
+    if (r?.enabled === undefined) throw Error(r?.message || '读取中继设置失败');
     tunnel.value = r;
     tunnelError.value = '';
   } catch (e) { tunnelError.value = e.message; }
@@ -33,7 +33,7 @@ async function saveTunnel() {
   savingTunnel.value = true;
   try {
     const t = tunnel.value;
-    const r = await Admin.api('/launcher-cloud/tunnel', { method: 'PUT', body: { enabled: t.enabled, serverAddr: t.serverAddr, serverPort: Number(t.serverPort), relayBandwidthLimit: t.relayBandwidthLimit } });
+    const r = await Admin.api('/launcher-cloud/tunnel', { method: 'PUT', body: { enabled: t.enabled, relayBandwidthLimit: t.relayBandwidthLimit } });
     Admin.banner(r?.message || '保存失败', r?.ok ? 'ok' : 'err');
     if (r?.ok) tunnel.value = r;
   } catch (e) { Admin.banner(e.message, 'err'); }
@@ -67,7 +67,6 @@ async function send() {
     if (r?.ok) message.value = '';
   } catch (e) { Admin.banner(e.message, 'err'); }
 }
-function copy(text) { navigator.clipboard?.writeText(text).then(() => Admin.banner('已复制', 'ok')); }
 function time(v) { return v ? new Date(v).toLocaleString() : '-'; }
 onMounted(async () => {
   Admin.hydrateIcons?.();
@@ -80,12 +79,12 @@ onUnmounted(() => clearInterval(timer));
 
 <template>
   <main class="page"><div id="banner-host"></div>
-    <div class="page-head"><h1>启动器房间</h1><p>启动器的房间大厅：房主在自己电脑上运行游戏服务端，云端只负责房间列表、进房票据和 frp 打洞（失败时走云端中继）。房间只存在内存里，服务器重启后房主的启动器会自动重新开房。</p></div>
+    <div class="page-head"><h1>启动器房间</h1><p>启动器的房间大厅：房主在自己电脑上运行游戏服务端，云端只负责房间列表、进房票据和中继（复用游戏端口，不需要 frp）。房间只存在内存里，服务器重启后房主的启动器会自动重新开房。</p></div>
     <section class="metric-grid">
       <article class="metric-card"><i class="metric-icon purple"><span data-icon="online"></span></i><div><small>在线启动器</small><strong>{{ data ? data.online : '—' }}</strong><em>控制通道长连接</em></div></article>
       <article class="metric-card"><i class="metric-icon blue"><span data-icon="matches"></span></i><div><small>房间</small><strong>{{ data ? roomCount : '—' }}</strong><em>{{ playerCount }} 人在房间里</em></div></article>
       <article class="metric-card"><i class="metric-icon amber"><span data-icon="users"></span></i><div><small>启动器好友关系</small><strong>{{ data?.stats ? data.stats.friendships : '—' }}</strong><em>{{ data?.stats ? data.stats.pending + ' 个待处理申请' : (data?.statsError || '') }}</em></div></article>
-      <article class="metric-card"><i class="metric-icon green"><span data-icon="settings"></span></i><div><small>打洞 / 中继</small><strong>{{ data ? (data.tunnelEnabled ? '已启用' : '未启用') : '—' }}</strong><em>未启用时只能本机或局域网联机</em></div></article>
+      <article class="metric-card"><i class="metric-icon green"><span data-icon="settings"></span></i><div><small>中继</small><strong>{{ data ? (data.tunnelEnabled ? '已启用' : '未启用') : '—' }}</strong><em>未启用时只能本机测试</em></div></article>
     </section>
 
     <section class="card">
@@ -107,18 +106,15 @@ onUnmounted(() => clearInterval(timer));
 
     <div class="redeem-layout" style="margin-top:16px">
       <section class="card">
-        <div class="panel-head"><div><h2>frp 打洞与中继</h2><p class="muted">在这台服务器上运行 frps，并按下面的示例配置插件。加入者先尝试打洞直连，失败后经 frps 中继，中继会按这里的限速强制限流。</p></div></div>
+        <div class="panel-head"><div><h2>房间中继</h2><p class="muted">启动器内置的隧道，走游戏服务端同一个端口，不需要额外部署。成员的游戏连接经云端转给房主，每个房间按这里的限速限流。</p></div></div>
         <p v-if="tunnelError" class="muted">{{ tunnelError }}（需要“服务器设置”权限）</p>
         <form v-else-if="tunnel" @submit.prevent="saveTunnel">
-          <label style="display:flex;gap:8px;align-items:center"><input v-model="tunnel.enabled" type="checkbox"> 启用打洞与中继（启用后开房、进房会把隧道参数下发给启动器）</label>
+          <label style="display:flex;gap:8px;align-items:center"><input v-model="tunnel.enabled" type="checkbox"> 启用中继（关闭后别人无法加入房间）</label>
           <div class="form-grid" style="margin-top:10px">
-            <label class="field"><span>frps 公网地址</span><input v-model="tunnel.serverAddr" placeholder="例如 42.240.164.242"></label>
-            <label class="field"><span>frps 端口（bindPort）</span><input v-model.number="tunnel.serverPort" type="number" min="1" max="65535"></label>
-            <label class="field"><span>中继限速（每个房间）</span><input v-model="tunnel.relayBandwidthLimit" placeholder="256KB 或 1MB"></label>
+            <label class="field"><span>中继限速（每个房间）</span><input v-model="tunnel.relayBandwidthLimit" placeholder="512KB 或 1MB"></label>
           </div>
           <div class="btn-row" style="margin-top:12px"><button class="btn" type="submit" :disabled="savingTunnel">保存</button></div>
-          <div class="panel-head" style="margin-top:16px"><div><h2>frps.toml 示例</h2><p class="muted">插件密钥只用于本机 frps 调用 fyserver，请勿外传。票据公钥 ID：<span class="mono">{{ tunnel.ticketKeyId }}</span></p></div><button class="btn btn--outline btn--small" type="button" @click="copy(tunnel.frpsExample)">复制</button></div>
-          <pre class="mono" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-2, rgba(127,127,127,.08));padding:12px;border-radius:8px">{{ tunnel.frpsExample }}</pre>
+          <p class="muted" style="margin-top:12px">当前在线房主 {{ tunnel.stats?.hosts ?? 0 }} 个，中继连接 {{ tunnel.stats?.connections ?? 0 }} 条。票据公钥 ID：<span class="mono">{{ tunnel.ticketKeyId }}</span></p>
         </form>
       </section>
       <section class="card sticky">

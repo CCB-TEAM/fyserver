@@ -21,6 +21,9 @@ public class FasterKvService : IDisposable
     private bool _disposed;
     private readonly object _sync = new();
     private readonly string _logDirectory;
+    // 上次检查点之后有没有写入；自动保存只在有变化时才做检查点。
+    private volatile bool _dirty;
+    private Timer? _autoCheckpoint;
 
     // 内存索引：key -> JSON。FASTER 在托管 API 下不易全量迭代，
     // 用镜像索引支撑 GetKeysByPrefix/GetAllByPrefix（管理端点使用）。
@@ -88,6 +91,7 @@ public class FasterKvService : IDisposable
             _session.Upsert(ref key, ref jsonString);
             _session.CompletePending(true);
             _index[key] = jsonString;
+            _dirty = true;
             if (_verboseLogging)
                 Console.WriteLine($"Put: key={key}, size={jsonString.Length} bytes");
         }
@@ -127,6 +131,7 @@ public class FasterKvService : IDisposable
             _session.Delete(ref key);
             _session.CompletePending(true);
             _index.TryRemove(key, out _);
+            _dirty = true;
             if (_verboseLogging)
                 Console.WriteLine($"Delete: key={key}");
         }
@@ -212,6 +217,7 @@ public class FasterKvService : IDisposable
             }
 
             _session.CompletePending(true);
+            _dirty = true;
 
             if (_verboseLogging)
             {
@@ -227,6 +233,7 @@ public class FasterKvService : IDisposable
     {
         lock (_sync)
         {
+            _dirty = false;
             _fasterKv.TakeFullCheckpointAsync(_checkpointType).GetAwaiter().GetResult();
             _session.CompletePending(true);
             if (_verboseLogging)
@@ -238,11 +245,30 @@ public class FasterKvService : IDisposable
     {
         lock (_sync)
         {
+            _dirty = false;
             _fasterKv.TakeFullCheckpointAsync(checkpointType).GetAwaiter().GetResult();
             _session.CompletePending(true);
             if (_verboseLogging)
                 Console.WriteLine($"FasterKvService: CompletePending called for checkpoint (type={checkpointType}).");
         }
+    }
+
+    /// <summary>
+    /// 定期把新写入落盘。检查点之间的写入只在内存里，进程被强制结束（启动器关房、系统杀后台）就没了，
+    /// 所以内置服务端要打开它，最多丢失一个周期内的改动。
+    /// </summary>
+    public void StartAutoCheckpoint(TimeSpan interval)
+    {
+        _autoCheckpoint ??= new Timer(_ =>
+        {
+            if (!_dirty || _disposed) return;
+            try { Checkpoint(); }
+            catch (Exception ex)
+            {
+                _dirty = true;
+                Console.WriteLine($"自动保存检查点失败：{ex.GetBaseException().Message}");
+            }
+        }, null, interval, interval);
     }
 
     public void SetCheckpointType(CheckpointType checkpointType)
@@ -275,8 +301,28 @@ public class FasterKvService : IDisposable
         catch (Exception ex)
         {
             Console.WriteLine($"未找到可用的存储检查点，按全新存储启动：{ex.GetBaseException().Message}");
+            PreserveUnreadableStore();
             RecreateStore();
             return false;
+        }
+    }
+
+    /// <summary>目录里有数据却恢复不出来时，把它挪走留着，不能直接删掉玩家的账号。</summary>
+    private void PreserveUnreadableStore()
+    {
+        var hasCheckpoints = Directory.Exists(_logDirectory) &&
+            Directory.EnumerateFiles(_logDirectory, "*", SearchOption.AllDirectories).Any(p => p.Contains("checkpoints", StringComparison.OrdinalIgnoreCase));
+        if (!hasCheckpoints) return;
+        try
+        {
+            _fasterKv.Dispose();
+            var kept = $"{_logDirectory.TrimEnd('/', '\\')}.unreadable-{DateTime.Now:yyyyMMddHHmmss}";
+            Directory.Move(_logDirectory, kept);
+            Console.WriteLine($"存储无法恢复，已把原数据保留到 {kept}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ObjectDisposedException)
+        {
+            Console.WriteLine($"保留无法恢复的存储失败：{ex.Message}");
         }
     }
 
@@ -319,6 +365,7 @@ public class FasterKvService : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        _autoCheckpoint?.Dispose();
 
         // 退出前无条件落盘。此前依赖 ./YCDR 标志决定是否保存，导致全新安装
         // 第一次关服不写盘、重启后所有账户丢失。

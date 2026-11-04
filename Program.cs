@@ -35,6 +35,8 @@ var userDatabaseConfiguration = new UserDatabaseConfigurationService();
 if (embedded.Enabled) EmbeddedMode.EnsureLocalStorage(userDatabaseConfiguration);
 var users = new UserStoreService(() => fasterKv ??= new FasterKvService(), userDatabaseConfiguration);
 users.TryInitializeConfiguredAsync().GetAwaiter().GetResult();
+// 内置服务端随时可能被强制结束（启动器关房、安卓杀后台），不能指望正常退出时才保存
+if (embedded.Enabled) fasterKv?.StartAutoCheckpoint(TimeSpan.FromSeconds(5));
 var codec = new CodecService();
 var playerLibrary = new PlayerLibraryService();
 playerLibrary.InitLibrary(embeddedSettings.LibraryPath ?? "./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");

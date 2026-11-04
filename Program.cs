@@ -10,7 +10,9 @@ using System.Text.Json.Serialization;
 
 // 发行版可能从快捷方式、服务管理器或其它工作目录启动；所有相对路径
 //（setting.json、config、library、data 与 wwwroot）都必须固定到 exe 所在目录。
-Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+// 安卓上 exe 在只读的 lib 目录里，用 FYSERVER_DATA_DIR 另外指定数据目录。
+var dataDir = Environment.GetEnvironmentVariable("FYSERVER_DATA_DIR");
+Directory.SetCurrentDirectory(string.IsNullOrWhiteSpace(dataDir) ? AppContext.BaseDirectory : Directory.CreateDirectory(dataDir).FullName);
 
 // ==================== 配置与共享服务 ====================
 // 单例实例由本进程显式创建，HTTP 与 WebSocket 合并到同一个 host，

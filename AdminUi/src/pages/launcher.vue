@@ -9,17 +9,37 @@ const count = ref(1);
 const expires = ref('');
 const note = ref('');
 const created = ref([]);
+const titles = ref([]);
+const titleName = ref('');
+const titleColor = ref('#006fee');
 const statusText = { available: '可用', used: '已使用', revoked: '已作废', expired: '已过期' };
 const visibleInvites = computed(() => invites.value.filter(i => inviteFilter.value === 'all' || i.status === inviteFilter.value));
 
 function time(v) { return v ? new Date(v).toLocaleString() : '-'; }
 async function load() {
   try {
-    const [a, i] = await Promise.all([Admin.api('/launcher/accounts'), Admin.api('/launcher/invites')]);
+    const [a, i, t] = await Promise.all([Admin.api('/launcher/accounts'), Admin.api('/launcher/invites'), Admin.api('/launcher/titles')]);
     accounts.value = a?.accounts || [];
     invites.value = i?.invites || [];
+    titles.value = t?.titles || [];
   } catch (e) { Admin.banner(e.message, 'err'); }
 }
+async function titleAction(path, options, after) {
+  try {
+    const r = await Admin.api(path, options);
+    Admin.banner(r?.message || '操作失败', r?.ok ? 'ok' : 'err');
+    if (r?.ok && after) after();
+    await load();
+  } catch (e) { Admin.banner(e.message, 'err'); await load(); }
+}
+function addTitle() {
+  titleAction('/launcher/titles', { method: 'POST', body: { name: titleName.value, color: titleColor.value } }, () => { titleName.value = ''; });
+}
+function saveTitle(t) { titleAction('/launcher/titles', { method: 'POST', body: { id: t.id, name: t.name, color: t.color } }); }
+function deleteTitle(t) {
+  if (confirm('删除头衔 ' + t.name + '？拿着它的账号会一并收回。')) titleAction('/launcher/titles/' + encodeURIComponent(t.id), { method: 'DELETE' });
+}
+function assignTitle(a, titleId) { titleAction('/launcher/accounts/' + a.id + '/title', { method: 'POST', body: { titleId } }); }
 async function createInvites() {
   try {
     const body = { count: Number(count.value) || 1, note: note.value, expiresAt: expires.value ? new Date(expires.value).toISOString() : null };
@@ -87,11 +107,20 @@ onMounted(async () => { if (await Admin.ensureAuth()) await load(); });
       </section>
     </div>
     <section class="card" style="margin-top:16px">
+      <div class="panel-head"><div><h2>头衔</h2><p class="muted">分发给账号后，名字在启动器的好友页和房间里显示成这个颜色。太亮或太暗的颜色无法保存。</p></div></div>
+      <form class="btn-row" @submit.prevent="addTitle"><input v-model="titleName" maxlength="16" placeholder="头衔名称" required><input v-model="titleColor" type="color" aria-label="头衔颜色"><button class="btn btn--small" type="submit">新增头衔</button></form>
+      <div class="table-wrap"><div v-if="!titles.length" class="empty">暂无头衔</div>
+        <table v-else class="md-table"><thead><tr><th>名称</th><th>颜色</th><th>操作</th></tr></thead>
+          <tbody><tr v-for="t in titles" :key="t.id"><td><input v-model="t.name" maxlength="16" aria-label="头衔名称"></td><td><input v-model="t.color" type="color" aria-label="头衔颜色"> <b :style="{ color: t.color }">{{ t.name }}</b></td>
+            <td><div class="btn-row"><button class="btn btn--outline btn--small" type="button" @click="saveTitle(t)">保存</button><button class="btn btn--danger btn--small" type="button" @click="deleteTitle(t)">删除</button></div></td></tr></tbody></table></div>
+    </section>
+    <section class="card" style="margin-top:16px">
       <div class="panel-head"><div><h2>账号列表</h2><p class="muted">禁用或重置密码会让该账号立即登出。</p></div></div>
       <div class="table-wrap"><div v-if="!accounts.length" class="empty">暂无启动器账号</div>
-        <table v-else class="md-table"><thead><tr><th>ID</th><th>账号名</th><th>注册时间</th><th>邀请码</th><th>最近登录</th><th>状态</th><th>操作</th></tr></thead>
+        <table v-else class="md-table"><thead><tr><th>ID</th><th>账号名</th><th>注册时间</th><th>邀请码</th><th>最近登录</th><th>头衔</th><th>状态</th><th>操作</th></tr></thead>
           <tbody><tr v-for="a in accounts" :key="a.id"><td>{{ a.id }}</td><td><b>{{ a.username }}</b></td><td>{{ time(a.createdAt) }}</td><td class="mono">{{ a.inviteCode }}</td>
             <td>{{ time(a.lastLoginAt) }}<div class="muted">{{ a.lastLoginIp || '' }}</div></td>
+            <td><select :value="a.titleId || ''" aria-label="头衔" @change="assignTitle(a, $event.target.value)"><option value="">无</option><option v-for="t in titles" :key="t.id" :value="t.id">{{ t.name }}</option></select></td>
             <td><span class="chip" :class="a.disabled ? 'chip--off' : 'chip--ok'">{{ a.disabled ? '已禁用' : '正常' }}</span></td>
             <td><div class="btn-row"><button class="btn btn--outline btn--small" type="button" @click="resetPassword(a)">重置密码</button>
               <button class="btn btn--small" :class="a.disabled ? '' : 'btn--danger'" type="button" @click="toggleDisabled(a)">{{ a.disabled ? '启用' : '禁用' }}</button></div></td></tr></tbody></table></div>

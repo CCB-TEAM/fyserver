@@ -6,7 +6,7 @@ const mods = ref([]);
 const filter = ref('');
 const view = ref('pending');
 const loading = ref(false);
-const fields = [['name', '名称'], ['version', '版本'], ['description', '简介'], ['downloadUrl', '下载直链'], ['sha256', 'sha256'], ['fileSize', '文件大小']];
+const fields = [['name', '名称'], ['version', '版本'], ['description', '简介'], ['downloadUrl', '下载直链'], ['sha256', 'sha256'], ['fileSize', '文件大小'], ['platforms', '各平台下载']];
 
 const pendingCount = computed(() => mods.value.filter(m => m.submission?.status === 'pending').length);
 const visibleMods = computed(() => {
@@ -18,8 +18,9 @@ const visibleMods = computed(() => {
 
 function time(v) { return v ? new Date(v).toLocaleString() : '-'; }
 function size(n) { if (!n) return '-'; return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1024).toFixed(1) + ' KB'; }
-function show(key, v) { return key === 'fileSize' ? size(v) : (v === undefined || v === null || v === '' ? '-' : v); }
-function changed(m, key) { return m.published && m.submission && String(m.published[key] ?? '') !== String(m.submission[key] ?? ''); }
+function platforms(v) { return Object.entries(v).map(([p, x]) => p + '\n' + x.downloadUrl + '\n' + x.sha256 + '  ' + size(x.fileSize)).join('\n\n'); }
+function show(key, v) { return key === 'platforms' && v ? platforms(v) : key === 'fileSize' ? size(v) : (v === undefined || v === null || v === '' ? '-' : v); }
+function changed(m, key) { return m.published && m.submission && JSON.stringify(m.published[key] ?? '') !== JSON.stringify(m.submission[key] ?? ''); }
 function iconUrl(m, which) { return '/admin/api/mods/' + encodeURIComponent(m.id) + '/icon?which=' + which + '&t=' + encodeURIComponent((which === 'pending' ? m.submission?.submittedAt : m.published?.approvedAt) || ''); }
 function status(m) {
   if (m.submission?.status === 'pending') return m.published ? ['更新待审核', 'chip--off'] : ['新模组待审核', 'chip--off'];

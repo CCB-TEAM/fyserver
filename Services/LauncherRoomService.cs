@@ -13,7 +13,9 @@ public sealed class LauncherRoomService : IDisposable
 {
     public const int MaxRoomSize = 10;
     public static readonly TimeSpan HostTimeout = TimeSpan.FromSeconds(45);
-    public static readonly TimeSpan MemberTimeout = TimeSpan.FromSeconds(90);
+    public static readonly TimeSpan MemberTimeout = TimeSpan.FromSeconds(45);
+    /// <summary>控制连接断了、心跳也停了这么久，就当启动器已经关了。连接断了但心跳还在（正在重连）不算。</summary>
+    private static readonly TimeSpan OfflineTimeout = TimeSpan.FromSeconds(20);
     private const int MaxChatLength = 500;
     private static readonly TimeSpan ChatCooldown = TimeSpan.FromMilliseconds(300);
     private readonly Dictionary<int, DateTime> _lastChat = new();
@@ -309,13 +311,14 @@ public sealed class LauncherRoomService : IDisposable
         {
             foreach (var room in _rooms.Values.ToList())
             {
-                if (room.Members.TryGetValue(room.HostId, out var host) && now - host.SeenAt > HostTimeout)
+                bool Offline(Member m) => !_hub.IsOnline(m.Id) && now - m.SeenAt > OfflineTimeout;
+                if (room.Members.TryGetValue(room.HostId, out var host) && (now - host.SeenAt > HostTimeout || Offline(host)))
                 {
                     _rooms.Remove(room.Id);
                     closed.Add(room);
                     continue;
                 }
-                var stale = room.Members.Values.Where(m => m.Role != "host" && now - m.SeenAt > MemberTimeout).Select(m => m.Id).ToList();
+                var stale = room.Members.Values.Where(m => m.Role != "host" && (now - m.SeenAt > MemberTimeout || Offline(m))).Select(m => m.Id).ToList();
                 foreach (var memberId in stale) room.Members.Remove(memberId);
                 if (stale.Count > 0) changed.Add((room, stale.ToArray()));
             }

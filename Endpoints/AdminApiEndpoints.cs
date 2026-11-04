@@ -375,6 +375,27 @@ public static class AdminApiEndpoints
             var result = accounts.SetDisabled(id, disabled);
             return Results.Text(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }.ToJsonString(), "application/json", statusCode: result.Ok ? 200 : 404);
         });
+        api.MapPost("/launcher/accounts/{id:int}/title", async (int id, HttpContext context, LauncherAccountService accounts) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var result = accounts.SetTitle(id, body["titleId"]?.GetValue<string>());
+            return JsonResult(result.Ok, result.Message, result.Ok ? 200 : 400);
+        });
+        api.MapGet("/launcher/titles", (LauncherAccountService accounts) =>
+            Results.Text(new JsonObject { ["titles"] = accounts.ListTitlesJson() }.ToJsonString(), "application/json"));
+        api.MapPost("/launcher/titles", async (HttpContext context, LauncherAccountService accounts) =>
+        {
+            var body = await ReadJsonBody(context);
+            if (body == null) return BadJson();
+            var result = accounts.SaveTitle(body["id"]?.GetValue<string>(), body["name"]?.GetValue<string>(), body["color"]?.GetValue<string>());
+            return JsonResult(result.Ok, result.Message, result.Ok ? 200 : 400);
+        });
+        api.MapDelete("/launcher/titles/{id}", (string id, LauncherAccountService accounts) =>
+        {
+            var result = accounts.DeleteTitle(id);
+            return JsonResult(result.Ok, result.Message, result.Ok ? 200 : 404);
+        });
         api.MapPost("/launcher/accounts/{id:int}/reset-password", (int id, LauncherAccountService accounts) =>
         {
             var result = accounts.ResetPassword(id);

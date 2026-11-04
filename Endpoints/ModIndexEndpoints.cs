@@ -22,6 +22,7 @@ public static class ModIndexEndpoints
         // 分页：offset 从 0 开始，limit 默认 10、最大 50（列表项不含图标，单页约 30 KB 以内）。
         // 搜索 q、排序 sort（latest/hot/downloads/likes）、只看 ids / 排除 exclude（逗号分隔，各最多 200 个）。
         // 带有效启动器 token 时，每项额外返回 liked。
+        // platform（windows/android，默认 windows）：只列出支持这个平台的模组，下载信息也是这个平台的。
         mods.MapGet("/", (HttpContext context, ModIndexService index, LauncherAccountService accounts) =>
         {
             var query = context.Request.Query;
@@ -37,9 +38,11 @@ public static class ModIndexEndpoints
             var excludeIds = ParseIds(query["exclude"]);
             if (onlyIds?.Count > MaxIdFilter || excludeIds?.Count > MaxIdFilter) return Fail(400, $"ids 和 exclude 各最多 {MaxIdFilter} 个");
 
+            var platform = Platform(context);
+            if (platform == null) return Fail(400, "platform 只能是 windows 或 android");
             var viewer = accounts.Authenticate(context);
-            var all = index.ListPublic(q, sort, onlyIds, excludeIds);
-            var items = all.Skip(offset).Take(limit).Select(m => (JsonNode?)index.ToPublic(m, false, viewer?.Id)).ToArray();
+            var all = index.ListPublic(q, sort, onlyIds, excludeIds, platform);
+            var items = all.Skip(offset).Take(limit).Select(m => (JsonNode?)index.ToPublic(m, false, viewer?.Id, platform)).ToArray();
             return Json(new JsonObject
             {
                 ["total"] = all.Count,
@@ -59,7 +62,9 @@ public static class ModIndexEndpoints
         });
 
         mods.MapGet("/{id}", (string id, HttpContext context, ModIndexService index, LauncherAccountService accounts) =>
-            Visible(index, id) is { } m ? Json(index.ToPublic(m, false, accounts.Authenticate(context)?.Id)!) : NotFound());
+            Visible(index, id) is { } m && Platform(context) is { } platform && index.ToPublic(m, false, accounts.Authenticate(context)?.Id, platform) is { } json
+                ? Json(json)
+                : NotFound());
 
         mods.MapGet("/{id}/icon", (string id, ModIndexService index) =>
             Visible(index, id) != null && index.GetIcon(id, pending: false) is { } icon
@@ -69,8 +74,8 @@ public static class ModIndexEndpoints
         // 下载：返回已发布版本的 manifest（含 base64 图标）以及 Pak 下载直链，并计入下载次数。
         mods.MapGet("/{id}/download", (string id, HttpContext context, ModIndexService index, LauncherAccountService accounts) =>
         {
-            if (Visible(index, id) is not { } m) return NotFound();
-            var json = index.ToPublic(m, true, accounts.Authenticate(context)?.Id)!;
+            if (Visible(index, id) is not { } m || Platform(context) is not { } platform) return NotFound();
+            if (index.ToPublic(m, true, accounts.Authenticate(context)?.Id, platform) is not { } json) return NotFound();
             index.RecordDownload(id, LauncherEndpoints.ClientIp(context));
             return Json(new JsonObject
             {
@@ -139,6 +144,14 @@ public static class ModIndexEndpoints
         var result = index.SetLike(id, account.Id, like);
         if (!result.Ok) return Fail(result.Status, result.Message);
         return Json(new JsonObject { ["ok"] = true, ["message"] = result.Message, ["likes"] = result.Likes, ["liked"] = result.Liked });
+    }
+
+    /// <summary>请求的平台；没写时是 windows（旧版启动器），写错时是 null。</summary>
+    private static string? Platform(HttpContext context)
+    {
+        var value = context.Request.Query["platform"].ToString().Trim().ToLowerInvariant();
+        if (value.Length == 0) return ModIndexService.DefaultPlatform;
+        return ModIndexService.IsValidPlatform(value) ? value : null;
     }
 
     private static HashSet<string>? ParseIds(string? value) =>

@@ -13,6 +13,10 @@ namespace fyserver.Services;
 /// published 为当前对玩家可见的版本（首次通过前为 null）；submission 为最近一次提交，
 /// status 为 pending 或 rejected。驳回只作废这次提交，id 仍归原上传者；彻底删除会释放 id。
 /// 全部使用 JsonNode，NativeAOT 安全。
+///
+/// 版本（published / submission）里的 platforms 是每个平台各自的 { downloadUrl, sha256, fileSize }，
+/// 不同平台的 Pak 通常不同，所以哈希也分开存。顶层的 downloadUrl 等字段是 Windows（没有时是第一个平台）的副本，
+/// 没有 platforms 的旧数据按只支持 Windows 处理。
 /// </summary>
 public sealed partial class ModIndexService
 {
@@ -29,6 +33,24 @@ public sealed partial class ModIndexService
     private readonly Dictionary<(string Id, string Ip), DateTime> _recentDownloads = new();
     private static readonly TimeSpan DownloadDedupWindow = TimeSpan.FromHours(24);
     public const int LikeWeight = 10;
+    public const string DefaultPlatform = "windows";
+    private static readonly string[] Platforms = ["windows", "android"];
+
+    public static bool IsValidPlatform(string? platform) => platform != null && Platforms.Contains(platform);
+
+    /// <summary>某个版本在这个平台上的下载信息；不支持这个平台时返回 null。</summary>
+    private static JsonObject? PlatformVariant(JsonObject version, string platform) =>
+        version["platforms"] is JsonObject map
+            ? map[platform] as JsonObject
+            : platform == DefaultPlatform ? version : null;
+
+    public static bool SupportsPlatform(JsonObject manifest, string platform) =>
+        manifest["published"] is JsonObject published && PlatformVariant(published, platform) != null;
+
+    private static JsonArray PlatformNames(JsonObject version) =>
+        new((version["platforms"] is JsonObject map
+            ? map.Select(item => item.Key).ToArray()
+            : [DefaultPlatform]).Select(p => (JsonNode?)p).ToArray());
 
     [GeneratedRegex("^[a-z0-9][a-z0-9_.-]{2,63}$")]
     private static partial Regex ModIdRegex();
@@ -56,9 +78,9 @@ public sealed partial class ModIndexService
     /// sort：latest（按通过时间，默认）、hot（下载数 + 点赞数 × 10）、downloads、likes。
     /// </summary>
     public List<JsonObject> ListPublic(string? query = null, string sort = "latest",
-        IReadOnlyCollection<string>? onlyIds = null, IReadOnlyCollection<string>? excludeIds = null)
+        IReadOnlyCollection<string>? onlyIds = null, IReadOnlyCollection<string>? excludeIds = null, string platform = DefaultPlatform)
     {
-        IEnumerable<JsonObject> mods = List().Where(IsPublic);
+        IEnumerable<JsonObject> mods = List().Where(IsPublic).Where(m => SupportsPlatform(m, platform));
         if (onlyIds != null) mods = mods.Where(m => onlyIds.Contains(Str(m["id"]) ?? ""));
         if (excludeIds != null) mods = mods.Where(m => !excludeIds.Contains(Str(m["id"]) ?? ""));
         var q = query?.Trim();
@@ -162,21 +184,33 @@ public sealed partial class ModIndexService
         var name = Str(body["name"])?.Trim();
         var description = Str(body["description"])?.Trim() ?? "";
         var version = Str(body["version"])?.Trim() ?? "";
-        var url = Str(body["downloadUrl"])?.Trim();
-        var sha256 = Str(body["sha256"])?.Trim().ToLowerInvariant();
         var iconBase64 = Str(body["icon"])?.Trim();
-        var fileSize = Long(body["fileSize"]);
 
         if (!IsValidId(id)) return (false, 400, "模组 id 只能包含小写字母、数字、下划线、点和连字符，长度 3-64，且以字母或数字开头", null);
         if (id is "mine") return (false, 400, "该 id 为保留字，请换一个", null);
         if (string.IsNullOrWhiteSpace(name) || name.Length > MaxNameLength) return (false, 400, $"模组名称不能为空且不超过 {MaxNameLength} 个字符", null);
         if (description.Length > MaxDescriptionLength) return (false, 400, $"模组简介不能超过 {MaxDescriptionLength} 个字符", null);
         if (version.Length > MaxVersionLength) return (false, 400, $"版本号不能超过 {MaxVersionLength} 个字符", null);
-        if (url == null || url.Length > MaxUrlLength || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
-            return (false, 400, "下载直链必须是 http 或 https 地址", null);
-        if (sha256 == null || !Sha256Regex().IsMatch(sha256))
-            return (false, 400, "sha256 必须是 64 位十六进制字符串（Pak 文件的 SHA-256）", null);
-        if (fileSize is < 0) return (false, 400, "fileSize 不能为负数", null);
+        // 旧版启动器只传顶层的 downloadUrl 等字段，当作只有 Windows
+        var variants = new JsonObject();
+        if (body["platforms"] is JsonObject requested)
+        {
+            foreach (var (platform, value) in requested)
+            {
+                if (!IsValidPlatform(platform)) return (false, 400, $"不支持的平台：{platform}", null);
+                var (variant, variantError) = ReadVariant(value as JsonObject);
+                if (variant == null) return (false, 400, $"{platform}：{variantError}", null);
+                variants[platform] = variant;
+            }
+            if (variants.Count == 0) return (false, 400, "至少要有一个平台的下载直链", null);
+        }
+        else
+        {
+            var (variant, variantError) = ReadVariant(body);
+            if (variant == null) return (false, 400, variantError, null);
+            variants[DefaultPlatform] = variant;
+        }
+        var primary = (variants[DefaultPlatform] ?? variants.First().Value)!.AsObject();
 
         byte[]? iconBytes = null;
         string? iconType = null;
@@ -226,9 +260,10 @@ public sealed partial class ModIndexService
                 ["name"] = name,
                 ["description"] = description,
                 ["version"] = version,
-                ["downloadUrl"] = uri!.ToString(),
-                ["sha256"] = sha256,
-                ["fileSize"] = fileSize,
+                ["downloadUrl"] = primary["downloadUrl"]?.DeepClone(),
+                ["sha256"] = primary["sha256"]?.DeepClone(),
+                ["fileSize"] = primary["fileSize"]?.DeepClone(),
+                ["platforms"] = variants,
                 // 未提供新图标时沿用已发布版本的图标，审核通过时不替换。
                 ["iconFile"] = iconFile,
                 ["iconContentType"] = iconType,
@@ -237,6 +272,19 @@ public sealed partial class ModIndexService
             WriteManifestLocked(id!, manifest);
             return (true, 202, isNew ? "模组已提交，等待管理员审核" : "更新已提交，等待管理员审核；审核通过前玩家仍下载当前版本", manifest);
         }
+    }
+
+    private static (JsonObject? Variant, string Error) ReadVariant(JsonObject? body)
+    {
+        var url = Str(body?["downloadUrl"])?.Trim();
+        var sha256 = Str(body?["sha256"])?.Trim().ToLowerInvariant();
+        var fileSize = Long(body?["fileSize"]);
+        if (url == null || url.Length > MaxUrlLength || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+            return (null, "下载直链必须是 http 或 https 地址");
+        if (sha256 == null || !Sha256Regex().IsMatch(sha256))
+            return (null, "sha256 必须是 64 位十六进制字符串（Pak 文件的 SHA-256）");
+        if (fileSize is < 0) return (null, "fileSize 不能为负数");
+        return (new JsonObject { ["downloadUrl"] = uri.ToString(), ["sha256"] = sha256, ["fileSize"] = fileSize }, "");
     }
 
     /// <summary>上传者删除自己的模组：与后台彻底删除相同，id 随之释放。</summary>
@@ -283,6 +331,7 @@ public sealed partial class ModIndexService
                 ["downloadUrl"] = submission["downloadUrl"]?.DeepClone(),
                 ["sha256"] = submission["sha256"]?.DeepClone(),
                 ["fileSize"] = submission["fileSize"]?.DeepClone(),
+                ["platforms"] = submission["platforms"]?.DeepClone(),
                 ["iconFile"] = iconFile,
                 ["iconContentType"] = iconType,
                 ["submittedAt"] = submission["submittedAt"]?.DeepClone(),
@@ -347,10 +396,11 @@ public sealed partial class ModIndexService
     }
 
     // ------------------------------------------------------------------ 输出
-    /// <summary>玩家接口用的已发布版本 manifest；withIcon 时附带 base64 图标。</summary>
-    public JsonObject? ToPublic(JsonObject manifest, bool withIcon, int? viewerId = null)
+    /// <summary>玩家接口用的已发布版本 manifest，下载信息是 platform 的；不支持这个平台时返回 null。withIcon 时附带 base64 图标。</summary>
+    public JsonObject? ToPublic(JsonObject manifest, bool withIcon, int? viewerId = null, string platform = DefaultPlatform)
     {
         if (manifest["published"] is not JsonObject p) return null;
+        if (PlatformVariant(p, platform) is not { } variant) return null;
         var id = Str(manifest["id"])!;
         var json = new JsonObject
         {
@@ -358,9 +408,10 @@ public sealed partial class ModIndexService
             ["name"] = p["name"]?.DeepClone(),
             ["description"] = p["description"]?.DeepClone(),
             ["version"] = p["version"]?.DeepClone(),
-            ["downloadUrl"] = p["downloadUrl"]?.DeepClone(),
-            ["sha256"] = p["sha256"]?.DeepClone(),
-            ["fileSize"] = p["fileSize"]?.DeepClone(),
+            ["downloadUrl"] = variant["downloadUrl"]?.DeepClone(),
+            ["sha256"] = variant["sha256"]?.DeepClone(),
+            ["fileSize"] = variant["fileSize"]?.DeepClone(),
+            ["platforms"] = PlatformNames(p),
             ["uploaderName"] = manifest["ownerName"]?.DeepClone(),
             ["downloads"] = manifest["downloads"]?.DeepClone(),
             ["likes"] = LikeCount(manifest),
@@ -391,6 +442,7 @@ public sealed partial class ModIndexService
                 ["version"] = published["version"]?.DeepClone(),
                 ["downloadUrl"] = published["downloadUrl"]?.DeepClone(),
                 ["sha256"] = published["sha256"]?.DeepClone(),
+                ["platforms"] = PlatformNames(published),
                 ["approvedAt"] = published["approvedAt"]?.DeepClone()
             },
             ["submission"] = submission == null ? null : new JsonObject
@@ -400,6 +452,7 @@ public sealed partial class ModIndexService
                 ["version"] = submission["version"]?.DeepClone(),
                 ["downloadUrl"] = submission["downloadUrl"]?.DeepClone(),
                 ["sha256"] = submission["sha256"]?.DeepClone(),
+                ["platforms"] = PlatformNames(submission),
                 ["submittedAt"] = submission["submittedAt"]?.DeepClone(),
                 ["reviewedAt"] = submission["reviewedAt"]?.DeepClone(),
                 ["rejectReason"] = submission["rejectReason"]?.DeepClone()
@@ -411,7 +464,7 @@ public sealed partial class ModIndexService
     private static string Extension(string contentType) =>
         contentType == "image/jpeg" ? "jpg" : contentType == "image/webp" ? "webp" : "png";
 
-    private static (byte[]? Data, string? ContentType, string? Error) ParseIcon(string input)
+    internal static (byte[]? Data, string? ContentType, string? Error) ParseIcon(string input)
     {
         var text = input;
         if (text.StartsWith("data:", StringComparison.OrdinalIgnoreCase))

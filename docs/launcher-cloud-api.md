@@ -69,6 +69,9 @@
 | POST | `/launcher/rooms/{id}/heartbeat` | 心跳，同时续期票据 |
 | POST | `/launcher/rooms/{id}/leave` | 离开。房主离开就是关房 |
 | POST | `/launcher/rooms/{id}/kick` | 房主踢人，请求体 `{accountId}`。被踢的人不能再进这个房间 |
+| POST / DELETE | `/launcher/avatar` | 上传（请求体 `{image}`，base64 的 PNG，最大 512 KB）或移除自己的头像 |
+| GET | `/launcher/profiles/{accountId}` | 玩家资料 `{accountId, username, title:{name,color}?}`，不需要登录。头衔在后台分发 |
+| GET | `/launcher/avatars/{accountId}` | 读头像 PNG，不需要登录；没有时返回 404 |
 | POST | `/launcher/rooms/{id}/chat` | 房间聊天，请求体 `{text}`（最多 500 字），房内每个人（包括发送者）收到 `room_chat`。不保存 |
 | POST | `/launcher/rooms/{id}/invite` | 邀请在线好友，请求体 `{accountId}`，对方收到 `room_invite` |
 | DELETE | `/launcher/rooms/{id}` | 房主关房 |

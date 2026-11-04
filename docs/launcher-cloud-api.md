@@ -24,7 +24,7 @@
 | `friends_changed` | `reason: request_received/accepted/removed, from:{accountId,username}` | 好友关系变化，收到后重新拉 `GET /launcher/friends` |
 | `chat` | `message:{id,from,to,text,at,read}` | 收到私聊、小助手回复或后台消息 |
 | `chat_ack` | `clientId, ok, message, error` | 回执自己通过 WS 发出的 chat |
-| `room_invite` | `roomId, roomName, hasPassword, from:{accountId,username}` | 好友邀请你进房 |
+| `room_invite` | `roomId, roomName, hasPassword(恒为 false), hostName, playerCount, maxPlayers, from:{accountId,username}` | 好友邀请你进房；10 分钟内进这个房间不用密码，仅好友房也能进 |
 | `room_updated` | `room`（同 §2 的房间对象） | 房间成员或设置变化（发给房间里每个人） |
 | `room_closed` | `roomId, reason` | 房主关房、房主超时、管理员关闭、房主开了新房 |
 | `kicked` | `roomId, message` | 你被房主移出 |
@@ -155,6 +155,7 @@ X-Fy-Ticket: <进房票据>
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
+| GET | `/launcher/users/search?q=<名字>` | 按名字搜索启动器账号（不区分大小写，最多 20 个，不含自己）：`{users:[{accountId, username, relation: none/accepted/request_sent/request_received}]}` |
 | GET | `/launcher/friends` | `{friends:[{accountId, username, status: accepted/request_sent/request_received, online, roomId, unread, since, assistant?}]}` |
 | POST | `/launcher/friends` | 请求体 `{username}` 或 `{accountId}`。对方已经申请过你时，这一步就是同意 |
 | DELETE | `/launcher/friends/{id}` | 删除好友，或者拒绝、撤回好友申请 |

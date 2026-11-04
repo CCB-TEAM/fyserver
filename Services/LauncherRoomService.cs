@@ -43,6 +43,23 @@ public sealed class LauncherRoomService : IDisposable
         public DateTime CreatedAt;
         public readonly Dictionary<int, Member> Members = new();
         public readonly HashSet<int> Kicked = new();
+        /// <summary>被房间成员邀请的账号和邀请过期时间：受邀者进房不用密码，仅好友房也能进。</summary>
+        public readonly Dictionary<int, DateTime> Invited = new();
+    }
+
+    public static readonly TimeSpan InviteLifetime = TimeSpan.FromMinutes(10);
+
+    /// <summary>记下一次邀请。房间不存在或邀请人不在房间里时返回 false。</summary>
+    public bool AddInvite(string roomId, int inviterId, int inviteeId)
+    {
+        lock (_gate)
+        {
+            if (!_rooms.TryGetValue(roomId, out var room) || !room.Members.ContainsKey(inviterId)) return false;
+            var now = DateTime.UtcNow;
+            foreach (var expired in room.Invited.Where(i => i.Value < now).Select(i => i.Key).ToList()) room.Invited.Remove(expired);
+            room.Invited[inviteeId] = now + InviteLifetime;
+            return true;
+        }
     }
 
     private readonly object _gate = new();
@@ -223,14 +240,16 @@ public sealed class LauncherRoomService : IDisposable
                 return new(true, 200, "已在房间中", room);
             }
             if (room.Kicked.Contains(accountId)) return new(false, 403, "你已被房主移出这个房间");
-            if (room.Visibility == "friends" && !isFriendOfHost) return new(false, 403, "这是仅好友可进的房间");
-            if (room.PasswordHash != null && !CheckPassword(room, password)) return new(false, 403, "房间密码错误");
+            var invited = room.Invited.TryGetValue(accountId, out var inviteExpires) && inviteExpires > DateTime.UtcNow;
+            if (room.Visibility == "friends" && !isFriendOfHost && !invited) return new(false, 403, "这是仅好友可进的房间");
+            if (room.PasswordHash != null && !invited && !CheckPassword(room, password)) return new(false, 403, "房间密码错误");
             if (room.Members.Count >= room.MaxPlayers) return new(false, 409, "房间已满");
             if (_rooms.Values.FirstOrDefault(r => r.HostId == accountId) is { } hosted)
                 return new(false, 409, $"你正在当房主（房间 {hosted.Id}），请先关闭自己的房间");
             previous = _rooms.Values.FirstOrDefault(r => r.Members.ContainsKey(accountId));
             previous?.Members.Remove(accountId);
             var now = DateTime.UtcNow;
+            room.Invited.Remove(accountId);
             room.Members[accountId] = new Member { Id = accountId, Name = name, Role = "member", JoinedAt = now, SeenAt = now };
         }
         if (previous != null) _ = NotifyChangedAsync(previous, accountId);

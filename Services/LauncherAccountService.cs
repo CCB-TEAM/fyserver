@@ -351,6 +351,23 @@ public sealed partial class LauncherAccountService
         return token is { Length: > 0 and <= 128 } ? token : null;
     }
 
+    /// <summary>按名字搜索未禁用的账号（不区分大小写，完全匹配排最前，其次是前缀匹配）。</summary>
+    public List<(int Id, string Username)> Search(string? query, int limit)
+    {
+        query = query?.Trim() ?? "";
+        if (query.Length == 0) return [];
+        lock (_gate)
+        {
+            return LoadLocked().Accounts
+                .Where(a => !a.Disabled && a.Username.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(a => string.Equals(a.Username, query, StringComparison.OrdinalIgnoreCase) ? 0 : a.Username.StartsWith(query, StringComparison.OrdinalIgnoreCase) ? 1 : 2)
+                .ThenBy(a => a.Username.Length).ThenBy(a => a.Username, StringComparer.OrdinalIgnoreCase)
+                .Take(limit)
+                .Select(a => (a.Id, a.Username))
+                .ToList();
+        }
+    }
+
     /// <summary>按账号名（不区分大小写）查找未禁用的启动器账号。</summary>
     public (int Id, string Username)? FindByUsername(string? username)
     {

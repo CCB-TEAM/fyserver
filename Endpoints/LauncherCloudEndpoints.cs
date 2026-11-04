@@ -172,6 +172,22 @@ public static class LauncherCloudEndpoints
         });
 
         // ==================== 好友 ====================
+        // 按名字搜索启动器账号，附带和我的好友关系：none / accepted / request_sent / request_received。
+        launcher.MapGet("/users/search", async (HttpContext context, LauncherAccountService accounts, LauncherSocialService social) =>
+        {
+            if (accounts.Authenticate(context) is not { } account) return ModIndexEndpoints.Unauthorized();
+            var q = context.Request.Query["q"].ToString().Trim();
+            if (q.Length > 32) q = q[..32];
+            var relations = await social.RelationsAsync(account.Id);
+            var users = accounts.Search(q, 20).Where(u => u.Id != account.Id).Select(u => (JsonNode?)new JsonObject
+            {
+                ["accountId"] = u.Id,
+                ["username"] = u.Username,
+                ["relation"] = relations.GetValueOrDefault(u.Id, "none")
+            }).ToArray();
+            return Json(new JsonObject { ["ok"] = true, ["users"] = new JsonArray(users) });
+        });
+
         launcher.MapGet("/friends", async (HttpContext context, LauncherAccountService accounts, LauncherSocialService social) =>
             accounts.Authenticate(context) is { } account ? Json(await social.ListFriendsAsync(account.Id)) : ModIndexEndpoints.Unauthorized());
 

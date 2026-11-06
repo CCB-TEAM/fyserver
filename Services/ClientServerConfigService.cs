@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Globalization;
@@ -67,7 +67,7 @@ public sealed class ClientServerConfigService
     private bool IsEnabled(JsonObject flags, string key)
         => flags[key] is JsonValue value && value.TryGetValue<bool>(out var enabled) ? enabled : true;
 
-    public string ReadForSession(string webSocketAddress)
+    public string ReadForSession(string webSocketAddress, IReadOnlyList<string>? versions = null)
     {
         lock (_gate)
         {
@@ -81,6 +81,9 @@ public sealed class ClientServerConfigService
             }
             if (root.ContainsKey("websocketurl"))
                 root["websocketurl"] = webSocketAddress;
+            // 房主在启动器里选的版本白名单，不受模板里 versions 开关的影响
+            if (versions is { Count: > 0 })
+                root["versions"] = new JsonArray(versions.Select(v => (JsonNode?)JsonValue.Create(v)).ToArray());
             return root.ToJsonString();
         }
     }

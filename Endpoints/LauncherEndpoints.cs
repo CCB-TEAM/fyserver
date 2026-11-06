@@ -60,8 +60,48 @@ public static class LauncherEndpoints
             return ModIndexEndpoints.Json(new JsonObject { ["ok"] = result.Ok, ["message"] = result.Message }, result.Status);
         });
 
+        // 头像：启动器缩小后以 PNG 上传，任何人都能读（好友、房间成员列表要显示）。
+        launcher.MapPost("/avatar", async (HttpContext context, LauncherAccountService accounts) =>
+        {
+            var account = accounts.Authenticate(context);
+            if (account == null) return ModIndexEndpoints.Unauthorized();
+            var (body, error) = await ModIndexEndpoints.ReadBody(context);
+            if (body == null) return error!;
+            var parsed = ModIndexService.ParseIcon(Str(body["image"]) ?? "");
+            if (parsed.Error != null) return ModIndexEndpoints.Fail(400, parsed.Error);
+            if (parsed.ContentType != "image/png") return ModIndexEndpoints.Fail(400, "头像必须是 PNG 图片");
+            Directory.CreateDirectory(AvatarDir);
+            var temp = AvatarPath(account.Id) + ".tmp";
+            await File.WriteAllBytesAsync(temp, parsed.Data!);
+            File.Move(temp, AvatarPath(account.Id), true);
+            return ModIndexEndpoints.Json(new JsonObject { ["ok"] = true, ["message"] = "头像已更新" });
+        });
+
+        launcher.MapDelete("/avatar", (HttpContext context, LauncherAccountService accounts) =>
+        {
+            var account = accounts.Authenticate(context);
+            if (account == null) return ModIndexEndpoints.Unauthorized();
+            File.Delete(AvatarPath(account.Id));
+            return ModIndexEndpoints.Json(new JsonObject { ["ok"] = true, ["message"] = "头像已移除" });
+        });
+
+        // 玩家资料：账号名和头衔，好友页、房间成员列表用来显示。
+        launcher.MapGet("/profiles/{accountId:int}", (int accountId, LauncherAccountService accounts) =>
+            accounts.ProfileJson(accountId) is { } profile ? ModIndexEndpoints.Json(profile) : ModIndexEndpoints.Fail(404, "账号不存在"));
+
+        launcher.MapGet("/avatars/{accountId:int}", (int accountId, HttpContext context) =>
+        {
+            var path = AvatarPath(accountId);
+            if (!File.Exists(path)) return ModIndexEndpoints.Fail(404, "没有头像");
+            context.Response.Headers.XContentTypeOptions = "nosniff";
+            return Results.Bytes(File.ReadAllBytes(path), "image/png");
+        });
+
         return app;
     }
+
+    private const string AvatarDir = "./data/launcher-avatars";
+    private static string AvatarPath(int accountId) => Path.Combine(AvatarDir, $"{accountId}.png");
 
     /// <summary>
     /// 客户端 IP：直连时取连接地址；连接来自本机（Caddy 等反向代理在同一台机器上）时，

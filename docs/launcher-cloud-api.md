@@ -1,7 +1,7 @@
 # 启动器云端接口（房间大厅 / 进房票据 / 打洞与中继 / 好友聊天 / 云端整合包）
 
 云端 fyserver 是“启动器服务器”：它管理启动器账号、好友、聊天和小助手，还负责房间大厅、整合包清单和打洞协调。
-真正的游戏服务端是房主电脑上的嵌入版 fyserver。云端不转发游戏数据，只有打洞失败时由 frps 中继，并且限速。
+真正的游戏服务端是房主电脑上的嵌入版 fyserver。成员的游戏连接经云端中继转给房主，中继复用游戏端口，按房间限速。不需要 frp。
 
 所有接口都在 `/launcher` 下，请求体和响应都是 JSON，字段名用 camelCase。
 需要登录的接口都带 `Authorization: Bearer <token>`，token 来自 `POST /launcher/login`。WebSocket 也可以用 `?token=` 传 token。
@@ -24,8 +24,9 @@
 | `friends_changed` | `reason: request_received/accepted/removed, from:{accountId,username}` | 好友关系变化，收到后重新拉 `GET /launcher/friends` |
 | `chat` | `message:{id,from,to,text,at,read}` | 收到私聊、小助手回复或后台消息 |
 | `chat_ack` | `clientId, ok, message, error` | 回执自己通过 WS 发出的 chat |
-| `room_invite` | `roomId, roomName, hasPassword, from:{accountId,username}` | 好友邀请你进房 |
+| `room_invite` | `roomId, roomName, hasPassword(恒为 false), hostName, playerCount, maxPlayers, from:{accountId,username}` | 好友邀请你进房；10 分钟内进这个房间不用密码，仅好友房也能进 |
 | `room_updated` | `room`（同 §2 的房间对象） | 房间成员或设置变化（发给房间里每个人） |
+| `room_chat` | `roomId, from:{accountId,username}, text, at` | 房间里有人发言 |
 | `room_closed` | `roomId, reason` | 房主关房、房主超时、管理员关闭、房主开了新房 |
 | `kicked` | `roomId, message` | 你被房主移出 |
 | `replaced` | `message` | 同账号在别处连上 |
@@ -68,6 +69,10 @@
 | POST | `/launcher/rooms/{id}/heartbeat` | 心跳，同时续期票据 |
 | POST | `/launcher/rooms/{id}/leave` | 离开。房主离开就是关房 |
 | POST | `/launcher/rooms/{id}/kick` | 房主踢人，请求体 `{accountId}`。被踢的人不能再进这个房间 |
+| POST / DELETE | `/launcher/avatar` | 上传（请求体 `{image}`，base64 的 PNG，最大 512 KB）或移除自己的头像 |
+| GET | `/launcher/profiles/{accountId}` | 玩家资料 `{accountId, username, title:{name,color}?}`，不需要登录。头衔在后台分发 |
+| GET | `/launcher/avatars/{accountId}` | 读头像 PNG，不需要登录；没有时返回 404 |
+| POST | `/launcher/rooms/{id}/chat` | 房间聊天，请求体 `{text}`（最多 500 字），房内每个人（包括发送者）收到 `room_chat`。不保存 |
 | POST | `/launcher/rooms/{id}/invite` | 邀请在线好友，请求体 `{accountId}`，对方收到 `room_invite` |
 | DELETE | `/launcher/rooms/{id}` | 房主关房 |
 
@@ -77,11 +82,11 @@
 {
   "ok": true, "message": "…", "room": { … }, "role": "host | member",
   "ticket": "<JWS>", "ticketExpiresAt": "…",
-  "tunnel": {"role", "serverAddr", "serverPort", "p2pProxy": "room_<ID>_p2p", "relayProxy": "room_<ID>_relay", "sk"}
+  "tunnel": {"role", "relay": true, "punchPort": 打洞协调的 UDP 端口或 null, "hostOnline": 房主启动器此刻是否连着中继}
 }
 ```
 
-隧道没启用时 `tunnel` 是 null，这时只能本机或局域网联机。
+中继关闭时 `tunnel` 是 null，这时只能本机测试。
 
 **超时规则：**
 
@@ -110,88 +115,43 @@ const key = crypto.createPublicKey({ key: Buffer.from(spki, 'base64'), format: '
 crypto.verify('sha256', Buffer.from(h + '.' + p), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(s, 'base64url'));
 ```
 
-## 4. 打洞与中继（frp）
+## 4. 中继（启动器内置隧道）
 
-做法是先用 xtcp 打洞直连，失败就回落到 stcp 中继。
+三种连接都是对云端游戏端口的 HTTP/1.1 GET，带下面三个头。云端校验通过后回 `101 Switching Protocols`，之后连接就是原始字节流：
 
-- 云端机器上运行 frps，并配置 fyserver 的 HTTP 插件。
-- 后台“启动器房间”页可以开关隧道，设置 frps 公网地址、端口和中继限速，并给出 frps.toml 示例。
-- 插件密钥 `pluginKey` 自动生成，保存在 `./data/launcher-tunnel.json`。
-
-**frps.toml（和 fyserver 在同一台机器上）：**
-
-```toml
-bindPort = 7000
-
-[[httpPlugins]]
-name = "fyserver-rooms"
-addr = "127.0.0.1:<fyserver 端口>"
-path = "/launcher/frp/plugin?key=<pluginKey>"
-ops = ["Login", "NewProxy", "NewUserConn"]
+```
+Connection: Upgrade
+Upgrade: fy-relay
+X-Fy-Ticket: <进房票据>
 ```
 
-**插件规则：**
+| 路径 | 谁连 | 升级后的内容 |
+|------|------|------|
+| `/launcher/relay/host` | 房主，进房后一直保持 | 云端按行发 `open <连接号>`，每 10 秒发一次 `ping` |
+| `/launcher/relay/connect` | 成员，每条游戏连接一条 | 接通后直通房主的嵌入版服务端 |
+| `/launcher/relay/accept/<连接号>` | 房主，收到 `open` 后 | 另一头是对应成员的连接，房主把它接到本机嵌入版服务端 |
 
-- 插件接口只接受本机回环地址的调用，请求不能带 `X-Forwarded-For` 或 `Forwarded` 头，查询串里的 key 必须正确。
-- `Login`：`metadatas.ticket` 必须是有效票据，而且账号此刻还在这个房间里。这里允许票据已过期，因为 frpc 断线重连时会沿用登录时的票据。被踢或退房后就登不上了。
-- `NewProxy`：
-  - 只有房主能注册代理，而且只能注册 `room_<ID>_p2p`（xtcp）和 `room_<ID>_relay`（stcp）这两个。
-  - 两个代理的 `secretKey` 都必须等于房间的 `sk`。
-  - stcp 代理会被强制加上服务端限速，`bandwidth_limit` 取后台的设置值，`bandwidth_limit_mode` 为 `server`。
-- `NewUserConn` 一律拒绝，也就是不允许 tcp/http 这类公开代理。
+规则：
 
-frpc 不要设置 `user`，因为设置后代理名会被加上前缀，插件就对不上了。
+- 票据必须有效，没过期，账号此刻还在这个房间里，身份也要对：`host` 和 `accept` 只给房主，`connect` 只给成员。
+- 房主没连着中继时，`connect` 返回 503；房主 10 秒内没接上，返回 504。这两种情况都不升级。
+- 每个房间最多 64 条中继连接，超出返回 429。
+- 云端每 10 秒核对一次成员身份。被踢、退房或房间关闭后，相关连接会断开。房主换了新的控制连接，旧的会被关掉。
+- 两个方向共用每个房间的限速，默认 512KB/s，在后台设置。
+- 成员那边，本地网关照常在每个 HTTP 请求上加 `X-Fy-Ticket`。房主的嵌入版服务端靠它识别成员，所以中继不改动内容。
+- 中继关闭时开房、进房响应里的 `tunnel` 为 null。
 
-**房主的 frpc.toml（两个代理都指向本机嵌入版服务端）：**
+### 打洞直连
 
-```toml
-serverAddr = "<tunnel.serverAddr>"
-serverPort = <tunnel.serverPort>
-metadatas.ticket = "<房主票据>"
+云端在游戏端口号的 UDP 上（`tunnel.punchPort`）协调打洞。直连成功后，成员的新连接改走直连；直连断开或打不通时，继续走中继。
 
-[[proxies]]
-name = "room_<ID>_p2p"
-type = "xtcp"
-secretKey = "<tunnel.sk>"
-localIP = "127.0.0.1"
-localPort = 11450
+1. 房主开房后，用跑 QUIC 的那个 UDP 套接字每 15 秒向 `punchPort` 发一次登记包：`FYP1 REG <票据> <证书指纹>`。证书是开房时临时生成的自签名证书，指纹是 DER 的 SHA-256 十六进制。
+2. 成员用自己的 UDP 套接字发几次 `FYP1 REG <票据>`，然后调用 `POST /launcher/relay/punch`（带 `X-Fy-Ticket`，不用 Upgrade 头）。
+3. 云端经房主的中继控制连接发出 `punch <成员ip:port>`，并返回 `{hostAddr, fingerprint, yourAddr}`。房主还没登记时返回 409，房主不在线时返回 503，5 秒内重复请求返回 429。
+4. 双方互相发几个 `FYP1 HI` 小包，在各自的 NAT 上打开映射。然后成员发起 QUIC 连接（ALPN `fy-room/1`），并按指纹校验房主的证书。
+5. 每条游戏连接对应一条 QUIC 双向流，房主把它接到本机嵌入版服务端。身份照样由每个请求里的票据决定。
 
-[[proxies]]
-name = "room_<ID>_relay"
-type = "stcp"
-secretKey = "<tunnel.sk>"
-localIP = "127.0.0.1"
-localPort = 11450
-```
-
-**加入者的 frpc.toml（本地网关把游戏流量转到 bindPort）：**
-
-```toml
-serverAddr = "<tunnel.serverAddr>"
-serverPort = <tunnel.serverPort>
-metadatas.ticket = "<成员票据>"
-
-[[visitors]]
-name = "room_<ID>_relay_visitor"
-type = "stcp"
-serverName = "room_<ID>_relay"
-secretKey = "<tunnel.sk>"
-bindAddr = "127.0.0.1"
-bindPort = -1
-
-[[visitors]]
-name = "room_<ID>_p2p_visitor"
-type = "xtcp"
-serverName = "room_<ID>_p2p"
-secretKey = "<tunnel.sk>"
-bindAddr = "127.0.0.1"
-bindPort = 11451
-keepTunnelOpen = false
-fallbackTo = "room_<ID>_relay_visitor"
-fallbackTimeoutMs = 1500
-```
-
-`sk` 是每个房间随机生成的，只通过开房、进房、心跳的响应下发，启动器不要把它写进日志。
+云端不回登记包，只记录看到的源地址（有效期：房主 45 秒，成员 20 秒）。对称型 NAT 一般打不通，这时只走中继。
 
 ## 5. 好友与聊天（按启动器账号）
 
@@ -200,6 +160,7 @@ fallbackTimeoutMs = 1500
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
+| GET | `/launcher/users/search?q=<名字>` | 按名字搜索启动器账号（不区分大小写，最多 20 个，不含自己）：`{users:[{accountId, username, relation: none/accepted/request_sent/request_received}]}` |
 | GET | `/launcher/friends` | `{friends:[{accountId, username, status: accepted/request_sent/request_received, online, roomId, unread, since, assistant?}]}` |
 | POST | `/launcher/friends` | 请求体 `{username}` 或 `{accountId}`。对方已经申请过你时，这一步就是同意 |
 | DELETE | `/launcher/friends/{id}` | 删除好友，或者拒绝、撤回好友申请 |
@@ -241,13 +202,13 @@ fallbackTimeoutMs = 1500
 | POST | `/rooms/{id}/close` | players |
 | POST | `/message`：`{accountId}` 或 `{all:true}`，加上 `message` | players |
 | DELETE | `/modpacks/{id}` | players |
-| GET / PUT | `/tunnel`：`{enabled, serverAddr, serverPort, relayBandwidthLimit}`，返回内容包含 pluginKey 和 frps 示例 | serverConfig |
+| GET / PUT | `/tunnel`：`{enabled, relayBandwidthLimit}`，返回内容另含 `stats: {hosts, connections}` | serverConfig |
 
 ## 8. 数据文件
 
 | 文件 | 内容 |
 |---|---|
 | `data/room-signing-key.pem` | 票据签名私钥（PKCS8），只有本机可读 |
-| `data/launcher-tunnel.json` | 隧道设置和 frps 插件密钥 |
+| `data/launcher-relay.json` | 中继开关和限速（没有这个文件时默认开启，512KB/s） |
 | `data/launcher-modpacks.json` | 云端整合包清单 |
 | `data/social/launcher.json` | 本地存储模式下的启动器好友和聊天（数据库模式下用 `fy_launcher_*` 表） |

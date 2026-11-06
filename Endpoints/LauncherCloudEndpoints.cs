@@ -4,8 +4,8 @@ using fyserver.Services;
 namespace fyserver.Endpoints;
 
 /// <summary>
-/// 启动器服务端接口：房间大厅、进房票据、frp 插件、启动器好友/私聊、整合包、控制 WebSocket。
-/// 除公钥和 frp 插件外都需要 Authorization: Bearer &lt;启动器登录 token&gt;。完整说明见 docs/launcher-cloud-api.md。
+/// 启动器服务端接口：房间大厅、进房票据、中继、启动器好友/私聊、整合包、控制 WebSocket。
+/// 除公钥和中继外都需要 Authorization: Bearer &lt;启动器登录 token&gt;（中继用进房票据）。完整说明见 docs/launcher-cloud-api.md。
 /// </summary>
 public static class LauncherCloudEndpoints
 {
@@ -131,6 +131,16 @@ public static class LauncherCloudEndpoints
             return result.Ok ? Ok(result.Message) : Fail(result.Status, result.Message);
         });
 
+        launcher.MapPost("/rooms/{id}/chat", async (string id, HttpContext context, LauncherAccountService accounts, LauncherRoomService rooms) =>
+        {
+            if (accounts.Authenticate(context) is not { } account) return ModIndexEndpoints.Unauthorized();
+            var (body, error) = await ModIndexEndpoints.ReadBody(context);
+            if (body == null) return error!;
+            var text = body["text"] is JsonValue t && t.TryGetValue<string>(out var s) ? s : null;
+            var result = await rooms.ChatAsync(Code(id), account.Id, account.Username, text);
+            return result.Ok ? Ok(result.Message) : Fail(result.Status, result.Message);
+        });
+
         launcher.MapDelete("/rooms/{id}", (string id, HttpContext context, LauncherAccountService accounts, LauncherRoomService rooms) =>
         {
             if (accounts.Authenticate(context) is not { } account) return ModIndexEndpoints.Unauthorized();
@@ -138,16 +148,56 @@ public static class LauncherCloudEndpoints
             return result.Ok ? Ok(result.Message) : Fail(result.Status, result.Message);
         });
 
-        // frps 的 HTTP 插件回调：frps.toml 里配置 path = "/launcher/frp/plugin?key=<pluginKey>"。
-        launcher.MapPost("/frp/plugin", async (HttpContext context, LauncherTunnelService tunnel, RoomTicketService tickets, LauncherRoomService rooms) =>
+        // ==================== 中继（启动器内置隧道） ====================
+        // 三个接口都要 Upgrade: fy-relay 和 X-Fy-Ticket 头，成功时回 101 后变成原始字节流。
+        launcher.MapGet("/relay/host", async (HttpContext context, LauncherTunnelService tunnel, RoomTicketService tickets, LauncherRoomService rooms) =>
         {
-            if (!tunnel.IsTrustedPluginCall(context)) return Results.StatusCode(StatusCodes.Status403Forbidden);
-            var (body, error) = await ModIndexEndpoints.ReadBody(context);
-            if (body == null) return error!;
-            return Json(tunnel.HandlePlugin(body, tickets, rooms));
+            var (ticket, error) = tunnel.Authorize(context, tickets, rooms, "host");
+            if (ticket == null) return error!;
+            await tunnel.RunHostAsync(context, ticket, rooms);
+            return Results.Empty;
+        });
+
+        launcher.MapGet("/relay/connect", async (HttpContext context, LauncherTunnelService tunnel, RoomTicketService tickets, LauncherRoomService rooms) =>
+        {
+            var (ticket, error) = tunnel.Authorize(context, tickets, rooms, "member");
+            if (ticket == null) return error!;
+            return await tunnel.RunConnectAsync(context, ticket, rooms);
+        });
+
+        launcher.MapGet("/relay/accept/{conn}", async (HttpContext context, string conn, LauncherTunnelService tunnel, RoomTicketService tickets, LauncherRoomService rooms) =>
+        {
+            var (ticket, error) = tunnel.Authorize(context, tickets, rooms, "host");
+            if (ticket == null) return error!;
+            return await tunnel.RunAcceptAsync(context, ticket, conn);
+        });
+
+        // 打洞：成员先向 UDP 端口发登记包，再调用这里；云端通知房主向成员发包，并返回房主地址。
+        launcher.MapPost("/relay/punch", async (HttpContext context, LauncherTunnelService tunnel, LauncherPunchService punch, RoomTicketService tickets, LauncherRoomService rooms) =>
+        {
+            var (ticket, error) = tunnel.Authorize(context, tickets, rooms, "member", upgrade: false);
+            if (ticket == null) return error!;
+            var (status, body) = await punch.PunchAsync(ticket, tunnel);
+            return Json(body, status);
         });
 
         // ==================== 好友 ====================
+        // 按名字搜索启动器账号，附带和我的好友关系：none / accepted / request_sent / request_received。
+        launcher.MapGet("/users/search", async (HttpContext context, LauncherAccountService accounts, LauncherSocialService social) =>
+        {
+            if (accounts.Authenticate(context) is not { } account) return ModIndexEndpoints.Unauthorized();
+            var q = context.Request.Query["q"].ToString().Trim();
+            if (q.Length > 32) q = q[..32];
+            var relations = await social.RelationsAsync(account.Id);
+            var users = accounts.Search(q, 20).Where(u => u.Id != account.Id).Select(u => (JsonNode?)new JsonObject
+            {
+                ["accountId"] = u.Id,
+                ["username"] = u.Username,
+                ["relation"] = relations.GetValueOrDefault(u.Id, "none")
+            }).ToArray();
+            return Json(new JsonObject { ["ok"] = true, ["users"] = new JsonArray(users) });
+        });
+
         launcher.MapGet("/friends", async (HttpContext context, LauncherAccountService accounts, LauncherSocialService social) =>
             accounts.Authenticate(context) is { } account ? Json(await social.ListFriendsAsync(account.Id)) : ModIndexEndpoints.Unauthorized());
 

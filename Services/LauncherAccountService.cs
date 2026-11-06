@@ -38,6 +38,15 @@ public sealed partial class LauncherAccountService
         public bool Disabled;
         public string? LastLoginAt;
         public string? LastLoginIp;
+        public string? TitleId;
+    }
+
+    /// <summary>后台给启动器账号分发的头衔。</summary>
+    private sealed class Title
+    {
+        public string Id = "";
+        public string Name = "";
+        public string Color = "";
     }
 
     private sealed class Invite
@@ -66,7 +75,11 @@ public sealed partial class LauncherAccountService
         public List<Account> Accounts = [];
         public List<Invite> Invites = [];
         public List<Session> Sessions = [];
+        public List<Title> Titles = [];
     }
+
+    [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
+    private static partial Regex ColorRegex();
 
     [GeneratedRegex("^[A-Za-z0-9_-]{3,32}$")]
     private static partial Regex UsernameRegex();
@@ -199,6 +212,97 @@ public sealed partial class LauncherAccountService
             return new JsonArray(LoadLocked().Accounts.Select(a => (JsonNode?)AccountJson(a)).ToArray());
     }
 
+    // ------------------------------------------------------------------ 头衔
+    public JsonArray ListTitlesJson()
+    {
+        lock (_gate)
+            return new JsonArray(LoadLocked().Titles.Select(t => (JsonNode?)TitleJson(t)).ToArray());
+    }
+
+    /// <summary>新建头衔，或者修改 id 对应的头衔。</summary>
+    public (bool Ok, string Message) SaveTitle(string? id, string? name, string? color)
+    {
+        name = name?.Trim();
+        if (string.IsNullOrEmpty(name) || name.Length > 16) return (false, "头衔名称不能为空，也不能超过 16 个字");
+        if (color == null || !ColorRegex().IsMatch(color)) return (false, "颜色格式不对，需要形如 #3366FF");
+        if (!ColorReadable(color)) return (false, "这个颜色太亮或太暗，在启动器的深色或浅色主题下会看不清");
+        lock (_gate)
+        {
+            var store = LoadLocked();
+            var title = store.Titles.FirstOrDefault(t => t.Id == id);
+            if (title == null)
+            {
+                if (!string.IsNullOrEmpty(id)) return (false, "头衔不存在");
+                title = new Title { Id = Guid.NewGuid().ToString("N")[..12] };
+                store.Titles.Add(title);
+            }
+            title.Name = name;
+            title.Color = color.ToLowerInvariant();
+            SaveLocked();
+            return (true, "头衔已保存");
+        }
+    }
+
+    /// <summary>删除头衔，拿着它的账号一并收回。</summary>
+    public (bool Ok, string Message) DeleteTitle(string id)
+    {
+        lock (_gate)
+        {
+            var store = LoadLocked();
+            if (store.Titles.RemoveAll(t => t.Id == id) == 0) return (false, "头衔不存在");
+            foreach (var account in store.Accounts.Where(a => a.TitleId == id)) account.TitleId = null;
+            SaveLocked();
+            return (true, "头衔已删除");
+        }
+    }
+
+    /// <summary>给账号分发头衔；titleId 为空表示收回。</summary>
+    public (bool Ok, string Message) SetTitle(int accountId, string? titleId)
+    {
+        lock (_gate)
+        {
+            var store = LoadLocked();
+            var account = store.Accounts.FirstOrDefault(a => a.Id == accountId);
+            if (account == null) return (false, "账号不存在");
+            if (!string.IsNullOrEmpty(titleId) && store.Titles.All(t => t.Id != titleId)) return (false, "头衔不存在");
+            account.TitleId = string.IsNullOrEmpty(titleId) ? null : titleId;
+            SaveLocked();
+            return (true, account.TitleId == null ? "已收回头衔" : "头衔已分发");
+        }
+    }
+
+    /// <summary>对外公开的玩家资料：账号名和头衔。</summary>
+    public JsonObject? ProfileJson(int accountId)
+    {
+        lock (_gate)
+        {
+            var store = LoadLocked();
+            var account = store.Accounts.FirstOrDefault(a => a.Id == accountId);
+            if (account == null) return null;
+            var title = store.Titles.FirstOrDefault(t => t.Id == account.TitleId);
+            return new JsonObject
+            {
+                ["accountId"] = account.Id,
+                ["username"] = account.Username,
+                ["title"] = title == null ? null : new JsonObject { ["name"] = title.Name, ["color"] = title.Color }
+            };
+        }
+    }
+
+    private static JsonObject TitleJson(Title t) => new() { ["id"] = t.Id, ["name"] = t.Name, ["color"] = t.Color };
+
+    /// <summary>深色和浅色主题下都要看得清，所以亮度不能太靠两头。</summary>
+    private static bool ColorReadable(string color)
+    {
+        static double Channel(string hex)
+        {
+            var c = Convert.ToInt32(hex, 16) / 255.0;
+            return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+        }
+        var luminance = 0.2126 * Channel(color[1..3]) + 0.7152 * Channel(color[3..5]) + 0.0722 * Channel(color[5..7]);
+        return luminance is >= 0.05 and <= 0.55;
+    }
+
     public string? GetUsername(int id)
     {
         lock (_gate) return LoadLocked().Accounts.FirstOrDefault(a => a.Id == id)?.Username;
@@ -302,7 +406,8 @@ public sealed partial class LauncherAccountService
         ["inviteCode"] = a.InviteCode,
         ["disabled"] = a.Disabled,
         ["lastLoginAt"] = a.LastLoginAt,
-        ["lastLoginIp"] = a.LastLoginIp
+        ["lastLoginIp"] = a.LastLoginIp,
+        ["titleId"] = a.TitleId
     };
 
     // ------------------------------------------------------------------ 工具
@@ -351,6 +456,23 @@ public sealed partial class LauncherAccountService
         return token is { Length: > 0 and <= 128 } ? token : null;
     }
 
+    /// <summary>按名字搜索未禁用的账号（不区分大小写，完全匹配排最前，其次是前缀匹配）。</summary>
+    public List<(int Id, string Username)> Search(string? query, int limit)
+    {
+        query = query?.Trim() ?? "";
+        if (query.Length == 0) return [];
+        lock (_gate)
+        {
+            return LoadLocked().Accounts
+                .Where(a => !a.Disabled && a.Username.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(a => string.Equals(a.Username, query, StringComparison.OrdinalIgnoreCase) ? 0 : a.Username.StartsWith(query, StringComparison.OrdinalIgnoreCase) ? 1 : 2)
+                .ThenBy(a => a.Username.Length).ThenBy(a => a.Username, StringComparer.OrdinalIgnoreCase)
+                .Take(limit)
+                .Select(a => (a.Id, a.Username))
+                .ToList();
+        }
+    }
+
     /// <summary>按账号名（不区分大小写）查找未禁用的启动器账号。</summary>
     public (int Id, string Username)? FindByUsername(string? username)
     {
@@ -395,7 +517,15 @@ public sealed partial class LauncherAccountService
                     InviteCode = Str(n["inviteCode"]) ?? "",
                     Disabled = Bool(n["disabled"]),
                     LastLoginAt = Str(n["lastLoginAt"]),
-                    LastLoginIp = Str(n["lastLoginIp"])
+                    LastLoginIp = Str(n["lastLoginIp"]),
+                    TitleId = Str(n["titleId"])
+                });
+            foreach (var n in Arr(root["titles"]))
+                store.Titles.Add(new Title
+                {
+                    Id = Str(n["id"]) ?? "",
+                    Name = Str(n["name"]) ?? "",
+                    Color = Str(n["color"]) ?? ""
                 });
             foreach (var n in Arr(root["invites"]))
                 store.Invites.Add(new Invite
@@ -439,8 +569,10 @@ public sealed partial class LauncherAccountService
                 ["inviteCode"] = a.InviteCode,
                 ["disabled"] = a.Disabled,
                 ["lastLoginAt"] = a.LastLoginAt,
-                ["lastLoginIp"] = a.LastLoginIp
+                ["lastLoginIp"] = a.LastLoginIp,
+                ["titleId"] = a.TitleId
             }).ToArray()),
+            ["titles"] = new JsonArray(store.Titles.Select(t => (JsonNode?)TitleJson(t)).ToArray()),
             ["invites"] = new JsonArray(store.Invites.Select(i => (JsonNode?)new JsonObject
             {
                 ["code"] = i.Code,

@@ -13,7 +13,12 @@ public sealed class LauncherRoomService : IDisposable
 {
     public const int MaxRoomSize = 10;
     public static readonly TimeSpan HostTimeout = TimeSpan.FromSeconds(45);
-    public static readonly TimeSpan MemberTimeout = TimeSpan.FromSeconds(90);
+    public static readonly TimeSpan MemberTimeout = TimeSpan.FromSeconds(45);
+    /// <summary>控制连接断了、心跳也停了这么久，就当启动器已经关了。连接断了但心跳还在（正在重连）不算。</summary>
+    private static readonly TimeSpan OfflineTimeout = TimeSpan.FromSeconds(20);
+    private const int MaxChatLength = 500;
+    private static readonly TimeSpan ChatCooldown = TimeSpan.FromMilliseconds(300);
+    private readonly Dictionary<int, DateTime> _lastChat = new();
     private const string CodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static readonly string[] Visibilities = ["public", "password", "friends"];
 
@@ -40,11 +45,26 @@ public sealed class LauncherRoomService : IDisposable
         public JsonArray Mods = [];
         public string? ModpackId;
         public string GameVersion = "";
-        /// <summary>frp stcp/xtcp 代理的共享密钥：只下发给房主和已进房的成员。</summary>
-        public string Sk = "";
         public DateTime CreatedAt;
         public readonly Dictionary<int, Member> Members = new();
         public readonly HashSet<int> Kicked = new();
+        /// <summary>被房间成员邀请的账号和邀请过期时间：受邀者进房不用密码，仅好友房也能进。</summary>
+        public readonly Dictionary<int, DateTime> Invited = new();
+    }
+
+    public static readonly TimeSpan InviteLifetime = TimeSpan.FromMinutes(10);
+
+    /// <summary>记下一次邀请。房间不存在或邀请人不在房间里时返回 false。</summary>
+    public bool AddInvite(string roomId, int inviterId, int inviteeId)
+    {
+        lock (_gate)
+        {
+            if (!_rooms.TryGetValue(roomId, out var room) || !room.Members.ContainsKey(inviterId)) return false;
+            var now = DateTime.UtcNow;
+            foreach (var expired in room.Invited.Where(i => i.Value < now).Select(i => i.Key).ToList()) room.Invited.Remove(expired);
+            room.Invited[inviteeId] = now + InviteLifetime;
+            return true;
+        }
     }
 
     private readonly object _gate = new();
@@ -141,7 +161,6 @@ public sealed class LauncherRoomService : IDisposable
                 Id = NewCode(),
                 HostId = hostId,
                 HostName = hostName,
-                Sk = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24)),
                 CreatedAt = DateTime.UtcNow
             };
             Apply(room, fields);
@@ -226,14 +245,16 @@ public sealed class LauncherRoomService : IDisposable
                 return new(true, 200, "已在房间中", room);
             }
             if (room.Kicked.Contains(accountId)) return new(false, 403, "你已被房主移出这个房间");
-            if (room.Visibility == "friends" && !isFriendOfHost) return new(false, 403, "这是仅好友可进的房间");
-            if (room.PasswordHash != null && !CheckPassword(room, password)) return new(false, 403, "房间密码错误");
+            var invited = room.Invited.TryGetValue(accountId, out var inviteExpires) && inviteExpires > DateTime.UtcNow;
+            if (room.Visibility == "friends" && !isFriendOfHost && !invited) return new(false, 403, "这是仅好友可进的房间");
+            if (room.PasswordHash != null && !invited && !CheckPassword(room, password)) return new(false, 403, "房间密码错误");
             if (room.Members.Count >= room.MaxPlayers) return new(false, 409, "房间已满");
             if (_rooms.Values.FirstOrDefault(r => r.HostId == accountId) is { } hosted)
                 return new(false, 409, $"你正在当房主（房间 {hosted.Id}），请先关闭自己的房间");
             previous = _rooms.Values.FirstOrDefault(r => r.Members.ContainsKey(accountId));
             previous?.Members.Remove(accountId);
             var now = DateTime.UtcNow;
+            room.Invited.Remove(accountId);
             room.Members[accountId] = new Member { Id = accountId, Name = name, Role = "member", JoinedAt = now, SeenAt = now };
         }
         if (previous != null) _ = NotifyChangedAsync(previous, accountId);
@@ -290,13 +311,14 @@ public sealed class LauncherRoomService : IDisposable
         {
             foreach (var room in _rooms.Values.ToList())
             {
-                if (room.Members.TryGetValue(room.HostId, out var host) && now - host.SeenAt > HostTimeout)
+                bool Offline(Member m) => !_hub.IsOnline(m.Id) && now - m.SeenAt > OfflineTimeout;
+                if (room.Members.TryGetValue(room.HostId, out var host) && (now - host.SeenAt > HostTimeout || Offline(host)))
                 {
                     _rooms.Remove(room.Id);
                     closed.Add(room);
                     continue;
                 }
-                var stale = room.Members.Values.Where(m => m.Role != "host" && now - m.SeenAt > MemberTimeout).Select(m => m.Id).ToList();
+                var stale = room.Members.Values.Where(m => m.Role != "host" && (now - m.SeenAt > MemberTimeout || Offline(m))).Select(m => m.Id).ToList();
                 foreach (var memberId in stale) room.Members.Remove(memberId);
                 if (stale.Count > 0) changed.Add((room, stale.ToArray()));
             }
@@ -307,6 +329,38 @@ public sealed class LauncherRoomService : IDisposable
             await NotifyClosedAsync(room, "房主已离线");
         }
         foreach (var (room, departed) in changed) await NotifyChangedAsync(room, departed);
+    }
+
+    /// <summary>房间聊天：发给房内每个人（包括发送者），不保存。</summary>
+    public async Task<Result> ChatAsync(string id, int accountId, string username, string? text)
+    {
+        text = text?.Trim();
+        if (string.IsNullOrEmpty(text) || text.Length > MaxChatLength)
+            return new(false, 400, $"消息不能为空，也不能超过 {MaxChatLength} 个字");
+        int[] members;
+        lock (_gate)
+        {
+            if (!_rooms.TryGetValue(id, out var room) || !room.Members.ContainsKey(accountId))
+                return new(false, 404, "你不在这个房间里");
+            var now = DateTime.UtcNow;
+            if (_lastChat.TryGetValue(accountId, out var last) && now - last < ChatCooldown)
+                return new(false, 429, "发得太快了");
+            _lastChat[accountId] = now;
+            members = room.Members.Keys.ToArray();
+        }
+        var at = DateTime.UtcNow.ToString("O");
+        foreach (var member in members)
+        {
+            await _hub.SendAsync(member, new JsonObject
+            {
+                ["type"] = "room_chat",
+                ["roomId"] = id,
+                ["from"] = new JsonObject { ["accountId"] = accountId, ["username"] = username },
+                ["text"] = text,
+                ["at"] = at
+            });
+        }
+        return new(true, 200, "ok");
     }
 
     private async Task NotifyChangedAsync(Room room, params int[] departed)

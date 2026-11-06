@@ -1,4 +1,4 @@
-using fyserver;
+﻿using fyserver;
 using fyserver.Endpoints;
 using fyserver.Middleware;
 using fyserver.Models;
@@ -10,7 +10,9 @@ using System.Text.Json.Serialization;
 
 // 发行版可能从快捷方式、服务管理器或其它工作目录启动；所有相对路径
 //（setting.json、config、library、data 与 wwwroot）都必须固定到 exe 所在目录。
-Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+// 安卓上 exe 在只读的 lib 目录里，用 FYSERVER_DATA_DIR 另外指定数据目录。
+var dataDir = Environment.GetEnvironmentVariable("FYSERVER_DATA_DIR");
+Directory.SetCurrentDirectory(string.IsNullOrWhiteSpace(dataDir) ? AppContext.BaseDirectory : Directory.CreateDirectory(dataDir).FullName);
 
 // ==================== 配置与共享服务 ====================
 // 单例实例由本进程显式创建，HTTP 与 WebSocket 合并到同一个 host，
@@ -19,13 +21,27 @@ Directory.SetCurrentDirectory(AppContext.BaseDirectory);
 var serverOptions = new ServerOptions();
 serverOptions.ReadFromFile(); // 读 ./setting.json；不存在则生成默认配置
 
+// 嵌入模式：由启动器拉起，房主在本机开房用（见 Services/EmbeddedMode.cs）
+var embedded = EmbeddedMode.Parse(args);
+if (embedded.Enabled)
+{
+    embedded.Apply(serverOptions);
+    // 日志由启动器读取并显示给房主
+    Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+}
+var roomTicketVerifier = embedded.RequiresTicket ? new RoomTicketVerifier(embedded.TicketPublicKey!, embedded.RoomId!) : null;
+var embeddedSettings = embedded.SettingsPath != null ? new EmbeddedSettings(embedded.SettingsPath, serverOptions, embedded.RequiresTicket) : new EmbeddedSettings();
+
 FasterKvService? fasterKv = null;
 var userDatabaseConfiguration = new UserDatabaseConfigurationService();
+if (embedded.Enabled) EmbeddedMode.EnsureLocalStorage(userDatabaseConfiguration);
 var users = new UserStoreService(() => fasterKv ??= new FasterKvService(), userDatabaseConfiguration);
 users.TryInitializeConfiguredAsync().GetAwaiter().GetResult();
+// 内置服务端随时可能被强制结束（启动器关房、安卓杀后台），不能指望正常退出时才保存
+if (embedded.Enabled) fasterKv?.StartAutoCheckpoint(TimeSpan.FromSeconds(5));
 var codec = new CodecService();
 var playerLibrary = new PlayerLibraryService();
-playerLibrary.InitLibrary("./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");
+playerLibrary.InitLibrary(embeddedSettings.LibraryPath ?? "./library/deckCodeIDsTable2.json", "./library/emojiLib.json", "./library/cardbackLib.json");
 var storeConfig = new StoreConfigService();
 var redeemCodes = new RedeemCodeService();
 var modIndex = new ModIndexService();
@@ -41,11 +57,12 @@ var social = new SocialService(userDatabaseConfiguration);
 var friendChallenges = new FriendChallengeService(webSocketHub, matches, social);
 var friends = new FriendService(social, users, webSocketHub, matches, matchHistory, friendChallenges);
 webSocketHub.Social = friends;
-// 启动器云端：房间大厅、进房票据、frp 打洞/中继协调、启动器好友聊天、云端整合包
+// 启动器云端：房间大厅、进房票据、房间中继、启动器好友聊天、云端整合包
 var roomTickets = new RoomTicketService();
 var launcherHub = new LauncherHubService();
 var launcherRooms = new LauncherRoomService(launcherHub);
 var launcherTunnel = new LauncherTunnelService();
+var launcherPunch = new LauncherPunchService(roomTickets, launcherRooms);
 var launcherSocialStore = new SocialService(userDatabaseConfiguration, "fy_launcher_", "./data/social/launcher.json");
 var launcherSocial = new LauncherSocialService(launcherSocialStore, social, launcherAccounts, launcherHub, launcherRooms);
 var launcherModpacks = new LauncherModpackService(modIndex);
@@ -62,6 +79,9 @@ var clientServerConfig = new ClientServerConfigService();
 void RegisterSharedServices(IServiceCollection services)
 {
     services.AddSingleton(serverOptions);
+    services.AddSingleton(embedded);
+    if (roomTicketVerifier != null) services.AddSingleton(roomTicketVerifier);
+    services.AddSingleton(embeddedSettings);
     services.AddSingleton(users);
     services.AddSingleton(userDatabaseConfiguration);
     services.AddSingleton(codec);
@@ -81,6 +101,7 @@ void RegisterSharedServices(IServiceCollection services)
     services.AddSingleton(launcherHub);
     services.AddSingleton(launcherRooms);
     services.AddSingleton(launcherTunnel);
+    services.AddSingleton(launcherPunch);
     services.AddSingleton(launcherSocial);
     services.AddSingleton(launcherModpacks);
     services.AddSingleton(adminUsers);
@@ -130,14 +151,19 @@ httpApp.UseExceptionHandler(exceptionHandlerApp =>
 });
 
 // WebSocket 端点：与 HTTP 共用同一端口与管线（非 WS 请求继续走后面的 HTTP 管线）
+// 联机房间模式：票据校验必须早于 WebSocket 升级
+if (roomTicketVerifier != null)
+    httpApp.UseMiddleware<RoomTicketMiddleware>();
+
 httpApp.MapWebSocketEndpoint();
 
 httpApp.UseMiddleware<ContentTypeCleanupMiddleware>();
 httpApp.UseMiddleware<ServerInitializationMiddleware>();
 // 静态后台（/admin-ui）的数据接口鉴权：只挡 /admin/api/*，静态页自身匿名可访问
 
-// 后台数据接口鉴权（静态后台 /admin-ui）
-httpApp.UseMiddleware<AdminApiAuthorizationMiddleware>();
+// 后台数据接口鉴权（静态后台 /admin-ui）；嵌入模式没有后台
+if (!embedded.Enabled)
+    httpApp.UseMiddleware<AdminApiAuthorizationMiddleware>();
 
 // 显式路由注册：保证 PathNormalizationMiddleware 对 // 路径的改写先于路由匹配生效
 httpApp.UseRouting();
@@ -146,27 +172,44 @@ httpApp.MapUserEndpoints();
 httpApp.MapPlayerEndpoints();
 httpApp.MapFriendEndpoints();
 httpApp.MapRedeemEndpoints();
-httpApp.MapModIndexEndpoints();
-httpApp.MapLauncherEndpoints();
-httpApp.MapLauncherCloudEndpoints();
+// 模组索引、启动器账号与房间大厅只在云端提供
+if (!embedded.Enabled)
+{
+    httpApp.MapModIndexEndpoints();
+    httpApp.MapLauncherEndpoints();
+    httpApp.MapLauncherCloudEndpoints();
+    // 打洞协调和游戏共用端口号（UDP）
+    launcherPunch.Start(serverOptions.portHttp);
+    launcherTunnel.PunchPort = launcherPunch.Port;
+}
 httpApp.MapDeckEndpoints();
 httpApp.MapLobbyEndpoints();
 httpApp.MapMatchEndpoints();
 httpApp.MapMatchHistoryEndpoints();
-httpApp.MapAdminApiEndpoints();
-httpApp.MapAdminLauncherCloudEndpoints();
-// 后台入口别名：/admin-ui/ → index.html、/admin-ui/login → login.html
-httpApp.UseMiddleware<AdminUiEntryMiddleware>();
-// 静态资源（wwwroot/admin-ui）：CreateSlimBuilder 默认未启用静态文件中间件
-httpApp.UseStaticFiles(new StaticFileOptions
+if (embedded.Enabled)
 {
-    OnPrepareResponse = context =>
+    // 给启动器探活用：确认端口上跑的确实是内置服务端，并且用户存储已就绪
+    httpApp.MapGet("/embedded/health", (UserStoreService store) => Results.Text(
+        $"{{\"ok\":true,\"mode\":\"embedded\",\"ready\":{(store.IsReady ? "true" : "false")}}}",
+        "application/json"));
+}
+else
+{
+    httpApp.MapAdminApiEndpoints();
+    httpApp.MapAdminLauncherCloudEndpoints();
+    // 后台入口别名：/admin-ui/ → index.html、/admin-ui/login → login.html
+    httpApp.UseMiddleware<AdminUiEntryMiddleware>();
+    // 静态资源（wwwroot/admin-ui）：CreateSlimBuilder 默认未启用静态文件中间件
+    httpApp.UseStaticFiles(new StaticFileOptions
     {
-        // Always revalidate admin pages and assets after replacing a distribution.
-        if (context.Context.Request.Path.StartsWithSegments("/admin-ui"))
-            context.Context.Response.Headers.CacheControl = "no-cache";
-    }
-});
+        OnPrepareResponse = context =>
+        {
+            // Always revalidate admin pages and assets after replacing a distribution.
+            if (context.Context.Request.Path.StartsWithSegments("/admin-ui"))
+                context.Context.Response.Headers.CacheControl = "no-cache";
+        }
+    });
+}
 
 
 // 未找到路由的处理
@@ -192,7 +235,13 @@ httpApp.Lifetime.ApplicationStarted.Register(() =>
     Console.WriteLine($"Application started on {serverOptions.GetAddressHttp()}");
     Console.WriteLine($"WebSocket endpoint: {serverOptions.GetAddressWsR()}");
     Console.WriteLine(users.IsReady ? $"用户数据库已准备：{users.Provider}" : "用户数据库尚未配置，游戏接口已暂停");
-    if (!adminAccount.IsInitialized)
+    if (embedded.Enabled)
+    {
+        Console.WriteLine($"嵌入模式：客户端经 127.0.0.1:{embedded.PublicPort} 的启动器网关访问本服务");
+        if (roomTicketVerifier != null) Console.WriteLine($"联机房间 {embedded.RoomId}：只接受带本房间票据的请求");
+        embedded.WatchParent(httpApp.Lifetime);
+    }
+    else if (!adminAccount.IsInitialized)
     {
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine("============================================================");
@@ -218,6 +267,13 @@ Console.WriteLine("等待两秒确保初始化成功");
 if (fasterKv is { } localStore)
     Console.WriteLine(localStore.RecoveredFromCheckpoint ? "本地存储：已从检查点恢复" : "本地存储：全新启动（无可用检查点）");
 Console.ForegroundColor = ConsoleColor.White;
+
+if (embedded.Enabled)
+{
+    // 嵌入模式没有控制台，进程随启动器的关闭请求或父进程退出而结束
+    await httpApp.RunAsync();
+    return;
+}
 
 _ = httpApp.RunAsync();
 

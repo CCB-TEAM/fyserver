@@ -83,6 +83,15 @@ public sealed class LauncherSocialService
         return new JsonObject { ["ok"] = true, ["friends"] = friends };
     }
 
+    /// <summary>我和每个有关系的账号的好友状态：accepted / request_sent / request_received。</summary>
+    public async Task<Dictionary<int, string>> RelationsAsync(int accountId)
+    {
+        var result = new Dictionary<int, string>();
+        foreach (var f in await _store.GetFriendshipsAsync(accountId))
+            result[f.Other(accountId)] = f.Status == FriendshipRecord.Accepted ? "accepted" : f.RequesterId == accountId ? "request_sent" : "request_received";
+        return result;
+    }
+
     /// <summary>好友当前所在的房间号（任何可见性的房间好友都能看到）。</summary>
     private string? RoomIdVisibleTo(int friendId, int viewerId) => _rooms.RoomOf(friendId)?.Id;
 
@@ -289,12 +298,18 @@ public sealed class LauncherSocialService
         if (room == null || !room.Members.ContainsKey(accountId)) return new(false, 404, "你不在这个房间里");
         if (!await AreFriendsAsync(accountId, friendId)) return new(false, 403, "只能邀请好友");
         if (!_hub.IsOnline(friendId)) return new(false, 409, "对方不在线");
+        if (room.Members.ContainsKey(friendId)) return new(false, 409, "对方已经在房间里了");
+        if (!_rooms.AddInvite(room.Id, accountId, friendId)) return new(false, 404, "你不在这个房间里");
         await _hub.SendAsync(friendId, new JsonObject
         {
             ["type"] = "room_invite",
             ["roomId"] = room.Id,
             ["roomName"] = room.Name,
-            ["hasPassword"] = room.PasswordHash != null,
+            // 受邀者 10 分钟内进房不用密码
+            ["hasPassword"] = false,
+            ["hostName"] = room.HostName,
+            ["playerCount"] = room.Members.Count,
+            ["maxPlayers"] = room.MaxPlayers,
             ["from"] = new JsonObject { ["accountId"] = accountId, ["username"] = _accounts.GetUsername(accountId) }
         });
         return new(true, 200, "邀请已发送");

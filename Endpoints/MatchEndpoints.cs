@@ -143,7 +143,7 @@ public static class MatchEndpoints
         });
 
         app.MapPut("/matches/v2/{id}/", async (int id, JsonElement payload, HttpContext context,
-            AuthService auth, UserStoreService users, MatchManagerService matches, MatchHistoryService history, ServerOptions options, WebSocketHubService webSockets) =>
+            AuthService auth, UserStoreService users, MatchManagerService matches, MatchHistoryService history, ServerOptions options, WebSocketHubService webSockets, EmbeddedSettings embeddedSettings) =>
         {
             var user = await auth.GetUserFromAuthAsync(context);
             if (user == null)
@@ -159,8 +159,11 @@ public static class MatchEndpoints
                 return Results.Text("OK");
             }
 
+            if (RoomCheatBlocked(context, matchAction.ActionType, options, embeddedSettings))
+                return Results.Ok(new EmptyResponseDto());
+
             // 反作弊检查
-            if (options.bancheat && matchAction.ActionType == GameConstants.XActionCheat)
+            if (options.bancheat && matchAction.ActionType == GameConstants.XActionCheat && RoomTicketVerifier.Current(context) == null)
             {
                 user.Banned = true;
                 await users.SaveUserAsync(user);
@@ -244,7 +247,7 @@ public static class MatchEndpoints
         )));
 
         app.MapPost("/matches/v2/{id}/actions", async (int id, MatchActionEn matchActionen, HttpContext context,
-            AuthService auth, UserStoreService users, MatchManagerService matches, MatchHistoryService history, ServerOptions options, WebSocketHubService webSockets) =>
+            AuthService auth, UserStoreService users, MatchManagerService matches, MatchHistoryService history, ServerOptions options, WebSocketHubService webSockets, EmbeddedSettings embeddedSettings) =>
         {
             var user = await auth.GetUserFromAuthAsync(context);
             if (user == null)
@@ -256,8 +259,11 @@ public static class MatchEndpoints
             var matchAction = matches.DecryptMatchAction(matchActionen);
             Console.WriteLine(matchActionen.A);
 
+            if (RoomCheatBlocked(context, matchAction.ActionType, options, embeddedSettings))
+                return Results.Ok(new EmptyResponseDto());
+
             // 反作弊检查
-            if (options.bancheat && matchAction.ActionType == GameConstants.XActionCheat)
+            if (options.bancheat && matchAction.ActionType == GameConstants.XActionCheat && RoomTicketVerifier.Current(context) == null)
             {
                 user.Banned = true;
                 await users.SaveUserAsync(user);
@@ -460,6 +466,19 @@ public static class MatchEndpoints
         });
 
         return app;
+    }
+
+    /// <summary>
+    /// 联机房间的反作弊：房主和有 dev 身份的成员可以作弊，其他人的作弊操作只拦下，不判负也不封号。
+    /// 启动器盯着日志里的 [fy-cheat] 行提醒房主。
+    /// </summary>
+    private static bool RoomCheatBlocked(HttpContext context, string? actionType, ServerOptions options, EmbeddedSettings settings)
+    {
+        if (actionType != GameConstants.XActionCheat || !options.bancheat) return false;
+        if (RoomTicketVerifier.Current(context) is not { } claims) return false;
+        if (claims.Role == "host" || settings.RolesFor(claims.Name).Contains("dev")) return false;
+        Console.WriteLine($"[fy-cheat] {claims.Name}");
+        return true;
     }
 
     private static bool IsParticipant(MatchInfo match, int userId) => match.Left?.PlayerId == userId || match.Right?.PlayerId == userId;

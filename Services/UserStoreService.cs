@@ -93,6 +93,8 @@ public sealed class UserStoreService
             // 新建账户只下发占位身份：name = "<anon>"，tag = 0。客户端据此弹出改名框，
             // 真实昵称与随机 Tag 在改名时由 SavePlayerIdentityAsync 写入。
             await SaveUserAsync(user);
+            // 新账号立刻落盘：本地存储靠检查点持久化，进程被强制结束时不能把刚建的号丢掉
+            await RequireBackend().CheckpointAsync();
             return user;
         }
         finally { _createLock.Release(); }

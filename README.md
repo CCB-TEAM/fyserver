@@ -34,20 +34,6 @@
 | 数据与部署 | FASTER 本地存储，或 MySQL / PostgreSQL；支持 Windows x64 NativeAOT 发布 |
 | 对局历史 | 实时观战、已结束对局查询与动作回放 |
 
-## 运行链路
-
-```mermaid
-flowchart LR
-    game["Kards 客户端"] -->|"HTTP + WebSocket"| server["fyserver<br/>ASP.NET Core"]
-    operator["维护者"] -->|"浏览器"| admin["Vue 3 管理后台<br/>/admin-ui/"]
-    server -->|"托管静态页面"| admin
-    admin -->|REST API| server
-    server --> services["服务层<br/>玩家 · 卡组 · 商店 · 对局"]
-    services --> storage[("FASTER / MySQL / PostgreSQL")]
-```
-
-客户端与管理后台由同一个 ASP.NET Core 服务提供；HTTP、WebSocket 和管理 API 共用 `portHttp`。
-
 ## 快速开始
 
 ```bash

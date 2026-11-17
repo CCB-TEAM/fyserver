@@ -1,4 +1,4 @@
-# fyserver<picture><img align="right" src="./assets/readme/hero.svg" width="34%" alt="Kards 客户端通过 HTTP 和 WebSocket 连接 fyserver，维护者通过后台管理服务" /></picture>
+# fyserver<picture><img align="right" src="./AdminUi/public/assets/fyserver-logo-transparent.png" width="34%" alt="fyserver 项目标志" /></picture>
 
 <p align="center">
   <strong>为 Kards 客户端提供对局、玩家与商店服务</strong><br />

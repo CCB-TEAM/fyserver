@@ -1,4 +1,4 @@
-# fyserver
+# fyserver<picture><img align="right" src="./assets/readme/hero.svg" width="34%" alt="Kards 客户端通过 HTTP 和 WebSocket 连接 fyserver，维护者通过后台管理服务" /></picture>
 
 <p align="center">
   <strong>为 Kards 客户端提供对局、玩家与商店服务</strong><br />
@@ -19,6 +19,8 @@
   · <a href="#后台管理">后台管理</a>
   · <a href="#对局观战与回放">观战与回放</a>
 </p>
+
+<br clear="both" />
 
 > [!CAUTION]
 > fyserver 是独立的第三方项目，与 1939 Games 不存在隶属、授权或合作关系。仓库中的 MIT License 仅覆盖 CCB-TEAM 自行编写的源代码；游戏数据、图标、美术和音频不包含在该许可范围内。使用前请阅读[许可声明](#许可证)，并自行确认使用行为符合适用法律与平台政策。

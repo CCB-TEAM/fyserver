@@ -1,6 +1,66 @@
 # fyserver
-A simple game server written in C# using .NET 10.0.
-# 许可证
+
+<p align="center">
+  <strong>为 Kards 客户端提供对局、玩家与商店服务</strong><br />
+  C# · ASP.NET Core · .NET 10
+</p>
+
+<p align="center">
+  <a href="https://github.com/CCB-TEAM/fyserver/releases"><img alt="最新版本" src="https://img.shields.io/github/v/release/CCB-TEAM/fyserver?style=flat-square&label=release"></a>
+  <a href="https://github.com/CCB-TEAM/fyserver/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/CCB-TEAM/fyserver?style=flat-square&label=stars"></a>
+  <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white">
+  <img alt="NativeAOT" src="https://img.shields.io/badge/publish-NativeAOT-2563EB?style=flat-square">
+</p>
+
+<p align="center">
+  <strong><a href="https://github.com/CCB-TEAM/fyserver/releases/latest">下载 Windows x64 发行版</a></strong>
+  · <a href="#快速开始">快速开始</a>
+  · <a href="#已实现的-http-api">HTTP API</a>
+  · <a href="#后台管理">后台管理</a>
+  · <a href="#对局观战与回放">观战与回放</a>
+</p>
+
+> [!CAUTION]
+> fyserver 是独立的第三方项目，与 1939 Games 不存在隶属、授权或合作关系。仓库中的 MIT License 仅覆盖 CCB-TEAM 自行编写的源代码；游戏数据、图标、美术和音频不包含在该许可范围内。使用前请阅读[许可声明](#许可证)，并自行确认使用行为符合适用法律与平台政策。
+
+## 核心能力
+
+| 场景 | 能力 |
+| --- | --- |
+| 游戏服务 | 登录、玩家资料、卡组、商店、匹配、基础人机对局 |
+| 管理后台 | 多账号与权限、用户和对局管理、内容配置、操作审计 |
+| 数据与部署 | FASTER 本地存储，或 MySQL / PostgreSQL；支持 Windows x64 NativeAOT 发布 |
+| 对局历史 | 实时观战、已结束对局查询与动作回放 |
+
+## 运行链路
+
+```mermaid
+flowchart LR
+    game["Kards 客户端"] -->|"HTTP + WebSocket"| server["fyserver<br/>ASP.NET Core"]
+    operator["维护者"] -->|"浏览器"| admin["Vue 3 管理后台<br/>/admin-ui/"]
+    server -->|"托管静态页面"| admin
+    admin -->|REST API| server
+    server --> services["服务层<br/>玩家 · 卡组 · 商店 · 对局"]
+    services --> storage[("FASTER / MySQL / PostgreSQL")]
+```
+
+客户端与管理后台由同一个 ASP.NET Core 服务提供；HTTP、WebSocket 和管理 API 共用 `portHttp`。
+
+## 快速开始
+
+```bash
+dotnet build FYServer.slnx
+dotnet run --project fyserver.csproj
+```
+
+`dotnet build` 和 `dotnet publish` 会先在 `AdminUi/` 执行 Vue/Vite 构建，再将生成文件作为 ASP.NET 静态资源复制到输出目录。首次构建需要 Node.js 和 npm，依赖由 `npm ci` 安装。若只修改后台页面，可在 `AdminUi/` 中运行 `npm run build`；Vue 组件和页面逻辑位于 `AdminUi/src/`，`wwwroot/admin-ui/` 是生成结果。前端开发服务器可用 `npm run dev` 启动，默认监听 `127.0.0.1:5173`，并将 `/admin/api` 代理至仓库当前使用的 `127.0.0.1:1145`。如果后端端口不同，可设置 `FYSERVER_DEV_ORIGIN`，例如 `http://127.0.0.1:5231`。
+
+- HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成。
+- 后台位于同一 HTTP 端口的 `/admin-ui/`。首次启动需在服务器本机创建 Owner 账户，之后本机和远程访问都必须登录；后台接口不再接受 `adminApiKey` 作为账号权限的替代凭据。
+- 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
+- 后台/无控制台环境下自动进入非交互模式，保持进程存活
+
+## 许可证
 
 本项目采用 **MIT License** 授权，完整条款见 [LICENSE](LICENSE)。
 
@@ -21,7 +81,12 @@ MIT 是宽松的开源许可：允许使用、修改、分发、**商业使用**
 本项目为独立实现的第三方服务端，与 1939 Games 不存在任何隶属、授权或合作关系。*Kards* 及相关游戏名称、商标，以及游戏内的卡牌数据、美术、音频等内容的一切权利，均归 1939 Games 及其许可方所有。
 本许可证仅适用于 CCB-TEAM 自行编写的源代码；仓库内附带或引用的游戏数据与资源（例如 `library/*.json` 卡牌数据、`fyserver.ico`、`wwwroot/` 下的美术与音频文件等）不在该许可证的授权范围内，其权利仍归原权利人。若需使用这些内容，请自行取得权利人的许可。
 
-# 当前功能
+## 功能进度
+
+<details>
+<summary>展开查看逐项功能状态</summary>
+
+### 当前功能
 - [x] 基础框架搭建
 - [x] 解密对战
 - [x] 登录
@@ -35,7 +100,8 @@ MIT 是宽松的开源许可：允许使用、修改、分发、**商业使用**
 - [x] 全牌
 - [x] 部分物件（无头像，桌饰）
 - [x] 静态管理后台（多账号、权限、审计与配置管理）
-# 暂未实现功能：
+
+### 暂未实现功能：
 - [ ] 排行榜
 - [ ] 成就系统
 - [ ] 好友系统
@@ -43,7 +109,7 @@ MIT 是宽松的开源许可：允许使用、修改、分发、**商业使用**
 - [x] 清理对局（管理后台）
 - [ ] 更多物件
 - [x] 兑换码
-- [ ] 乱斗模式 （comming soon）
+- [ ] 乱斗模式 （coming soon）
 - [x] 佩戴
 - [ ] 抽卡
 - [ ] 世锦赛
@@ -52,13 +118,15 @@ MIT 是宽松的开源许可：允许使用、修改、分发、**商业使用**
 - [x] 人机（基础单人匹配）
 - [ ] 战区
 - [ ] 更多功能
-- [ ] 更多物件 （comming soon）
+- [ ] 更多物件 （coming soon）
 - [ ] 预制卡组
 - [ ] 商店盈利 （永远不会实现！）
 
 ---
 
-# 技术栈
+</details>
+
+## 技术栈
 
 - .NET 10 / ASP.NET Core（minimal API）
 - Vue 3 + Vite 8（后台界面；ASP.NET Core 托管构建后的静态资源）
@@ -66,21 +134,7 @@ MIT 是宽松的开源许可：允许使用、修改、分发、**商业使用**
 - System.Text.Json **全量源生成**（`FyJsonContext` / `ConfigJsonContext` / `StoreJsonContext`），零反射，NativeAOT 兼容
 - 消息编解码为**纯 C# 实现**（Base64 + XOR、查表密钥），无任何原生 DLL 依赖
 
-# 快速开始
-
-```bash
-dotnet build FYServer.slnx
-dotnet run --project fyserver.csproj
-```
-
-`dotnet build` 和 `dotnet publish` 会先在 `AdminUi/` 执行 Vue/Vite 构建，再将生成文件作为 ASP.NET 静态资源复制到输出目录。首次构建需要 Node.js 和 npm，依赖由 `npm ci` 安装。若只修改后台页面，可在 `AdminUi/` 中运行 `npm run build`；Vue 组件和页面逻辑位于 `AdminUi/src/`，`wwwroot/admin-ui/` 是生成结果。前端开发服务器可用 `npm run dev` 启动，默认监听 `127.0.0.1:5173`，并将 `/admin/api` 代理至仓库当前使用的 `127.0.0.1:1145`。如果后端端口不同，可设置 `FYSERVER_DEV_ORIGIN`，例如 `http://127.0.0.1:5231`。
-
-- HTTP 与 WebSocket 共用同一端口（默认 `5231`，即 `portHttp`），WebSocket 直接向 HTTP 根路径发起升级请求；可在 `setting.json` 中修改（`portHttp` / `ip` / `bancheat` / `adminApiKey`），不存在时会自动生成。
-- 后台位于同一 HTTP 端口的 `/admin-ui/`。首次启动需在服务器本机创建 Owner 账户，之后本机和远程访问都必须登录；后台接口不再接受 `adminApiKey` 作为账号权限的替代凭据。
-- 启动后控制台按 `C` 进入命令模式：`savedbss`（全量保存）、`savedbfo`（增量保存）、`reloadstore`（重载商店配置）、`clearusers`（清空用户）、`cm`（清空对局）、`exitall`（退出）
-- 后台/无控制台环境下自动进入非交互模式，保持进程存活
-
-# NativeAOT 发布
+## NativeAOT 发布
 
 ```bash
 dotnet publish fyserver.csproj -c Release -r win-x64 --self-contained true
@@ -92,8 +146,7 @@ dotnet publish fyserver.csproj -c Release -r win-x64 --self-contained true
 
 **不要把线程池切到 Windows 线程池**：`PublishAot=true` 时 SDK 默认写入 `System.Threading.ThreadPool.UseWindowsThreadPool=true`，而 FASTER 的设备异步写依赖托管线程池的 I/O 完成回调——切过去之后 `TakeFullCheckpointAsync` 永不返回，检查点只会留下 0 字节的 `index-checkpoints/<guid>/ht.dat.0`，表现为改名 / 卡组保存 / 兑换码领取全部挂起、退出时不落盘。`fyserver.csproj` 里已显式固定 `<UseWindowsThreadPool>false</UseWindowsThreadPool>`，请勿删除；托管构建（`dotnet build` / `dotnet run`）同样受这一项影响，因为 `PublishAot` 在构建期就会写进运行时配置。
 
-
-# 目录结构
+## 目录结构
 
 ```
 fyserver/
@@ -107,11 +160,11 @@ fyserver/
 └── wwwroot/admin-ui/           # Vite 生成的静态页面与资源，由 ASP.NET 托管
 ```
 
-# 已实现的 HTTP API
+## 已实现的 HTTP API
 
 以下路径均监听 `setting.json` 的 `portHttp`。请求路径中的连续斜杠会自动归一化，因此 `/fp/`、`//fp` 等价。
 
-## 会话与配置
+### 会话与配置
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -120,7 +173,7 @@ fyserver/
 | `GET` | `/config` | 获取客户端基础配置 |
 | `GET` | `/fp/` | 获取首页/公告配置 |
 
-## 玩家、物品与商店
+### 玩家、物品与商店
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -143,7 +196,7 @@ fyserver/
 | `GET` | `/items/decks/{id}` | 预制卡组详情占位接口 |
 | `PUT` | `/crate/claim` | 领取军需箱奖励 |
 
-## 卡组
+### 卡组
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -152,7 +205,7 @@ fyserver/
 | `PUT` | `/players/{player_id}/decks/` | 重命名、更换卡背或设为收藏 |
 | `DELETE` | `/players/{player_id}/decks/{deck_id}` | 删除卡组 |
 
-## 匹配与对局
+### 匹配与对局
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -169,7 +222,7 @@ fyserver/
 | `GET` | `/matches/v2/{id}/mulligan/{location}` | 获取指定侧调度结果 |
 | `GET` | `/matches/v2/{id}/post` | 结算并离开对局 |
 
-## 管理接口
+### 管理接口
 
 > 管理接口已内置账号权限保护：首次设置仅允许从本机完成，之后所有 `/admin/api/*` 写操作都需要对应后台账号权限和登录 Cookie；`X-Admin-Key` 不再绕过权限。仍建议不要将管理接口直接暴露到公网。
 
@@ -215,7 +268,8 @@ fyserver/
 | `GET` | `/admin/api/content/{kind}/export` | 导出原始配置 JSON |
 | `POST` | `/admin/api/content/{kind}/import` | 导入并校验完整 JSON，备份旧文件 |
 | `PUT` | `/admin/api/content/frontpage/{id}/published` | 快捷发布或下线首页内容 |
-# 对局观战与回放
+
+## 对局观战与回放
 
 对局起始信息、已接受的动作和结束结果会写入配置的玩家数据库。MySQL/PostgreSQL 模式使用 `fy_match_history` 与 `fy_match_events` 表；本地 FASTER 模式使用 `data/match-history/` 下的原子 JSON 文档。PostgreSQL 模式启动或首次配置数据库时会自动创建表和索引。对局 ID 会同时避开仍在运行的对局和已归档历史 ID。
 
@@ -242,7 +296,7 @@ fyserver/
 
 普通对局动作轮询现在按请求游标读取，不再清空共享动作列表；对局操作接口也会检查玩家是否为本局参赛者。系统设置中的“对局历史保留”可选按时间（默认保留 30 天）或按数量，并设置每周 UTC 清理时间；仅清理已结束/中止对局，相关事件通过外键级联删除。官网应在 Next.js 服务端使用只读 PostgreSQL 账号或读取 fyserver 只读接口，不能让浏览器直连数据库。该数据表为官网的公开只读视图，记录包含双方牌组/动作数据。
 
-# 后台管理
+## 后台管理
 
 后台由 Vue 3 + Vite 多页面入口构建，产物在 `wwwroot/admin-ui/`；ASP.NET Core 托管静态文件并提供 `/admin/api/*` JSON 接口。页面外壳和组件在 `AdminUi/src/`，已有页面的业务控制器在 `AdminUi/src/legacy/` 逐步迁入响应式组件。样式和脚本自包含，无外部 CDN 依赖，**不依赖 Razor/MVC**，因此 AOT 与裁剪发布都能带后台。
 
@@ -272,10 +326,11 @@ fyserver/
 内容配置落盘：`config/frontpage.json` 保持客户端原生的 `elements`/`targeted` 和 camelCase 字段；`config/skirmish.json`、`config/knockout.json` 使用 `entries` 数组。后台支持导入/导出、日历、状态筛选、定时发布和快捷发布开关；frontpage 的常用字段可通过表单编辑，图片可填写图床 URL 或上传 PNG/JPEG/WebP/GIF（每张最多 5 MB，存于 `wwwroot/admin-ui/uploads/`）。乱斗表单参考镜像后台，支持多语言说明、奖励、基础规则、黑名单、随机牌组、卡牌数量限制与主要回合/部署效果。完整 JSON 编辑仍保留，未被表单修改的字段原样保留，保存前备份 `.bak`。`/fp/` 仅下发生效且已发布的普通条目。镜像的定向规则引擎尚未接入，因此定向条目虽可编辑保存，但不会下发给玩家。首页预览按游戏客户端画布尺寸渲染（轮播 1540×770 / 侧栏按钮 614×307 / 弹窗 1232×564）。
 
 后台操作复用与游戏 API 相同的服务层（`AdminUserService`）：封禁、踢出、删除都会向目标玩家的 WebSocket 发送 `channel: "disconnect"` 后关闭连接。
-# WebSocket
+
+## WebSocket
 
 WebSocket 与 HTTP 共用 `setting.json` 的 `portHttp` 端口：任意路径上的 WebSocket 升级请求都由同一管线处理（客户端配置中的 `websocketurl` 为 `ws://<ip>:<portHttp>/`，登录响应里由服务端下发）。支持 `ping`、`touchcard`、`emoji`、`notification` 通道；服务器主动踢出或封禁时发送 `channel: "disconnect"`，随后以 `PolicyViolation` 关闭连接。
 
-# 相关项目
+## 相关项目
 
 - [FyClient](https://github.com/CCB-TEAM/FyClient) —— 虚拟测试客户端，覆盖登录/卡组/匹配/对局/封禁全流程，用于对服务器做端到端验证
